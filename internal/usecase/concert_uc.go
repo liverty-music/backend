@@ -79,16 +79,19 @@ type ConcertUseCase interface {
 	//  - Internal: database query failure.
 	ListByArtists(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
-	// ListByLocation returns all concerts near the given reference point whose
-	// local_event_date falls within [from, to], grouped by date and classified by
-	// proximity. Only HOME and NEARBY concerts are returned; AWAY-only date groups
-	// are omitted entirely.
+	// ListByLocation returns all concerts in or near the first-level Area
+	// whose local_event_date falls within [from, to], grouped by date and
+	// classified by proximity to the Area and its reference point. Only HOME
+	// and NEARBY concerts are returned; AWAY-only date groups are omitted
+	// entirely. An Area without a reference point yields only its HOME
+	// concerts.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the date range exceeds the maximum window.
+	//  - InvalidArgument: the date range exceeds the maximum window, or the
+	//    area is no first-level Area.
 	//  - Internal: database query failure.
-	ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.ProximityGroup, error)
+	ListByLocation(ctx context.Context, area string, from, to time.Time) ([]*entity.ProximityGroup, error)
 
 	// SearchNewConcerts discovers new concerts for the given artist synchronously.
 	// It returns the newly discovered concerts after deduplication against
@@ -169,7 +172,7 @@ type concertUseCase struct {
 	concertCandidateRepo entity.ConcertCandidateRepository
 	rejectedConcertRepo  entity.RejectedConcertRepository
 	concertSearcher      entity.ConcertSearcher
-	centroidResolver     CentroidResolver
+	areas                entity.AreaRepository
 	workflows            Workflows
 	metrics              ConcertMetrics
 	// analytics receives the concert.search.completed signal; nil sends none.
@@ -209,7 +212,7 @@ func NewConcertUseCase(
 	concertCandidateRepo entity.ConcertCandidateRepository,
 	rejectedConcertRepo entity.RejectedConcertRepository,
 	concertSearcher entity.ConcertSearcher,
-	centroidResolver CentroidResolver,
+	areas entity.AreaRepository,
 	workflows Workflows,
 	metrics ConcertMetrics,
 	analytics AnalyticsClient,
@@ -228,7 +231,7 @@ func NewConcertUseCase(
 		concertCandidateRepo: concertCandidateRepo,
 		rejectedConcertRepo:  rejectedConcertRepo,
 		concertSearcher:      concertSearcher,
-		centroidResolver:     centroidResolver,
+		areas:                areas,
 		workflows:            workflows,
 		metrics:              metrics,
 		analytics:            analytics,
@@ -325,11 +328,18 @@ func (uc *concertUseCase) ListFollowed(ctx context.Context, userID string, home 
 }
 
 // ListByArtists returns concerts for the specified artists, grouped by date
-// and classified by proximity to the given home.
+// and classified by proximity to the given home. The home's reference point
+// is its Area's; a level 1 that resolves to no first-level Area, or to
+// another one, leaves the home without one, so only its admin area is HOME.
 func (uc *concertUseCase) ListByArtists(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
-	if home != nil && home.Centroid == nil {
-		if lat, lng, err := uc.centroidResolver.ResolveCentroid(home); err == nil {
-			home.Centroid = &entity.Coordinates{Latitude: lat, Longitude: lng}
+	if home != nil {
+		home.ReferencePoint = nil
+		area, err := uc.areas.Resolve(ctx, home.Level1, nil)
+		switch {
+		case err == nil && area.Code == home.Level1:
+			home.ReferencePoint = area.ReferencePoint
+		case err != nil && !errors.Is(err, apperr.ErrNotFound) && !errors.Is(err, apperr.ErrInvalidArgument):
+			return nil, err
 		}
 	}
 
@@ -344,11 +354,20 @@ func (uc *concertUseCase) ListByArtists(ctx context.Context, artistIDs []string,
 // ListByLocation returns the concerts near the given reference point within
 // [from, to], grouped by date, with only the HOME and NEARBY concerts of each
 // date (entity.LocationQuery).
-func (uc *concertUseCase) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.ProximityGroup, error) {
-	query := entity.LocationQuery{Location: location, From: from, To: to}
+func (uc *concertUseCase) ListByLocation(ctx context.Context, area string, from, to time.Time) ([]*entity.ProximityGroup, error) {
+	query := entity.LocationQuery{From: from, To: to}
 	if err := query.Check(); err != nil {
 		return nil, err
 	}
+	resolved, err := uc.areas.Resolve(ctx, area, nil)
+	if errors.Is(err, apperr.ErrNotFound) || (err == nil && resolved.Code != area) {
+		return nil, apperr.New(codes.InvalidArgument, "the area is no first-level Area", slog.String("area", area))
+	}
+	if err != nil {
+		return nil, err
+	}
+	location := entity.LocationOf(resolved)
+	query.Location = location
 
 	concerts, err := uc.concertRepo.ListByLocation(ctx, location, from, to)
 	if err != nil {

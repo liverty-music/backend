@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -68,14 +67,14 @@ func provideJobConcertUseCase(ctx context.Context, cfg *config.JobConfig, db *rd
 		return nil, fmt.Errorf("GCP_GEMINI_SEARCH_API_KEY is required for the discovery job in non-local environments")
 	}
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), geminiHTTPClient, logger)
+	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger), geminiHTTPClient, rdb.NewAreaRepository(db), logger)
 	if err != nil {
 		return nil, err
 	}
 
 	// Use Cases
-	centroidResolver := geo.NewCentroidResolver()
-	return usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger), nil
+
+	return usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, rdb.NewAreaRepository(db), workflows, infratelemetry.NewBusinessMetrics(), analyticsClient, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger), nil
 }
 
 // InitializeJobApp creates a JobApp with only the dependencies needed for batch processing.

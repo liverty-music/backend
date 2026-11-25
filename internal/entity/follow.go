@@ -122,7 +122,7 @@ func LowestHypeMatching(home *Home, c *Concert) (Hype, bool) {
 			return h, true
 		}
 	}
-	if home == nil || home.Centroid == nil || c.Venue == nil || c.Venue.Coordinates == nil {
+	if home == nil || home.ReferencePoint == nil || c.Venue == nil || c.Venue.Coordinates == nil {
 		return "", false
 	}
 	return HypeAway, true

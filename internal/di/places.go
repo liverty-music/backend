@@ -30,5 +30,5 @@ func newPlaceSearcher(ctx context.Context, projectID string, logger *logging.Log
 		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
 		Timeout:   10 * time.Second,
 	}
-	return googlemaps.NewPlaceSearcher(googlemaps.NewClient(tokenSource, projectID, httpClient, logger)), nil
+	return googlemaps.NewPlaceSearcher(googlemaps.NewClient(tokenSource, projectID, httpClient, nil, logger)), nil
 }

@@ -133,20 +133,20 @@ func (h *creationHarness) sweepsOrphans() {
 // resolvesPlace expects Google Places to be asked once for the listed venue
 // name and to resolve it to place.
 func (h *creationHarness) resolvesPlace(name string, place *entity.VenuePlace) {
-	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return([]*entity.VenuePlace{place}, nil).Once()
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "JP-13").Return([]*entity.VenuePlace{place}, nil).Once()
 }
 
 // cannotResolvePlace expects Google Places to be asked once for the listed
 // venue name and to find no place.
 func (h *creationHarness) cannotResolvePlace(name string) {
-	h.place.EXPECT().SearchPlace(mock.Anything, name, "").Return(nil, nil).Once()
+	h.place.EXPECT().SearchPlace(mock.Anything, name, "JP-13").Return(nil, nil).Once()
 }
 
 // createsVenue expects the venue of placeID, stored under neither that place
 // id nor listedName, to be created, and records it.
 func (h *creationHarness) createsVenue(placeID, listedName string) {
 	h.venue.EXPECT().GetByPlaceID(mock.Anything, placeID).Return(nil, notFound("venue")).Once()
-	h.venue.EXPECT().GetByListedName(mock.Anything, listedName, (*string)(nil)).Return(nil, notFound("venue")).Once()
+	h.venue.EXPECT().GetByListedName(mock.Anything, listedName, "JP-13").Return(nil, notFound("venue")).Once()
 	h.venue.EXPECT().Create(mock.Anything, mock.MatchedBy(func(v *entity.Venue) bool {
 		return v.GooglePlaceID != nil && *v.GooglePlaceID == placeID
 	})).RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
@@ -228,7 +228,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
 					},
 				},
 			},
@@ -265,10 +265,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			Series: []*entity.DiscoveredSeries{{
 				Title: "Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour",
 				Events: []*entity.DiscoveredEvent{
-					{ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
-					{ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
-					{ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 0, 2), StartTime: startTime.AddDate(0, 0, 2)},
-					{ListedVenueName: "Venue Unknown", LocalDate: localDate.AddDate(0, 0, 3)},
+					{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
+					{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
+					{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 0, 2), StartTime: startTime.AddDate(0, 0, 2)},
+					{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue Unknown", LocalDate: localDate.AddDate(0, 0, 3)},
 				},
 			}},
 		}
@@ -316,14 +316,14 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 				{
 					Title: "First Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/first",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
-						{ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue B", LocalDate: localDate.AddDate(0, 0, 1), StartTime: startTime.AddDate(0, 0, 1)},
 					},
 				},
 				{
 					Title: "Second Tour", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/second",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 1, 0), StartTime: startTime.AddDate(0, 1, 0)},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue C", LocalDate: localDate.AddDate(0, 1, 0), StartTime: startTime.AddDate(0, 1, 0)},
 					},
 				},
 			},
@@ -366,19 +366,21 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
 					},
 				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
+		// @spec components/usecase/concert/create-from-discovered "Staged collision with a resolved place"
 		require.Len(t, h.staged, 1, "a conflict must be staged for reconciliation")
 		staged := h.staged[0]
-		require.NotNil(t, staged.ResolvedPlaceID, "the staged event carries its resolved preview")
-		assert.Equal(t, "place-x", *staged.ResolvedPlaceID)
-		require.NotNil(t, staged.ResolvedVenueName)
-		assert.Equal(t, "Venue X", *staged.ResolvedVenueName)
+		assert.Equal(t, "Venue X", staged.ListedVenueName)
+		assert.Equal(t, "JP-13", *staged.AdminArea)
+		assert.Equal(t, "Asia/Tokyo", *staged.TimeZone)
+		require.NotNil(t, staged.ResolvedPlaceID)
+		assert.Equal(t, "place-x", *staged.ResolvedPlaceID, "only the place id of the map catalog's answer is kept")
 	})
 
 	t.Run("stages an unknown start next to an Event with a known start", func(t *testing.T) {
@@ -397,7 +399,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			ArtistID: "artist-1",
 			Series: []*entity.DiscoveredSeries{{
 				Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
-				Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue X", LocalDate: localDate}},
+				Events: []*entity.DiscoveredEvent{{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate}},
 			}},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -424,7 +426,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			ArtistID: "artist-1",
 			Series: []*entity.DiscoveredSeries{{
 				Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
-				Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime}},
+				Events: []*entity.DiscoveredEvent{{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime}},
 			}},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -451,7 +453,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/nowhere",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Nowhere", LocalDate: localDate},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Nowhere", LocalDate: localDate},
 					},
 				},
 			},
@@ -484,7 +486,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
 					},
 				},
 			},
@@ -516,7 +518,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
 					},
 				},
 			},
@@ -546,9 +548,9 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/valid",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
 						// TBA event with empty venue name — must be skipped.
-						{ListedVenueName: "", LocalDate: localDate},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "", LocalDate: localDate},
 					},
 				},
 			},
@@ -581,8 +583,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Type:      entity.SeriesTypeSingle,
 					SourceURL: "https://example.com/tba",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
-						{ListedVenueName: "TBA", LocalDate: localDate.AddDate(0, 0, 7)},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "TBA", LocalDate: localDate.AddDate(0, 0, 7)},
 					},
 				},
 			},
@@ -630,8 +632,8 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
-			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1},
-			&entity.DiscoveredEvent{ListedVenueName: venueB, LocalDate: date2},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueA, LocalDate: date1},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueB, LocalDate: date2},
 		)))
 
 		assert.Empty(t, h.createdSeries, "no Series is created")
@@ -653,7 +655,7 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
-			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueA, LocalDate: date1},
 		)))
 
 		require.Len(t, h.createdSeries, 1, "a new Series is created")
@@ -672,7 +674,7 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
-			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
 		)))
 
 		assert.Empty(t, h.createdConcerts)
@@ -693,8 +695,8 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
-			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start13},
-			&entity.DiscoveredEvent{ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueA, LocalDate: date1, StartTime: start13},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: venueA, LocalDate: date1, StartTime: start18},
 		)))
 
 		require.Len(t, h.createdConcerts, 1, "the 18:00 show is a new event")
@@ -754,9 +756,9 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 					Type:      entity.SeriesTypeTour,
 					SourceURL: "https://example.com/tour",
 					Events: []*entity.DiscoveredEvent{
-						{ListedVenueName: "Venue A", LocalDate: date1},
-						{ListedVenueName: "Venue B", LocalDate: date2},
-						{ListedVenueName: "Venue C", LocalDate: date3},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: date1},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue B", LocalDate: date2},
+						{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue C", LocalDate: date3},
 					},
 				},
 			},
@@ -794,29 +796,26 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
 
-		placeID := "place-hall"
-		venueName := "Concert Hall Canonical"
 		sourceURL := "https://example.com/tour"
 		sc := &entity.ConcertCandidate{
-			ID:                "candidate-tour-event",
-			ArtistID:          artist.ID,
-			SeriesID:          tourSeriesID,
-			Title:             "Eras Tour 2026",
-			LocalDate:         time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-			ListedVenueName:   "Concert Hall",
-			SourceURL:         &sourceURL,
-			ResolvedPlaceID:   &placeID,
-			ResolvedVenueName: &venueName,
+			ID:              "candidate-tour-event",
+			ArtistID:        artist.ID,
+			SeriesID:        tourSeriesID,
+			Title:           "Eras Tour 2026",
+			LocalDate:       time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			ListedVenueName: "Concert Hall",
+			SourceURL:       &sourceURL,
+			AdminArea:       new("JP-13"),
 		}
 		d.pending(sc)
-		d.createsVenue(placeID, "Concert Hall", nil)
+		d.createsVenue(nil, "Concert Hall", "JP-13")
 		d.slotFree()
 		d.inserts()
 		// The concert candidate is deleted; no Series.Create is expected, since
 		// approval never mints a series.
 		d.deletes(sc.ID)
 
-		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, nil, nil, "")
 		require.NoError(t, err)
 
 		// Event inserted under the pre-existing tour series.
@@ -864,9 +863,9 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
-			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
-			&entity.DiscoveredEvent{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 0, 1), StartTime: start.AddDate(0, 0, 1)},
-			&entity.DiscoveredEvent{ListedVenueName: "Venue C", LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 0, 1), StartTime: start.AddDate(0, 0, 1)},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue C", LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
 		)))
 
 		require.Len(t, h.createCalls, 1)
@@ -884,8 +883,8 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 
 		// No Concert.Create is expected.
 		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
-			&entity.DiscoveredEvent{ListedVenueName: "Unknown A", LocalDate: day},
-			&entity.DiscoveredEvent{ListedVenueName: "Unknown B", LocalDate: day.AddDate(0, 0, 1)},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Unknown A", LocalDate: day},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Unknown B", LocalDate: day.AddDate(0, 0, 1)},
 		)))
 
 		assert.Len(t, h.staged, 2)
@@ -898,7 +897,7 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 		h.slotsFree(1)
 		h.concert.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
 
-		err := h.uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
+		err := h.uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
@@ -919,8 +918,8 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(ctx, tour(
-			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
-			&entity.DiscoveredEvent{ListedVenueName: "Venue A", LocalDate: day},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day, StartTime: start},
+			&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day},
 		)))
 
 		require.Len(t, h.createCalls, 1)
@@ -942,8 +941,8 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 		h.publishes(1, 1)
 		h.sweepsOrphans()
 		data := entity.ConcertDiscoveredData{ArtistID: "artist-1", Series: []*entity.DiscoveredSeries{
-			{Title: "Tour", Type: entity.SeriesTypeTour, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue A", LocalDate: day, StartTime: start}}},
-			{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{{ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 1, 0), StartTime: start.AddDate(0, 1, 0)}}},
+			{Title: "Tour", Type: entity.SeriesTypeTour, Events: []*entity.DiscoveredEvent{{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day, StartTime: start}}},
+			{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue B", LocalDate: day.AddDate(0, 1, 0), StartTime: start.AddDate(0, 1, 0)}}},
 		}}
 
 		_, err := h.uc.RunCreateFromDiscovered(ctx, &inlineFlow{}, data)
@@ -970,11 +969,10 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 		t.Helper()
 		d := newApprovalTestDeps(t, artist)
 		placeID, listed := "place-fill", "Fill Hall"
-		resolved := listed
 		sc := &entity.ConcertCandidate{
 			ID: "candidate-fill", ArtistID: artist.ID, SeriesID: "series-staged", Title: "Show",
 			LocalDate: day, StartTime: &evening, ListedVenueName: listed,
-			ResolvedPlaceID: &placeID, ResolvedVenueName: &resolved,
+			AdminArea: new("JP-13"), ResolvedPlaceID: &placeID,
 		}
 		d.pending(sc)
 		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, placeID).
@@ -999,7 +997,7 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 			}).Once()
 		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).Return(0, nil).Once()
 
-		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, nil, nil, "")
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"event-unknown-start"}, filledIDs)
@@ -1016,8 +1014,132 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 		// ConcertCandidate left.
 		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{"series-staged"}).Return(0, nil).Once()
 
-		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		_, err := d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, nil, nil, "")
 
 		require.NoError(t, err)
+	})
+}
+
+func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
+	t.Parallel()
+	localDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	batch := func(ev *entity.DiscoveredEvent) entity.ConcertDiscoveredData {
+		return entity.ConcertDiscoveredData{ArtistID: "artist-1", Series: []*entity.DiscoveredSeries{{
+			Title: "Show", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/s",
+			Events: []*entity.DiscoveredEvent{ev},
+		}}}
+	}
+
+	t.Run("New venue takes the listed name", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "New venue takes the listed name"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		coords := &entity.Coordinates{Latitude: 35.55, Longitude: 139.78}
+		h.resolvesPlace("Zepp Haneda(TOKYO)", &entity.VenuePlace{ProviderUserID: "place-h", Name: "Zepp Haneda (TOKYO)", Coordinates: coords})
+		h.createsVenue("place-h", "Zepp Haneda(TOKYO)")
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		before := time.Now()
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Zepp Haneda(TOKYO)", LocalDate: localDate,
+		})))
+
+		require.Len(t, h.createdVenues, 1)
+		v := h.createdVenues[0]
+		assert.Equal(t, "Zepp Haneda(TOKYO)", v.Name, "the map catalog's name is not stored")
+		assert.Equal(t, "Zepp Haneda(TOKYO)", *v.ListedVenueName)
+		assert.Equal(t, "JP-13", *v.AdminArea)
+		assert.Equal(t, "Asia/Tokyo", *v.TimeZone)
+		assert.Equal(t, coords, v.Coordinates)
+		require.NotNil(t, v.CoordinatesFetchTime)
+		assert.False(t, v.CoordinatesFetchTime.Before(before), "the coordinates carry when they were read")
+	})
+
+	t.Run("New overseas venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "New overseas venue"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.place.EXPECT().SearchPlace(mock.Anything, "Arkéa Arena", "FR-NAQ").
+			Return([]*entity.VenuePlace{{ProviderUserID: "place-b", Name: "Arkéa Arena"}}, nil).Once()
+		h.venue.EXPECT().GetByPlaceID(mock.Anything, "place-b").Return(nil, notFound("venue")).Once()
+		h.venue.EXPECT().GetByListedName(mock.Anything, "Arkéa Arena", "FR-NAQ").Return(nil, notFound("venue")).Once()
+		h.venue.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
+			h.createdVenues = append(h.createdVenues, v)
+			return v.ID, nil
+		}).Once()
+		h.slotsFree(1)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			AdminArea: new("FR-NAQ"), TimeZone: new("Europe/Paris"), ListedVenueName: "Arkéa Arena", LocalDate: localDate,
+		})))
+
+		assert.Equal(t, "FR-NAQ", *h.createdVenues[0].AdminArea)
+		assert.Equal(t, "Europe/Paris", *h.createdVenues[0].TimeZone)
+	})
+
+	t.Run("Area unknown", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Area unknown"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.stages(1)
+		h.sweepsOrphans()
+
+		// No place search and no venue: SearchPlace and Venue.Create are not expected.
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			ListedVenueName: "Hall", LocalDate: localDate,
+		})))
+
+		require.Len(t, h.staged, 1)
+		assert.Nil(t, h.staged[0].AdminArea)
+		assert.Nil(t, h.staged[0].TimeZone)
+		assert.Nil(t, h.staged[0].ResolvedPlaceID)
+	})
+
+	t.Run("Time zone unknown", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Time zone unknown"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			AdminArea: new("US-TX"), ListedVenueName: "Stubb's", LocalDate: localDate,
+		})))
+
+		require.Len(t, h.staged, 1)
+		assert.Equal(t, "US-TX", *h.staged[0].AdminArea)
+		assert.Nil(t, h.staged[0].TimeZone)
+		assert.Nil(t, h.staged[0].ResolvedPlaceID)
+	})
+
+	t.Run("Venue not found", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Venue not found"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.cannotResolvePlace("Hall")
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Hall", LocalDate: localDate,
+		})))
+
+		require.Len(t, h.staged, 1)
+		assert.Nil(t, h.staged[0].ResolvedPlaceID)
 	})
 }

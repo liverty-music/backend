@@ -34,7 +34,26 @@ type userTestDeps struct {
 	emailVerifier   *mocks.MockEmailVerifier
 	emailCodes      *mocks.MockEmailCodeVerifier
 	identityRemover *mocks.MockIdentityRemover
+	areas           *mocks.MockAreaRepository
 	uc              usecase.UserUseCase
+}
+
+// resolveArea answers Area.Resolve for the codes the user tests use: the
+// first-level Areas JP-13, JP-27, US-CA and HK, FR-33 (inside FR-NAQ) and
+// CN-HK (replaced by HK); any other code is NotFound.
+func resolveArea(_ context.Context, text string, _ *string) (*entity.Area, error) {
+	area := func(code string, kind entity.AreaKind) *entity.Area {
+		return &entity.Area{Code: code, Kind: kind, CountryCode: code[:2], NameEN: code}
+	}
+	switch text {
+	case "JP-13", "JP-27", "US-CA":
+		return area(text, entity.AreaKindSubdivision), nil
+	case "HK", "CN-HK":
+		return area("HK", entity.AreaKindCountry), nil
+	case "FR-33":
+		return area("FR-NAQ", entity.AreaKindSubdivision), nil
+	}
+	return nil, apperr.New(codes.NotFound, "no area")
 }
 
 func newUserTestDeps(t *testing.T) *userTestDeps {
@@ -50,8 +69,10 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		emailVerifier:   mocks.NewMockEmailVerifier(t),
 		emailCodes:      mocks.NewMockEmailCodeVerifier(t),
 		identityRemover: mocks.NewMockIdentityRemover(t),
+		areas:           mocks.NewMockAreaRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{
+	d.areas.EXPECT().Resolve(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(resolveArea).Maybe()
+	d.uc = usecase.NewUserUseCase(d.repo, d.areas, usecase.DeletionBlockerReads{
 		Tickets:        d.ticketRepo,
 		Events:         d.eventRepo,
 		ResaleListings: d.listingRepo,
@@ -70,7 +91,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, ucmocks.NewMockWorkflows(t), nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, usecase.DeletionBlockerReads{}, ucmocks.NewMockWorkflows(t), nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -122,7 +143,6 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 			Name:  "John Doe",
 			Email: "john@example.com",
 			Home: &entity.Home{
-				ID:          "home-1",
 				CountryCode: "JP",
 				Level1:      "JP-13",
 			},
@@ -569,194 +589,69 @@ func TestUserUseCase_GetByProviderUserID(t *testing.T) {
 	}
 }
 
-func TestUserUseCase_UpdateHome(t *testing.T) {
+func TestUserUseCase_SetHome(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
 
-	t.Run("success", func(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		home *entity.Home
+	}{
+		// @spec components/usecase/user/set-home "Set home area"
+		{name: "Set home area", home: &entity.Home{CountryCode: "JP", Level1: "JP-13"}},
+		// @spec components/usecase/user/set-home "Home in a territory without subdivisions"
+		{name: "Home in a territory without subdivisions", home: &entity.Home{CountryCode: "HK", Level1: "HK"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+			stored := &entity.User{ID: "user-123", Home: tc.home}
+			d.repo.EXPECT().UpdateHome(ctx, "user-123", tc.home).Return(stored, nil).Once()
+
+			result, err := d.uc.SetHome(ctx, "user-123", tc.home)
+
+			require.NoError(t, err)
+			assert.Equal(t, stored, result)
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		home *entity.Home
+	}{
+		// @spec components/usecase/user/set-home "Level 1 in another country"
+		{name: "Level 1 in another country", home: &entity.Home{CountryCode: "JP", Level1: "US-CA"}},
+		// @spec components/usecase/user/set-home "Well-formed code that is no Area"
+		{name: "Well-formed code that is no Area", home: &entity.Home{CountryCode: "JP", Level1: "JP-99"}},
+		// @spec components/usecase/user/set-home "Lower-level code"
+		{name: "Lower-level code", home: &entity.Home{CountryCode: "FR", Level1: "FR-33"}},
+		// @spec components/usecase/user/set-home "Withdrawn code"
+		{name: "Withdrawn code", home: &entity.Home{CountryCode: "CN", Level1: "CN-HK"}},
+		{name: "Malformed country code", home: &entity.Home{CountryCode: "jp", Level1: "JP-13"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+
+			result, err := d.uc.SetHome(ctx, "user-123", tc.home)
+
+			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			assert.Nil(t, result)
+			d.repo.AssertNotCalled(t, "UpdateHome", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+
+	t.Run("Unknown user", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/user/set-home "Unknown user"
 		d := newUserTestDeps(t)
+		home := &entity.Home{CountryCode: "JP", Level1: "JP-13"}
+		d.repo.EXPECT().UpdateHome(ctx, "missing", home).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
+		result, err := d.uc.SetHome(ctx, "missing", home)
 
-		expectedUser := &entity.User{
-			ID:   "user-123",
-			Name: "John Doe",
-			Home: &entity.Home{
-				ID:          "home-1",
-				CountryCode: "JP",
-				Level1:      "JP-13",
-			},
-		}
-
-		d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(expectedUser, nil).Once()
-
-		result, err := d.uc.SetHome(ctx, "user-123", home)
-
-		assert.NoError(t, err)
-		assert.Equal(t, expectedUser, result)
-		assert.Equal(t, "JP-13", result.Home.Level1)
-	})
-
-	t.Run("error - invalid country_code", func(t *testing.T) {
-		t.Parallel()
-
-		tests := []struct {
-			name string
-			home *entity.Home
-		}{
-			{"lowercase", &entity.Home{CountryCode: "jp", Level1: "JP-13"}},
-			{"too long", &entity.Home{CountryCode: "JPN", Level1: "JP-13"}},
-			{"single char", &entity.Home{CountryCode: "J", Level1: "JP-13"}},
-			{"empty", &entity.Home{CountryCode: "", Level1: "JP-13"}},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-				d := newUserTestDeps(t)
-
-				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
-
-				assert.Error(t, err)
-				assert.Nil(t, result)
-				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-			})
-		}
-	})
-
-	t.Run("error - invalid level_1", func(t *testing.T) {
-		t.Parallel()
-
-		tests := []struct {
-			name string
-			home *entity.Home
-		}{
-			{"empty", &entity.Home{CountryCode: "JP", Level1: ""}},
-			{"no hyphen", &entity.Home{CountryCode: "JP", Level1: "JP13"}},
-			{"lowercase country prefix", &entity.Home{CountryCode: "JP", Level1: "jp-13"}},
-			{"free text", &entity.Home{CountryCode: "JP", Level1: "東京都"}},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-				d := newUserTestDeps(t)
-
-				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
-
-				assert.Error(t, err)
-				assert.Nil(t, result)
-				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-			})
-		}
-	})
-
-	t.Run("error - level_1 prefix mismatch", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "US-CA",
-		}
-
-		result, err := d.uc.SetHome(ctx, "user-123", home)
-
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	t.Run("error - invalid level_2 length", func(t *testing.T) {
-		t.Parallel()
-
-		emptyL2 := ""
-		tooLongL2 := "123456789012345678901"
-
-		tests := []struct {
-			name string
-			home *entity.Home
-		}{
-			{"empty level_2", &entity.Home{CountryCode: "JP", Level1: "JP-13", Level2: &emptyL2}},
-			{"too long level_2", &entity.Home{CountryCode: "JP", Level1: "JP-13", Level2: &tooLongL2}},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-				d := newUserTestDeps(t)
-
-				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
-
-				assert.Error(t, err)
-				assert.Nil(t, result)
-				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-			})
-		}
-	})
-
-	t.Run("success - various valid codes", func(t *testing.T) {
-		t.Parallel()
-
-		tests := []struct {
-			countryCode string
-			level1      string
-		}{
-			{"JP", "JP-13"},
-			{"JP", "JP-01"},
-			{"US", "US-CA"},
-			{"GB", "GB-ENG"},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.level1, func(t *testing.T) {
-				t.Parallel()
-				d := newUserTestDeps(t)
-
-				home := &entity.Home{
-					CountryCode: tt.countryCode,
-					Level1:      tt.level1,
-				}
-
-				expectedUser := &entity.User{
-					ID: "user-123",
-					Home: &entity.Home{
-						ID:          "home-1",
-						CountryCode: tt.countryCode,
-						Level1:      tt.level1,
-					},
-				}
-				d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(expectedUser, nil).Once()
-
-				result, err := d.uc.SetHome(ctx, "user-123", home)
-
-				assert.NoError(t, err)
-				assert.Equal(t, tt.level1, result.Home.Level1)
-			})
-		}
-	})
-
-	t.Run("error - repository fails", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
-
-		d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
-
-		result, err := d.uc.SetHome(ctx, "user-123", home)
-
-		assert.Error(t, err)
-		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.Nil(t, result)
 	})
 }
 
@@ -890,7 +785,7 @@ func newUserTestDepsWithWorkflows(t *testing.T) (*userTestDeps, *ucmocks.MockWor
 		repo:          mocks.NewMockUserRepository(t),
 		emailVerifier: mocks.NewMockEmailVerifier(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, usecase.DeletionBlockerReads{}, workflows, d.emailVerifier, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, usecase.DeletionBlockerReads{}, workflows, d.emailVerifier, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
 	return d, workflows
 }
 
@@ -930,7 +825,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		workflows := ucmocks.NewMockWorkflows(t)
 		repo := mocks.NewMockUserRepository(t)
-		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
+		uc := usecase.NewUserUseCase(repo, nil, usecase.DeletionBlockerReads{}, workflows, nil, nil, nil, usecase.PasskeyMailers{}, func() time.Time { return resendNow }, newTestLogger(t))
 
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
@@ -1025,7 +920,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		w := ucmocks.NewMockWorkflows(t)
 		starts := captureStarts(w)
 		repo := mocks.NewMockUserRepository(t)
-		uc := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+		uc := usecase.NewUserUseCase(repo, nil, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 		repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
 			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Twice()
 
@@ -1836,7 +1731,7 @@ func TestUserUseCase_RunSendVerification(t *testing.T) {
 		t.Parallel()
 		w := ucmocks.NewMockWorkflows(t)
 		starts := captureStarts(w)
-		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+		uc := usecase.NewUserUseCase(mocks.NewMockUserRepository(t), nil, usecase.DeletionBlockerReads{}, w, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
 		require.NoError(t, uc.StartSendVerification(ctx, "announcement-1", testResolveUserID))
@@ -1858,37 +1753,4 @@ type countingFlow struct {
 func (f *countingFlow) Recv(context.Context, string, time.Duration) ([]byte, bool, error) {
 	f.waits++
 	return nil, false, nil
-}
-
-// TestUserUseCase_HomeCentroid checks that the usecase gives the repository a
-// Home carrying the centroid of its level-1 area, and none for an area without
-// one: the repository stores the position it is given.
-func TestUserUseCase_HomeCentroid(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	t.Run("SetHome sets the centroid of a supported area", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-		home := &entity.Home{CountryCode: "JP", Level1: "JP-27"}
-		d.repo.EXPECT().UpdateHome(ctx, "user-1", mock.MatchedBy(func(h *entity.Home) bool {
-			return h.Centroid != nil && h.Level1 == "JP-27" && h.Centroid.Latitude > 34 && h.Centroid.Latitude < 35
-		})).Return(&entity.User{ID: "user-1"}, nil).Once()
-
-		_, err := d.uc.SetHome(ctx, "user-1", home)
-
-		require.NoError(t, err)
-	})
-
-	t.Run("SetHome sets none for an area without one", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-		d.repo.EXPECT().UpdateHome(ctx, "user-1", mock.MatchedBy(func(h *entity.Home) bool {
-			return h.Centroid == nil
-		})).Return(&entity.User{ID: "user-1"}, nil).Once()
-
-		_, err := d.uc.SetHome(ctx, "user-1", &entity.Home{CountryCode: "US", Level1: "US-CA"})
-
-		require.NoError(t, err)
-	})
 }

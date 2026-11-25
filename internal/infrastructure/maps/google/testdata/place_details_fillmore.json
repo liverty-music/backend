@@ -1,0 +1,85 @@
+{
+  "id": "ChIJO2EGsrmAhYARdDfDm-uVTQQ",
+  "addressComponents": [
+    {
+      "longText": "1805",
+      "shortText": "1805",
+      "types": [
+        "street_number"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "Geary Boulevard",
+      "shortText": "Geary Blvd",
+      "types": [
+        "route"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "Western Addition",
+      "shortText": "Western Addition",
+      "types": [
+        "neighborhood",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "San Francisco",
+      "shortText": "SF",
+      "types": [
+        "locality",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "San Francisco County",
+      "shortText": "San Francisco County",
+      "types": [
+        "administrative_area_level_2",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "California",
+      "shortText": "CA",
+      "types": [
+        "administrative_area_level_1",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "アメリカ合衆国",
+      "shortText": "US",
+      "types": [
+        "country",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "94115",
+      "shortText": "94115",
+      "types": [
+        "postal_code"
+      ],
+      "languageCode": "ja"
+    }
+  ],
+  "location": {
+    "latitude": 37.783926,
+    "longitude": -122.433072
+  },
+  "displayName": {
+    "text": "The Fillmore",
+    "languageCode": "ja"
+  },
+  "timeZone": {
+    "id": "America/Los_Angeles"
+  }
+}

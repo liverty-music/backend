@@ -1,4 +1,4 @@
-h1:JrN9EjTAaYA3+G/yKe5WT507bREPPPtCmlSWUT249z8=
+h1:YWsI0xsdiMybnRYwiii88s0Yf0cEiKjOtYw89WOvekY=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -143,3 +143,5 @@ h1:JrN9EjTAaYA3+G/yKe5WT507bREPPPtCmlSWUT249z8=
 20261119100000_drop_suppressed_concerts.sql h1:/xzkU36UXJNA6XHqYQQMIrVRAF/2bR36BK4pwnkDvBg=
 20261124100811_add_area_reference_data.sql h1:aZfjgP/kTYjDNCySsFbGVGwvnqoMoG4aEuLiRjsx6L4=
 20261125010231_add_countries.sql h1:9RSLOkrtCkwNQTZNvHQSS0mm2MkLHIWpSfJFig/KmGM=
+20261125011819_add_user_home_areas.sql h1:g78EMhI7zkclsxqAU95+qlvZnvoBtlepqpp1ikMC7Zc=
+20261125015333_complete_venue_areas.sql h1:JWo93h9EkgAxBJS5UDgKqpGagXcbMlF4zDjblknkoug=

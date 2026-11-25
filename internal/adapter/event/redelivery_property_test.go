@@ -153,7 +153,7 @@ func runUserCreated(t *testing.T, rt *rapid.T, sc userScenario, deliveries int) 
 	}).Maybe()
 
 	workflows := &onceWorkflows{started: map[string]bool{}}
-	uc := usecase.NewUserUseCase(users, usecase.DeletionBlockerReads{}, workflows, verifier, nil, nil, usecase.PasskeyMailers{}, nil, newTestLogger(t))
+	uc := usecase.NewUserUseCase(users, nil, usecase.DeletionBlockerReads{}, workflows, verifier, nil, nil, usecase.PasskeyMailers{}, nil, newTestLogger(t))
 	workflows.run = func(ctx context.Context, workflow, _ string, input any) error {
 		require.Equal(rt, usecase.WorkflowSendVerification, workflow)
 		_, err := uc.RunSendVerification(ctx, inlineFlow{}, input.(usecase.UserRequest))

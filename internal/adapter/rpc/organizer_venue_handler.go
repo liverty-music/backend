@@ -60,3 +60,28 @@ func (h *OrganizerVenueHandler) Search(
 		Candidates: pb.FromVenueCandidates(candidates),
 	}, nil
 }
+
+// ResolvePlace tells the caller's own active Organizer what a picked place
+// will be: the Venue holding it, or a place draft to confirm.
+func (h *OrganizerVenueHandler) ResolvePlace(
+	ctx context.Context,
+	req *organizervenuev1.ResolvePlaceRequest,
+) (*organizervenuev1.ResolvePlaceResponse, error) {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := h.venueUC.ResolvePlace(ctx, organizer.ID, req.GetPlaceId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+	if resolved.Venue != nil {
+		return &organizervenuev1.ResolvePlaceResponse{
+			Result: &organizervenuev1.ResolvePlaceResponse_Venue{Venue: pb.FromVenue(resolved.Venue)},
+		}, nil
+	}
+	return &organizervenuev1.ResolvePlaceResponse{
+		Result: &organizervenuev1.ResolvePlaceResponse_Draft{Draft: pb.FromPlaceDraft(resolved.Draft)},
+	}, nil
+}

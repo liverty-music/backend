@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -29,6 +30,29 @@ const (
 func draftInput(venueName string, placeID *string) *usecase.DraftEventInput {
 	return &usecase.DraftEventInput{VenueName: venueName, PlaceID: placeID, LocalDate: futureDate()}
 }
+
+// newPlaceInput builds one authored event at a future date for a picked place
+// with the admin area and time zone the member saved.
+func newPlaceInput(venueName, placeID, area, zone string) *usecase.DraftEventInput {
+	inp := draftInput(venueName, &placeID)
+	inp.AdminArea = &area
+	inp.TimeZone = &zone
+	return inp
+}
+
+// catalogPlace is a map catalog place whose name, suggested area and zone are
+// the catalog's own, read at placeReadTime.
+func catalogPlace(placeID, name, area, zone string, lat, lng float64) *entity.MapPlace {
+	return &entity.MapPlace{
+		PlaceID: placeID, Name: name, CountryCode: area[:2],
+		Coordinates:          &entity.Coordinates{Latitude: lat, Longitude: lng},
+		CoordinatesFetchTime: placeReadTime,
+		SuggestedAdminArea:   &area, TimeZone: &zone,
+	}
+}
+
+// placeReadTime is when the map catalog read every place of these tests.
+var placeReadTime = time.Date(2026, 11, 25, 3, 0, 0, 0, time.UTC)
 
 // newDraftSeries returns a minimal valid series to author.
 func newDraftSeries() *entity.Series {
@@ -65,17 +89,13 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/series/create "New place"
-			name:   "create a Venue for Zepp Haneda with its place id, coordinates and admin area JP-13",
-			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))},
+			name:   "create a Venue named Zepp Haneda with its place id, coordinates and their fetch time, JP-13 and Asia/Tokyo",
+			inputs: []*usecase.DraftEventInput{newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
 				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
 					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
-				d.mapCatalog.EXPECT().GetPlace(mock.Anything, zeppHanedaPlaceID).Return(&entity.MapPlace{
-					PlaceID:     zeppHanedaPlaceID,
-					Name:        "Zepp Haneda (TOKYO)",
-					Coordinates: &entity.Coordinates{Latitude: 35.5473958, Longitude: 139.7565213},
-					AdminArea:   new("JP-13"),
-				}, nil).Once()
+				d.mapCatalog.EXPECT().GetPlace(mock.Anything, zeppHanedaPlaceID).Return(
+					catalogPlace(zeppHanedaPlaceID, "Zepp Haneda (TOKYO)", "JP-13", "Asia/Tokyo", 35.5473958, 139.7565213), nil).Once()
 				d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
 					Run(func(_ context.Context, v *entity.Venue) { *created = append(*created, v) }).
 					Return(createdVenueID, nil).Once()
@@ -87,35 +107,56 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 				require.Len(t, created, 1)
 				v := created[0]
 				assert.NotEmpty(t, v.ID)
-				assert.Equal(t, "Zepp Haneda (TOKYO)", v.Name)
+				assert.Equal(t, "Zepp Haneda", v.Name)
 				assert.Equal(t, new(zeppHanedaPlaceID), v.GooglePlaceID)
 				assert.Equal(t, &entity.Coordinates{Latitude: 35.5473958, Longitude: 139.7565213}, v.Coordinates)
+				assert.Equal(t, &placeReadTime, v.CoordinatesFetchTime)
 				assert.Equal(t, new("JP-13"), v.AdminArea)
+				assert.Equal(t, new("Asia/Tokyo"), v.TimeZone)
 				// The typed name stays on the event, not on the Venue, so the
 				// listed-name dedupe cannot merge this place into another Venue.
 				assert.Nil(t, v.ListedVenueName)
 			},
 		},
 		{
+			// @spec components/usecase/series/create "Member's values differ from the place's"
+			name:   "create the Venue with the name, area and zone the member saved, not the catalog's",
+			inputs: []*usecase.DraftEventInput{newPlaceInput("高尺スカイドーム", "ChIJgocheok", "KR-11", "Asia/Seoul")},
+			setup: func(d *authoringDeps, created *[]*entity.Venue) {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, "ChIJgocheok").
+					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
+				place := catalogPlace("ChIJgocheok", "Gocheok Sky Dome", "KR-11", "Asia/Seoul", 37.4982, 126.8671)
+				d.mapCatalog.EXPECT().GetPlace(mock.Anything, "ChIJgocheok").Return(place, nil).Once()
+				d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
+					Run(func(_ context.Context, v *entity.Venue) { *created = append(*created, v) }).
+					Return(createdVenueID, nil).Once()
+			},
+			wantVenues: []string{createdVenueID},
+			wantStored: true,
+			checkCreate: func(t *testing.T, created []*entity.Venue) {
+				t.Helper()
+				require.Len(t, created, 1)
+				assert.Equal(t, "高尺スカイドーム", created[0].Name)
+				assert.Equal(t, new("KR-11"), created[0].AdminArea)
+				assert.Equal(t, new("Asia/Seoul"), created[0].TimeZone)
+			},
+		},
+		{
 			// @spec components/usecase/series/create "Same name in two cities"
 			name: "give CLUB QUATTRO in Shibuya and in Umeda two different Venues in JP-13 and JP-27",
 			inputs: []*usecase.DraftEventInput{
-				draftInput("CLUB QUATTRO", new(quattroShibuyaPlace)),
-				draftInput("CLUB QUATTRO", new(quattroUmedaPlace)),
+				newPlaceInput("CLUB QUATTRO", quattroShibuyaPlace, "JP-13", "Asia/Tokyo"),
+				newPlaceInput("CLUB QUATTRO", quattroUmedaPlace, "JP-27", "Asia/Tokyo"),
 			},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
 				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, quattroShibuyaPlace).
 					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
 				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, quattroUmedaPlace).
 					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
-				d.mapCatalog.EXPECT().GetPlace(mock.Anything, quattroShibuyaPlace).Return(&entity.MapPlace{
-					PlaceID: quattroShibuyaPlace, Name: "渋谷CLUB QUATTRO",
-					Coordinates: &entity.Coordinates{Latitude: 35.6614, Longitude: 139.6976}, AdminArea: new("JP-13"),
-				}, nil).Once()
-				d.mapCatalog.EXPECT().GetPlace(mock.Anything, quattroUmedaPlace).Return(&entity.MapPlace{
-					PlaceID: quattroUmedaPlace, Name: "梅田CLUB QUATTRO",
-					Coordinates: &entity.Coordinates{Latitude: 34.7036, Longitude: 135.5003}, AdminArea: new("JP-27"),
-				}, nil).Once()
+				d.mapCatalog.EXPECT().GetPlace(mock.Anything, quattroShibuyaPlace).Return(
+					catalogPlace(quattroShibuyaPlace, "渋谷CLUB QUATTRO", "JP-13", "Asia/Tokyo", 35.6614, 139.6976), nil).Once()
+				d.mapCatalog.EXPECT().GetPlace(mock.Anything, quattroUmedaPlace).Return(
+					catalogPlace(quattroUmedaPlace, "梅田CLUB QUATTRO", "JP-27", "Asia/Tokyo", 34.7036, 135.5003), nil).Once()
 				d.venueRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(v *entity.Venue) bool {
 					return *v.GooglePlaceID == quattroShibuyaPlace
 				})).Run(func(_ context.Context, v *entity.Venue) { *created = append(*created, v) }).Return(createdVenueID, nil).Once()
@@ -152,9 +193,61 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/usecase/series/create "New place without a saved area or time zone"
+			name: "fail with INVALID_ARGUMENT and store nothing when a new place has no admin area",
+			inputs: []*usecase.DraftEventInput{func() *usecase.DraftEventInput {
+				inp := newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")
+				inp.AdminArea = nil
+				return inp
+			}()},
+			setup: func(d *authoringDeps, created *[]*entity.Venue) {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
+					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/usecase/series/create "New place without a saved area or time zone"
+			name: "fail with INVALID_ARGUMENT and store nothing when a new place has no time zone",
+			inputs: []*usecase.DraftEventInput{func() *usecase.DraftEventInput {
+				inp := newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")
+				inp.TimeZone = nil
+				return inp
+			}()},
+			setup: func(d *authoringDeps, created *[]*entity.Venue) {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
+					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name:   "fail with INVALID_ARGUMENT and store nothing when a new place has no venue name",
+			inputs: []*usecase.DraftEventInput{newPlaceInput(" ", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")},
+			setup: func(d *authoringDeps, created *[]*entity.Venue) {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
+					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/usecase/series/create "Time zone of another country"
+			// Venue.Create refuses the zone; the series is not stored.
+			name:   "fail with INVALID_ARGUMENT and store no series when a new place in JP-13 gives Asia/Seoul",
+			inputs: []*usecase.DraftEventInput{newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Seoul")},
+			setup: func(d *authoringDeps, created *[]*entity.Venue) {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
+					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
+				d.mapCatalog.EXPECT().GetPlace(mock.Anything, zeppHanedaPlaceID).Return(
+					catalogPlace(zeppHanedaPlaceID, "Zepp Haneda (TOKYO)", "JP-13", "Asia/Tokyo", 35.5473958, 139.7565213), nil).Once()
+				d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
+					Return("", apperr.New(codes.InvalidArgument, "a venue's time zone must be one of its area's")).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
 			// @spec components/usecase/series/create "Catalog down for a new place"
 			name:   "fail with UNAVAILABLE and store nothing when no Venue holds the place id and the catalog cannot be reached",
-			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))},
+			inputs: []*usecase.DraftEventInput{newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
 				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
 					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
@@ -165,7 +258,7 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 		},
 		{
 			name:   "fail with INVALID_ARGUMENT and store nothing when the catalog has no place with the id",
-			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new("ChIJunknown"))},
+			inputs: []*usecase.DraftEventInput{newPlaceInput("Zepp Haneda", "ChIJunknown", "JP-13", "Asia/Tokyo")},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
 				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, "ChIJunknown").
 					Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
@@ -239,18 +332,18 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
-	t.Run("create a Venue from the catalog's place when no Venue holds the place id", func(t *testing.T) {
+	t.Run("create a Venue from the member's values and the catalog's coordinates when no Venue holds the place id", func(t *testing.T) {
 		t.Parallel()
 		d := newAuthoringDeps(t)
 		d.organizerRepo.EXPECT().ListArtists(mock.Anything, authoringOrgID).
 			Return([]*entity.Artist{{ID: authoringArtistID}}, nil).Once()
 		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, zeppHanedaPlaceID).
 			Return(nil, apperr.New(codes.NotFound, "venue not found")).Once()
-		d.mapCatalog.EXPECT().GetPlace(mock.Anything, zeppHanedaPlaceID).Return(&entity.MapPlace{
-			PlaceID: zeppHanedaPlaceID, Name: "Zepp Haneda (TOKYO)", AdminArea: new("JP-13"),
-		}, nil).Once()
+		d.mapCatalog.EXPECT().GetPlace(mock.Anything, zeppHanedaPlaceID).Return(
+			catalogPlace(zeppHanedaPlaceID, "Zepp Haneda (TOKYO)", "JP-13", "Asia/Tokyo", 35.5473958, 139.7565213), nil).Once()
 		d.venueRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(v *entity.Venue) bool {
-			return *v.GooglePlaceID == zeppHanedaPlaceID && *v.AdminArea == "JP-13" && v.Name == "Zepp Haneda (TOKYO)"
+			return *v.GooglePlaceID == zeppHanedaPlaceID && *v.AdminArea == "JP-13" && *v.TimeZone == "Asia/Tokyo" &&
+				v.Name == "Zepp Haneda" && v.CoordinatesFetchTime != nil
 		})).Return(createdVenueID, nil).Once()
 		var stored []*entity.Event
 		d.seriesRepo.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything, []string{authoringArtistID}).
@@ -259,7 +352,7 @@ func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(existing, nil, nil).Twice()
 
 		_, _, err := d.uc.Update(context.Background(), authoringOrgID, seriesID, newDraftSeries(),
-			[]*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))}, []string{authoringArtistID})
+			[]*usecase.DraftEventInput{newPlaceInput("Zepp Haneda", zeppHanedaPlaceID, "JP-13", "Asia/Tokyo")}, []string{authoringArtistID})
 
 		require.NoError(t, err)
 		require.Len(t, stored, 1)

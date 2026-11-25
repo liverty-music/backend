@@ -357,6 +357,13 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		return uc.stageOrPublish(ctx, artistID, seriesID, series, ev, venueID, candidate, toPublish, tally)
 	}
 
+	// An event without an admin area or a time zone cannot make a Venue: it
+	// is staged without looking the venue up, for an admin to complete.
+	if ev.AdminArea == nil || ev.TimeZone == nil {
+		candidate := buildConcertCandidate(entity.NewID(), artistID, seriesID, series, ev, nil)
+		return nil, uc.stageUnresolved(ctx, candidate, series, ev, tally, "area or time zone unknown")
+	}
+
 	place, err := uc.resolvePlace(ctx, ev.ListedVenueName, ev.AdminArea, newPlaces)
 	if err != nil {
 		return nil, fmt.Errorf("resolve venue %q: %w", ev.ListedVenueName, err)
@@ -370,28 +377,44 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	// Unresolved venue → stage for review. Auto-publishing here would mint a
 	// coordinate-less venue from the raw name and publish it unreviewed.
 	if place == nil {
-		if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
-			return nil, fmt.Errorf("upsert concert candidate (unresolved venue) %q: %w", series.Title, err)
-		}
-		tally.staged++
-		uc.logger.Info(ctx, "concert candidate with unresolved venue for review", analyticslog.Attrs(analyticslog.TopicCatalogReview,
-			slog.String("artist_id", artistID),
-			slog.String("concert_candidate_id", candidate.ID),
-			slog.String("series_id", seriesID),
-			slog.String("listed_venue_name", ev.ListedVenueName),
-			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-		)...)
-		return nil, nil
+		return nil, uc.stageUnresolved(ctx, candidate, series, ev, tally, "unresolved venue")
 	}
 
 	// Resolved venue: resolve or create the venues row (created only here, on the
 	// path that may auto-publish — never for a conflict or unresolved row).
-	venueID, err := resolveOrCreateVenue(ctx, candidate, uc.venueRepo, uc.logger)
+	fetched := uc.clock()
+	venueID, err := findOrCreateVenue(ctx, venueSpec{
+		listedName: ev.ListedVenueName,
+		adminArea:  *ev.AdminArea,
+		timeZone:   *ev.TimeZone,
+		placeID:    &place.ProviderUserID,
+		coordinates: func(context.Context) (*entity.PlaceCoordinates, error) {
+			return &entity.PlaceCoordinates{Coordinates: place.Coordinates, FetchTime: fetched}, nil
+		},
+	}, uc.venueRepo, uc.logger)
 	if err != nil {
 		return nil, fmt.Errorf("resolve or create venue for %q: %w", series.Title, err)
 	}
 
 	return uc.stageOrPublish(ctx, artistID, seriesID, series, ev, venueID, candidate, toPublish, tally)
+}
+
+// stageUnresolved stages an event whose venue cannot be made (its area or
+// time zone is unknown, or no place was found) for an admin to complete.
+func (uc *concertCreationUseCase) stageUnresolved(ctx context.Context, candidate *entity.ConcertCandidate, series *entity.DiscoveredSeries, ev *entity.DiscoveredEvent, tally *ingestTally, reason string) error {
+	if err := uc.concertCandidateRepo.Upsert(ctx, candidate); err != nil {
+		return fmt.Errorf("upsert concert candidate (%s) %q: %w", reason, series.Title, err)
+	}
+	tally.staged++
+	uc.logger.Info(ctx, "concert candidate staged for review", analyticslog.Attrs(analyticslog.TopicCatalogReview,
+		slog.String("artist_id", candidate.ArtistID),
+		slog.String("concert_candidate_id", candidate.ID),
+		slog.String("series_id", candidate.SeriesID),
+		slog.String("listed_venue_name", ev.ListedVenueName),
+		slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
+		slog.String("reason", reason),
+	)...)
+	return nil
 }
 
 // stageOrPublish runs the shared tail for a resolved-venue event: same-slot
@@ -455,8 +478,8 @@ func plannedAt(toPublish []*entity.Concert, venueID string, date time.Time) []*e
 // (created when the group's series_id was resolved), so seriesID is carried as a
 // real foreign key. Title and source URL are copied from the series for the
 // review queue display and rejection log; the canonical values live on the
-// series row. When place is nil the resolved_* fields stay nil (the venue could
-// not be resolved).
+// series row. The candidate carries the event's admin area and time zone as
+// discovered, and the resolved place id when a place was chosen.
 func buildConcertCandidate(id, artistID, seriesID string, series *entity.DiscoveredSeries, ev *entity.DiscoveredEvent, place *entity.VenuePlace) *entity.ConcertCandidate {
 	candidate := &entity.ConcertCandidate{
 		ID:              id,
@@ -476,15 +499,15 @@ func buildConcertCandidate(id, artistID, seriesID string, series *entity.Discove
 		u := series.SourceURL
 		candidate.SourceURL = &u
 	}
+	if ev.AdminArea != nil && ev.TimeZone != nil {
+		z := *ev.TimeZone
+		candidate.TimeZone = &z
+	}
+	// Of the map catalog's answer only the place id is kept; its name and
+	// coordinates choose the place and are not stored.
 	if place != nil {
-		candidate.ResolvedPlaceID = &place.ProviderUserID
-		candidate.ResolvedVenueName = &place.Name
-		if place.Coordinates != nil {
-			lat := place.Coordinates.Latitude
-			lng := place.Coordinates.Longitude
-			candidate.ResolvedLatitude = &lat
-			candidate.ResolvedLongitude = &lng
-		}
+		id := place.ProviderUserID
+		candidate.ResolvedPlaceID = &id
 	}
 	return candidate
 }

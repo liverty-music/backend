@@ -277,7 +277,7 @@ func TestLoginEvents_OlderNoticeArrivesLate(t *testing.T) {
 	repo := rdb.NewUserRepository(db, testOutbox)
 	u, err := repo.Create(ctx, newUniqueUser())
 	require.NoError(t, err)
-	users := usecase.NewUserUseCase(repo, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, logger)
+	users := usecase.NewUserUseCase(repo, nil, usecase.DeletionBlockerReads{}, nil, nil, nil, nil, usecase.PasskeyMailers{}, time.Now, logger)
 	const signingKey = "login-events-story-key"
 	handler := webhook.NewLoginEventHandler(signingKey, users, logger)
 	jst := time.FixedZone("JST", 9*60*60)

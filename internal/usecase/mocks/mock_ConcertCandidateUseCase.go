@@ -48,8 +48,8 @@ func (_m *MockConcertCandidateUseCase) EXPECT() *MockConcertCandidateUseCase_Exp
 }
 
 // Approve provides a mock function for the type MockConcertCandidateUseCase
-func (_mock *MockConcertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, reviewerID string) (*usecase.ApproveResult, error) {
-	ret := _mock.Called(ctx, concertCandidateID, resolution, reviewerID)
+func (_mock *MockConcertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, area *string, timeZone *string, reviewerID string) (*usecase.ApproveResult, error) {
+	ret := _mock.Called(ctx, concertCandidateID, resolution, area, timeZone, reviewerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Approve")
@@ -57,18 +57,18 @@ func (_mock *MockConcertCandidateUseCase) Approve(ctx context.Context, concertCa
 
 	var r0 *usecase.ApproveResult
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) (*usecase.ApproveResult, error)); ok {
-		return returnFunc(ctx, concertCandidateID, resolution, reviewerID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, *string, *string, string) (*usecase.ApproveResult, error)); ok {
+		return returnFunc(ctx, concertCandidateID, resolution, area, timeZone, reviewerID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) *usecase.ApproveResult); ok {
-		r0 = returnFunc(ctx, concertCandidateID, resolution, reviewerID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, *string, *string, string) *usecase.ApproveResult); ok {
+		r0 = returnFunc(ctx, concertCandidateID, resolution, area, timeZone, reviewerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*usecase.ApproveResult)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, usecase.ApproveResolution, string) error); ok {
-		r1 = returnFunc(ctx, concertCandidateID, resolution, reviewerID)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, usecase.ApproveResolution, *string, *string, string) error); ok {
+		r1 = returnFunc(ctx, concertCandidateID, resolution, area, timeZone, reviewerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -84,12 +84,14 @@ type MockConcertCandidateUseCase_Approve_Call struct {
 //   - ctx context.Context
 //   - concertCandidateID string
 //   - resolution usecase.ApproveResolution
+//   - area *string
+//   - timeZone *string
 //   - reviewerID string
-func (_e *MockConcertCandidateUseCase_Expecter) Approve(ctx any, concertCandidateID any, resolution any, reviewerID any) *MockConcertCandidateUseCase_Approve_Call {
-	return &MockConcertCandidateUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, concertCandidateID, resolution, reviewerID)}
+func (_e *MockConcertCandidateUseCase_Expecter) Approve(ctx any, concertCandidateID any, resolution any, area any, timeZone any, reviewerID any) *MockConcertCandidateUseCase_Approve_Call {
+	return &MockConcertCandidateUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, concertCandidateID, resolution, area, timeZone, reviewerID)}
 }
 
-func (_c *MockConcertCandidateUseCase_Approve_Call) Run(run func(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, reviewerID string)) *MockConcertCandidateUseCase_Approve_Call {
+func (_c *MockConcertCandidateUseCase_Approve_Call) Run(run func(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, area *string, timeZone *string, reviewerID string)) *MockConcertCandidateUseCase_Approve_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -103,15 +105,25 @@ func (_c *MockConcertCandidateUseCase_Approve_Call) Run(run func(ctx context.Con
 		if args[2] != nil {
 			arg2 = args[2].(usecase.ApproveResolution)
 		}
-		var arg3 string
+		var arg3 *string
 		if args[3] != nil {
-			arg3 = args[3].(string)
+			arg3 = args[3].(*string)
+		}
+		var arg4 *string
+		if args[4] != nil {
+			arg4 = args[4].(*string)
+		}
+		var arg5 string
+		if args[5] != nil {
+			arg5 = args[5].(string)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
+			arg5,
 		)
 	})
 	return _c
@@ -122,7 +134,7 @@ func (_c *MockConcertCandidateUseCase_Approve_Call) Return(approveResult *usecas
 	return _c
 }
 
-func (_c *MockConcertCandidateUseCase_Approve_Call) RunAndReturn(run func(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, reviewerID string) (*usecase.ApproveResult, error)) *MockConcertCandidateUseCase_Approve_Call {
+func (_c *MockConcertCandidateUseCase_Approve_Call) RunAndReturn(run func(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, area *string, timeZone *string, reviewerID string) (*usecase.ApproveResult, error)) *MockConcertCandidateUseCase_Approve_Call {
 	_c.Call.Return(run)
 	return _c
 }

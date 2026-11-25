@@ -1,0 +1,59 @@
+{
+  "id": "ChIJh5kkFNIGBDQRR8StxWm9pRs",
+  "addressComponents": [
+    {
+      "longText": "1號",
+      "shortText": "1號",
+      "types": [
+        "street_number"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "Airport Expo Boulevard",
+      "shortText": "Airport Expo Blvd",
+      "types": [
+        "route"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "Chek Lap Kok",
+      "shortText": "Chek Lap Kok",
+      "types": [
+        "neighborhood",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "New Territories",
+      "shortText": "New Territories",
+      "types": [
+        "administrative_area_level_1",
+        "political"
+      ],
+      "languageCode": "en"
+    },
+    {
+      "longText": "香港",
+      "shortText": "HK",
+      "types": [
+        "country",
+        "political"
+      ],
+      "languageCode": "ja"
+    }
+  ],
+  "location": {
+    "latitude": 22.321343,
+    "longitude": 113.943288
+  },
+  "displayName": {
+    "text": "アジアワールド・エキスポ",
+    "languageCode": "ja"
+  },
+  "timeZone": {
+    "id": "Asia/Hong_Kong"
+  }
+}

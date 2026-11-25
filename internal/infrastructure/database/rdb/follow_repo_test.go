@@ -498,12 +498,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 
 				// User with home area.
 				homeUserID := seedUser(t, db, "Home User", "home@test.com", "ext-home-01")
-				homeID := seedHome(t, db, "JP", "JP-13")
-				_, err = db.Pool.Exec(ctx,
-					`UPDATE users SET home_id = $1 WHERE id = $2`,
-					homeID, homeUserID,
-				)
-				require.NoError(t, err)
+				seedUserHome(t, db, homeUserID, "JP-13")
 				err = followRepo.Follow(ctx, homeUserID, artistID)
 				require.NoError(t, err)
 				err = followRepo.SetHype(ctx, homeUserID, artistID, entity.HypeHome)
@@ -535,6 +530,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				require.NotNil(t, homeFollower, "expected a follower with home area")
 				assert.Equal(t, entity.HypeHome, homeFollower.Hype)
 				assert.Equal(t, "JP-13", homeFollower.User.Home.Level1)
+				assert.Equal(t, "JP", homeFollower.User.Home.CountryCode)
 
 				require.NotNil(t, noHomeFollower, "expected a follower without home area")
 				assert.Equal(t, entity.HypeAway, noHomeFollower.Hype)
@@ -543,26 +539,16 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		},
 		{
 			// Regression test for backend#469: ListFollowers must select the home
-			// centroid so Hype.MatchingConcerts can evaluate ProximityNearby for
-			// HypeNearby followers (the default hype).
-			name: "populates home centroid",
+			// Area's reference point so Hype.MatchingConcerts can evaluate
+			// ProximityNearby for HypeNearby followers (the default hype).
+			name: "populates the home Area's reference point",
 			setup: func() string {
 				cleanTables(t, db)
 				artistID := seedArtist(t, db, "Centroid Artist", "a5000000-0000-0000-0000-000000000004")
 
 				userID := seedUser(t, db, "Centroid User", "centroid@test.com", "ext-centroid-01")
-				homeID := seedHome(t, db, "JP", "JP-13")
-				_, err := db.Pool.Exec(ctx,
-					`UPDATE homes SET centroid_latitude = $1, centroid_longitude = $2 WHERE id = $3`,
-					35.6762, 139.6503, homeID,
-				)
-				require.NoError(t, err)
-				_, err = db.Pool.Exec(ctx,
-					`UPDATE users SET home_id = $1 WHERE id = $2`,
-					homeID, userID,
-				)
-				require.NoError(t, err)
-				err = followRepo.Follow(ctx, userID, artistID)
+				seedUserHome(t, db, userID, "JP-13")
+				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
 				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeNearby)
 				require.NoError(t, err)
@@ -573,9 +559,12 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				t.Helper()
 				require.Len(t, got, 1)
 				require.NotNil(t, got[0].User.Home)
-				require.NotNil(t, got[0].User.Home.Centroid, "Centroid should be populated for a home with coordinates")
-				assert.InDelta(t, 35.6762, got[0].User.Home.Centroid.Latitude, 0.0001)
-				assert.InDelta(t, 139.6503, got[0].User.Home.Centroid.Longitude, 0.0001)
+				var lat, lng float64
+				require.NoError(t, db.Pool.QueryRow(ctx,
+					`SELECT reference_latitude, reference_longitude FROM areas WHERE code = 'JP-13'`).Scan(&lat, &lng))
+				require.NotNil(t, got[0].User.Home.ReferencePoint, "the home Area's reference point should be populated")
+				assert.InDelta(t, lat, got[0].User.Home.ReferencePoint.Latitude, 0.0001)
+				assert.InDelta(t, lng, got[0].User.Home.ReferencePoint.Longitude, 0.0001)
 			},
 		},
 		{

@@ -70,9 +70,9 @@ func TestCreateFromDiscovered_ProcessedAgain(t *testing.T) {
 		return entity.ConcertDiscoveredData{ArtistID: artistID, ArtistName: "Rerun Band", Series: []*entity.DiscoveredSeries{{
 			Title: "Rerun Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/rerun",
 			Events: []*entity.DiscoveredEvent{
-				{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: start},
-				{ListedVenueName: "Zepp Namba", LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
-				{ListedVenueName: "Unknown Hall", LocalDate: day.AddDate(0, 0, 4)},
+				{ListedVenueName: "Zepp Haneda", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: day, StartTime: start},
+				{ListedVenueName: "Zepp Namba", AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
+				{ListedVenueName: "Unknown Hall", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: day.AddDate(0, 0, 4)},
 			},
 		}}}
 	}

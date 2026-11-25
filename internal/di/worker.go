@@ -205,7 +205,7 @@ func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	if err != nil {
 		return err
 	}
-	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), usecase.DeletionBlockerReads{}, nil, emailVerifier, nil, nil,
+	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), rdb.NewAreaRepository(db), usecase.DeletionBlockerReads{}, nil, emailVerifier, nil, nil,
 		usecase.PasskeyMailers{
 			RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger),
 			ChangeEmails:      changeEmails,

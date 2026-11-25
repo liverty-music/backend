@@ -3,6 +3,7 @@ package di
 import (
 	"io"
 
+	adminareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/area/v1/areav1connect"
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
@@ -19,6 +20,7 @@ import (
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
 	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/official_site/v1/official_sitev1connect"
 	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/order/v1/orderv1connect"
+	organizerareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/area/v1/areav1connect"
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
 	organizerscannerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/scanner/v1/scannerv1connect"
@@ -52,7 +54,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -112,6 +113,7 @@ type apiRepos struct {
 	processedWebhookEventRepo *rdb.ProcessedWebhookEventRepository
 	resaleEntryRepo           *rdb.ResaleEntryRepository
 	notificationRepo          *rdb.NotificationRepository
+	areaRepo                  *rdb.AreaRepository
 }
 
 // newAPIRepos builds the repositories of the API server. The Order,
@@ -121,6 +123,7 @@ func newAPIRepos(db *rdb.Database, cfg *config.ServerConfig, logger *logging.Log
 	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
 	return apiRepos{
 		userRepo:                  rdb.NewUserRepository(db, newOutbox(logger)),
+		areaRepo:                  rdb.NewAreaRepository(db),
 		artistRepo:                rdb.NewArtistRepository(db, newOutbox(logger)),
 		followRepo:                rdb.NewFollowRepository(db, newOutbox(logger)),
 		concertRepo:               rdb.NewConcertRepository(db, newOutbox(logger)),
@@ -227,7 +230,7 @@ func (w *apiWiring) buildCatalogue() error {
 	var err error
 	// Infrastructure - Gemini (optional)
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, nil, geminiHTTPClient, logger)
+	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, nil, geminiHTTPClient, w.areaRepo, logger)
 	if err != nil {
 		return err
 	}
@@ -245,7 +248,7 @@ func (w *apiWiring) buildCatalogue() error {
 	// elsewhere and in local dev without the identity service.
 	identityRemover, emailCodes := provideIdentityClients(ctx, cfg, logger)
 
-	w.userUC = usecase.NewUserUseCase(w.userRepo, usecase.DeletionBlockerReads{
+	w.userUC = usecase.NewUserUseCase(w.userRepo, w.areaRepo, usecase.DeletionBlockerReads{
 		Tickets:        w.ticketRepo,
 		Events:         w.eventRepo,
 		ResaleListings: w.resaleListingRepo,
@@ -255,10 +258,16 @@ func (w *apiWiring) buildCatalogue() error {
 		Now:            time.Now,
 	}, w.workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
 	w.passkeyUC = usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), w.userRepo, w.workflows, time.Now, logger)
-	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, centroidResolver, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
+
+	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 	w.concertUC = concertUC
-	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC)
+	// Map catalog (Google Maps Places API) that members pick event venues
+	// from, and that gives a Venue made on approval its coordinates.
+	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), w.areaRepo, logger)
+	if err != nil {
+		return err
+	}
+	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC, w.mapCatalog)
 	w.artistUC = usecase.NewArtistUseCase(w.artistRepo, w.organizerRepo, lastfmClient, musicbrainzClient, w.artistCache, time.Now, logger)
 	w.followUC = usecase.NewFollowUseCase(w.followRepo, w.artistRepo, musicbrainzClient, w.businessMetrics, logger)
 	w.externals = append(w.externals, lastfmClient, musicbrainzClient)
@@ -295,12 +304,6 @@ func (w *apiWiring) buildOrganizer() error {
 	// in the provisioning state after a partial failure.
 	if cfg.ProvisionsOrganizers() {
 		startOrganizerReconciler(ctx, w.organizerUC, logger)
-	}
-	// Map catalog (Google Maps Places API) that members pick event
-	// venues from.
-	w.mapCatalog, err = newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
-	if err != nil {
-		return err
 	}
 	w.seriesUC = usecase.NewSeriesUseCase(w.seriesRepo, rdb.NewSeriesImageRepository(db, newOutbox(logger)), w.venueRepo, w.mapCatalog, w.organizerRepo, w.ticketSaleRepo,
 		w.imageStorer, usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket}, logger, time.Now)
@@ -759,6 +762,11 @@ func (w *apiWiring) adminServer() *server.ConnectServer {
 		func(s *connect.Server) {
 			adminconcertcandidateconnect.RegisterConcertCandidateServiceHandler(s, rpc.NewAdminConcertCandidateHandler(w.concertCandidateUC, logger))
 		},
+		// Admin AreaService: Resolve and ListByCountry, to confirm a
+		// discovered concert's area and time zone in the approval queue.
+		func(s *connect.Server) {
+			adminareaconnect.RegisterAreaServiceHandler(s, rpc.NewAdminAreaHandler(usecase.NewAreaUseCase(w.areaRepo)))
+		},
 		// Admin ArtistService: ListByOrganizer.
 		func(s *connect.Server) {
 			adminartistconnect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(w.artistUC, logger))
@@ -793,9 +801,15 @@ func (w *apiWiring) organizerHandlers() []server.RPCHandlerFunc {
 		func(s *connect.Server) {
 			organizerseriesconnect.RegisterSeriesServiceHandler(s, rpc.NewOrganizerSeriesHandler(w.seriesUC, w.organizerUC, w.seriesImageURLBuilder, logger))
 		},
-		// Organizer-facing VenueService: Search (map catalog venue lookup).
+		// Organizer-facing VenueService: Search (map catalog venue lookup) and
+		// ResolvePlace (the Venue or place draft of a picked place).
 		func(s *connect.Server) {
-			organizervenueconnect.RegisterVenueServiceHandler(s, rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(w.mapCatalog), w.organizerUC))
+			organizervenueconnect.RegisterVenueServiceHandler(s, rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(w.mapCatalog, w.venueRepo, w.areaRepo), w.organizerUC))
+		},
+		// Organizer-facing AreaService: ListCountries and ListByCountry, to
+		// confirm a new place's area and time zone.
+		func(s *connect.Server) {
+			organizerareaconnect.RegisterAreaServiceHandler(s, rpc.NewOrganizerAreaHandler(usecase.NewAreaUseCase(w.areaRepo), w.organizerUC))
 		},
 		// Organizer-facing SeriesImageService: CreateUploadUrl.
 		func(s *connect.Server) {

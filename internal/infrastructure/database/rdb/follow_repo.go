@@ -73,10 +73,10 @@ const (
 		JOIN followed_artists fa ON a.id = fa.artist_id
 	`
 	followListFollowersQuery = `
-		SELECT fa.user_id, fa.hype, COALESCE(h.level_1, ''), h.centroid_latitude, h.centroid_longitude, COALESCE(u.preferred_language, '')
+		SELECT fa.user_id, fa.hype, ` + homeColumns + `, COALESCE(u.preferred_language, '')
 		FROM followed_artists fa
 		JOIN users u ON u.id = fa.user_id
-		LEFT JOIN homes h ON h.id = u.home_id
+		` + homeJoin + `
 		WHERE fa.artist_id = $1
 	`
 )
@@ -287,8 +287,9 @@ func (r *FollowRepository) ListAll(ctx context.Context) ([]*entity.Artist, error
 }
 
 // ListFollowers retrieves all followers of an artist with their hype level and home area.
-// User entities are partially populated with ID, Home (including the home area's
-// Centroid, needed by Hype.MatchingConcerts to evaluate ProximityNearby), and
+// User entities are partially populated with ID, Home (the home Area with its
+// country and reference point, needed by Hype.MatchingConcerts to evaluate
+// ProximityNearby), and
 // PreferredLanguage for notification filtering and copy localization.
 func (r *FollowRepository) ListFollowers(ctx context.Context, artistID string) ([]*entity.Follower, error) {
 	rows, err := r.db.Pool.Query(ctx, followListFollowersQuery, artistID)
@@ -299,18 +300,19 @@ func (r *FollowRepository) ListFollowers(ctx context.Context, artistID string) (
 
 	var followers []*entity.Follower
 	for rows.Next() {
-		var userID, hype, homeLevel1, prefLang string
-		var centroidLat, centroidLng sql.NullFloat64
-		if err := rows.Scan(&userID, &hype, &homeLevel1, &centroidLat, &centroidLng, &prefLang); err != nil {
+		var userID, hype, prefLang string
+		var homeArea, homeCountry sql.NullString
+		var refLat, refLng sql.NullFloat64
+		if err := rows.Scan(&userID, &hype, &homeArea, &homeCountry, &refLat, &refLng, &prefLang); err != nil {
 			return nil, toAppErr(err, "failed to scan follower row")
 		}
 		user := &entity.User{ID: userID, PreferredLanguage: prefLang}
-		if homeLevel1 != "" {
-			user.Home = &entity.Home{Level1: homeLevel1}
-			if centroidLat.Valid && centroidLng.Valid {
-				user.Home.Centroid = &entity.Coordinates{
-					Latitude:  centroidLat.Float64,
-					Longitude: centroidLng.Float64,
+		if homeArea.Valid {
+			user.Home = &entity.Home{CountryCode: homeCountry.String, Level1: homeArea.String}
+			if refLat.Valid && refLng.Valid {
+				user.Home.ReferencePoint = &entity.Coordinates{
+					Latitude:  refLat.Float64,
+					Longitude: refLng.Float64,
 				}
 			}
 		}

@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -72,13 +73,17 @@ type Client struct {
 	autocompleteURL string
 	// detailsBaseURL is the Places resource collection used by GetPlace.
 	detailsBaseURL string
-	logger         *logging.Logger
+	// areas resolves the region of a place's address to the first-level
+	// Area GetPlace suggests; nil for a client that never reads a place.
+	areas  entity.AreaRepository
+	logger *logging.Logger
 }
 
 // NewClient creates a new Google Maps Places client using the provided OAuth2
 // TokenSource for authentication. The projectID is sent in the X-Goog-User-Project
-// header for billing attribution.
-func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client, logger *logging.Logger) *Client {
+// header for billing attribution. areas resolves the region of a place's
+// address in GetPlace; it may be nil when GetPlace is never called.
+func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client, areas entity.AreaRepository, logger *logging.Logger) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 10 * time.Second,
@@ -91,6 +96,7 @@ func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client,
 		baseURL:         defaultBaseURL,
 		autocompleteURL: defaultAutocompleteURL,
 		detailsBaseURL:  defaultDetailsBaseURL,
+		areas:           areas,
 		logger:          logger.With(slog.String("component", "googlemaps")),
 	}
 }

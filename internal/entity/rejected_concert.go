@@ -41,12 +41,9 @@ type RejectedConcert struct {
 	// ResolvedPlaceID is the Google Places place id of the resolved venue at
 	// rejection time. Nil when unresolved.
 	ResolvedPlaceID *string
-	// ResolvedVenueName is the resolved canonical venue name at rejection time.
-	// Nil when unresolved.
-	ResolvedVenueName *string
-	// ResolvedAdminArea is the resolved admin area at rejection time. Nil when
-	// unresolved.
-	ResolvedAdminArea *string
+	// TimeZone is the venue's time zone as discovery resolved it, kept from
+	// the candidate. Nil when it had none.
+	TimeZone *string
 	// Reason is the reviewer-provided reason for rejecting the concert.
 	Reason string
 	// ReviewedBy is the Zitadel subject (identity) of the developer who

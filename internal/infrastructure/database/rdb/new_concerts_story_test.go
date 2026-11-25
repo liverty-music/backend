@@ -70,7 +70,7 @@ func (s *newConcertsStory) discover(artistID, artistName, tour string, count int
 			Name:           name,
 			Coordinates:    &entity.Coordinates{Latitude: 35.55, Longitude: 139.75},
 		}
-		batch.Events = append(batch.Events, &entity.DiscoveredEvent{ListedVenueName: name, LocalDate: first.AddDate(0, 0, i)})
+		batch.Events = append(batch.Events, &entity.DiscoveredEvent{ListedVenueName: name, AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: first.AddDate(0, 0, i)})
 	}
 	uc := usecase.NewConcertCreationUseCase(
 		rdb.NewConcertCandidateRepository(s.db),

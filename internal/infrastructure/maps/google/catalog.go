@@ -9,9 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -37,9 +38,13 @@ const (
 	catalogSearchPageSize = 5
 
 	searchPlacesFieldMask = "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat"
-	getPlaceFieldMask     = "id,displayName,location,addressComponents"
+	getPlaceFieldMask     = "id,displayName,location,addressComponents,timeZone"
+	// getPlaceCoordinatesFieldMask asks for the location only, so the call
+	// bills as Place Details Essentials.
+	getPlaceCoordinatesFieldMask = "id,location"
 
 	addressTypeAdminAreaLevel1 = "administrative_area_level_1"
+	addressTypeCountry         = "country"
 )
 
 // Compile-time check that Client is the organizer console's map catalog.
@@ -88,6 +93,9 @@ type placeDetailsResponse struct {
 		ShortText string   `json:"shortText"`
 		Types     []string `json:"types"`
 	} `json:"addressComponents"`
+	TimeZone *struct {
+		ID string `json:"id"`
+	} `json:"timeZone"`
 }
 
 // SearchPlaces implements entity.VenueMapCatalog with Place Autocomplete
@@ -134,11 +142,22 @@ func (c *Client) SearchPlaces(ctx context.Context, text string) ([]*entity.MapPl
 	return out, nil
 }
 
-// GetPlace implements entity.VenueMapCatalog with Place Details (New). The
-// admin area is the ISO 3166-2 code of the administrative_area_level_1
-// component; it is nil when that component is missing or does not map to a
-// code (only Japanese prefectures and values already in ISO 3166-2 form map).
-func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace, error) {
+// GetPlaceCoordinates implements entity.VenueMapCatalog with Place Details
+// (New), asking only for the location.
+func (c *Client) GetPlaceCoordinates(ctx context.Context, placeID string) (*entity.PlaceCoordinates, error) {
+	data, err := c.placeDetails(ctx, placeID, getPlaceCoordinatesFieldMask)
+	if err != nil {
+		return nil, err
+	}
+	out := &entity.PlaceCoordinates{FetchTime: time.Now()}
+	if data.Location != nil {
+		out.Coordinates = &entity.Coordinates{Latitude: data.Location.Latitude, Longitude: data.Location.Longitude}
+	}
+	return out, nil
+}
+
+// placeDetails reads one place with the given field mask.
+func (c *Client) placeDetails(ctx context.Context, placeID, fieldMask string) (*placeDetailsResponse, error) {
 	u := c.detailsBaseURL + "/" + url.PathEscape(placeID) + "?languageCode=" + catalogLanguageCode
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -146,7 +165,7 @@ func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace
 	}
 
 	var data placeDetailsResponse
-	err = c.doCatalogRequest(ctx, req, getPlaceFieldMask, "google maps place details failed", &data)
+	err = c.doCatalogRequest(ctx, req, fieldMask, "google maps place details failed", &data)
 	// The catalog answers an unknown place id with 400 INVALID_ARGUMENT
 	// ("The provided Place ID: ... is not valid.") and an obsolete one with
 	// 404 NOT_FOUND; the place id is the only input, so both mean no such place.
@@ -156,18 +175,74 @@ func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace
 	if err != nil {
 		return nil, err
 	}
+	return &data, nil
+}
 
-	place := &entity.MapPlace{PlaceID: data.ID, Name: data.DisplayName.Text}
+// GetPlace implements entity.VenueMapCatalog with Place Details (New): the
+// place's name, country, coordinates with the time they were read, time zone,
+// and the first-level Area its address suggests (see suggestArea).
+func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace, error) {
+	data, err := c.placeDetails(ctx, placeID, getPlaceFieldMask)
+	if err != nil {
+		return nil, err
+	}
+
+	place := &entity.MapPlace{PlaceID: data.ID, Name: data.DisplayName.Text, CoordinatesFetchTime: time.Now()}
 	if data.Location != nil {
 		place.Coordinates = &entity.Coordinates{Latitude: data.Location.Latitude, Longitude: data.Location.Longitude}
 	}
+	if data.TimeZone != nil && data.TimeZone.ID != "" {
+		zone := data.TimeZone.ID
+		place.TimeZone = &zone
+	}
+	var region []string
 	for _, comp := range data.AddressComponents {
-		if slices.Contains(comp.Types, addressTypeAdminAreaLevel1) {
-			place.AdminArea = geo.NormalizeAdminArea(comp.LongText)
-			break
+		switch {
+		case slices.Contains(comp.Types, addressTypeCountry):
+			place.CountryCode = strings.ToUpper(comp.ShortText)
+		case slices.Contains(comp.Types, addressTypeAdminAreaLevel1):
+			region = []string{comp.LongText, comp.ShortText}
 		}
 	}
+	if place.SuggestedAdminArea, err = c.suggestArea(ctx, place.CountryCode, region); err != nil {
+		return nil, err
+	}
 	return place, nil
+}
+
+// suggestArea returns the first-level Area a place's address suggests: the
+// country itself when it is its own first-level Area (HK), else the Area the
+// region's full name, then its short name, resolves to within the country.
+// Nil when neither applies.
+func (c *Client) suggestArea(ctx context.Context, country string, region []string) (*string, error) {
+	if country == "" || c.areas == nil {
+		return nil, nil
+	}
+	resolve := func(text string) (*string, error) {
+		if text == "" {
+			return nil, nil
+		}
+		area, err := c.areas.Resolve(ctx, text, &country)
+		if errors.Is(err, apperr.ErrNotFound) || errors.Is(err, apperr.ErrInvalidArgument) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if area.CountryCode != country {
+			return nil, nil
+		}
+		return &area.Code, nil
+	}
+	if code, err := resolve(country); err != nil || (code != nil && *code == country) {
+		return code, err
+	}
+	for _, text := range region {
+		if code, err := resolve(text); err != nil || code != nil {
+			return code, err
+		}
+	}
+	return nil, nil
 }
 
 // doCatalogRequest authenticates req, sends it with the given field mask and

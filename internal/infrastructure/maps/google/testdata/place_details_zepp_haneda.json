@@ -82,5 +82,8 @@
   "displayName": {
     "text": "Zepp Haneda (TOKYO)",
     "languageCode": "ja"
+  },
+  "timeZone": {
+    "id": "Asia/Tokyo"
   }
 }

@@ -25,10 +25,9 @@ const (
 		INSERT INTO concert_candidates (
 			id, artist_id, series_id, title, local_date, start_time, open_time,
 			listed_venue_name, admin_area, source_url,
-			resolved_place_id, resolved_venue_name, resolved_admin_area,
-			resolved_latitude, resolved_longitude
+			resolved_place_id, time_zone
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (artist_id, local_date, resolved_place_id)
 		WHERE resolved_place_id IS NOT NULL
 		DO UPDATE SET
@@ -38,10 +37,7 @@ const (
 			open_time             = EXCLUDED.open_time,
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
-			resolved_venue_name = EXCLUDED.resolved_venue_name,
-			resolved_admin_area = EXCLUDED.resolved_admin_area,
-			resolved_latitude   = EXCLUDED.resolved_latitude,
-			resolved_longitude  = EXCLUDED.resolved_longitude
+			time_zone           = EXCLUDED.time_zone
 	`
 
 	// upsertConcertCandidateByListedNameQuery handles the unresolved-venue path:
@@ -53,10 +49,9 @@ const (
 		INSERT INTO concert_candidates (
 			id, artist_id, series_id, title, local_date, start_time, open_time,
 			listed_venue_name, admin_area, source_url,
-			resolved_place_id, resolved_venue_name, resolved_admin_area,
-			resolved_latitude, resolved_longitude
+			resolved_place_id, time_zone
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (artist_id, local_date, listed_venue_name)
 		WHERE resolved_place_id IS NULL
 		DO UPDATE SET
@@ -67,17 +62,13 @@ const (
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
 			resolved_place_id   = EXCLUDED.resolved_place_id,
-			resolved_venue_name = EXCLUDED.resolved_venue_name,
-			resolved_admin_area = EXCLUDED.resolved_admin_area,
-			resolved_latitude   = EXCLUDED.resolved_latitude,
-			resolved_longitude  = EXCLUDED.resolved_longitude
+			time_zone           = EXCLUDED.time_zone
 	`
 
 	listPendingConcertCandidatesQuery = `
 		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
 		       listed_venue_name, admin_area, source_url,
-		       resolved_place_id, resolved_venue_name, resolved_admin_area,
-		       resolved_latitude, resolved_longitude, find_time
+		       resolved_place_id, time_zone, find_time
 		FROM concert_candidates
 		ORDER BY find_time ASC
 	`
@@ -85,8 +76,7 @@ const (
 	getConcertCandidateByIDQuery = `
 		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
 		       listed_venue_name, admin_area, source_url,
-		       resolved_place_id, resolved_venue_name, resolved_admin_area,
-		       resolved_latitude, resolved_longitude, find_time
+		       resolved_place_id, time_zone, find_time
 		FROM concert_candidates
 		WHERE id = $1
 	`
@@ -110,6 +100,9 @@ func NewConcertCandidateRepository(db *Database) *ConcertCandidateRepository {
 // Upsert inserts a new concert candidate or refreshes an existing pending row on
 // natural-key conflict.
 func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.ConcertCandidate) error {
+	if err := sc.Validate(); err != nil {
+		return err
+	}
 	// Branch on whether ResolvedPlaceID is set to choose the correct partial
 	// unique index as the ON CONFLICT target.
 	var query string
@@ -131,10 +124,7 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 		sc.AdminArea,
 		sc.SourceURL,
 		sc.ResolvedPlaceID,
-		sc.ResolvedVenueName,
-		sc.ResolvedAdminArea,
-		sc.ResolvedLatitude,
-		sc.ResolvedLongitude,
+		sc.TimeZone,
 	)
 	if err != nil {
 		return toAppErr(err, "failed to upsert concert candidate",
@@ -237,10 +227,7 @@ func scanConcertCandidateRow(scan func(dest ...any) error) (*entity.ConcertCandi
 		&sc.AdminArea,
 		&sc.SourceURL,
 		&sc.ResolvedPlaceID,
-		&sc.ResolvedVenueName,
-		&sc.ResolvedAdminArea,
-		&sc.ResolvedLatitude,
-		&sc.ResolvedLongitude,
+		&sc.TimeZone,
 		&sc.FindTime,
 	)
 	if err != nil {

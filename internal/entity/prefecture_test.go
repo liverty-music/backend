@@ -31,27 +31,3 @@ func TestPrefectureName(t *testing.T) {
 		})
 	}
 }
-
-func TestPrefectureCode(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		in     string
-		want   string
-		wantOK bool
-	}{
-		{name: "japanese name with suffix", in: "東京都", want: "JP-13", wantOK: true},
-		{name: "japanese name without suffix", in: "大阪", want: "JP-27", wantOK: true},
-		{name: "english name, any case", in: "Hokkaido", want: "JP-01", wantOK: true},
-		{name: "unknown name", in: "台北市", wantOK: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, ok := entity.PrefectureCode(tt.in)
-			assert.Equal(t, tt.wantOK, ok)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}

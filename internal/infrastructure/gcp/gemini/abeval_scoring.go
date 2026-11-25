@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 )
 
 // MatchKey is the primary key used to match a returned event to a fixture
@@ -83,23 +82,13 @@ func CompareEvent(scraped ScoredEvent, expected GroundTruthEvent) FieldAccuracy 
 		LocalDate: ev.LocalDate.Format("2006-01-02") == expected.LocalDate,
 	}
 
-	// Both sides go through geo.NormalizeAdminArea so the comparison is
-	// in ISO 3166-2 space (the production storage form). Fixture values are
-	// written as human-readable Japanese prefecture names (e.g. "大阪府")
-	// for review-ability; normalization turns them into "JP-27" before
-	// comparison.
+	// Both sides are codes of first-level Areas: the searcher resolves the
+	// model's area, and the fixture records the code (testdata/README.md).
 	gotAdmin := ""
 	if ev.AdminArea != nil {
 		gotAdmin = *ev.AdminArea
 	}
-	wantAdmin := ""
-	if expected.AdminArea != "" {
-		if n := geo.NormalizeAdminArea(expected.AdminArea); n != nil {
-			wantAdmin = *n
-		} else {
-			wantAdmin = expected.AdminArea
-		}
-	}
+	wantAdmin := expected.AdminArea
 	got.AdminArea = gotAdmin == wantAdmin
 
 	got.StartTime = timesEqual(ev.StartTime, expected.StartTime)

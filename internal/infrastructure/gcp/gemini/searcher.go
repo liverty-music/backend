@@ -17,7 +17,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/genai"
 )
@@ -197,7 +196,8 @@ type EventDraft struct {
 	SourceURL string // series source page.
 	Venue     string // venue name, verbatim.
 	Country   string // ISO 3166-1 alpha-2.
-	AdminArea string // ISO 3166-2 as returned by the model (normalized later).
+	AdminArea string // ISO 3166-2 as returned by the model (resolved later).
+	TimeZone  string // IANA time zone as returned by the model, or "".
 	LocalDate string // YYYY-MM-DD.
 	StartTime string // RFC3339 or "".
 	OpenTime  string // RFC3339 or "".
@@ -213,6 +213,9 @@ type EventDraft struct {
 // Google Search grounding.
 type ConcertSearcher struct {
 	client *genai.Client
+	// areas resolves the admin area the model returns to a first-level Area
+	// and gives the time zones of its country.
+	areas  entity.AreaRepository
 	config Config
 	logger *logging.Logger
 	prompt Prompt
@@ -312,7 +315,7 @@ type URLRetrieval struct {
 // httpClient carries the Gemini API calls. pageClient fetches the official
 // top page whose links go into the prompt; pass
 // NewOfficialPageClient(), or nil to search without links.
-func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
+func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient *http.Client, areas entity.AreaRepository, logger *logging.Logger) (*ConcertSearcher, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("gemini.NewConcertSearcher: APIKey is empty; set GCP_GEMINI_SEARCH_API_KEY (Gemini API direct is the only supported backend for this workload)")
 	}
@@ -332,6 +335,7 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient 
 	}
 
 	return &ConcertSearcher{
+		areas:      areas,
 		client:     client,
 		config:     cfg,
 		logger:     logger,
@@ -1097,18 +1101,56 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 		}
 	}
 
-	var adminArea *string
-	if draft.AdminArea != "" {
-		adminArea = geo.NormalizeAdminArea(draft.AdminArea)
-	}
+	adminArea, timeZone := s.resolveArea(ctx, draft, attrs)
 
 	return &entity.DiscoveredEvent{
 		ListedVenueName: draft.Venue,
 		AdminArea:       adminArea,
+		TimeZone:        timeZone,
 		LocalDate:       date,
 		StartTime:       startTime,
 		OpenTime:        openTime,
 	}
+}
+
+// resolveArea turns the model's admin area into the code of the first-level
+// Area it resolves to without a country, and picks the event's time zone: the
+// Area's own, else the model's when it is one of the country's zones. An area
+// that does not resolve gives neither; so does a failure to read the
+// reference data, which is logged, so the event is staged for review rather
+// than lost.
+func (s *ConcertSearcher) resolveArea(ctx context.Context, draft EventDraft, attrs []slog.Attr) (adminArea, timeZone *string) {
+	if draft.AdminArea == "" {
+		return nil, nil
+	}
+	area, err := s.areas.Resolve(ctx, draft.AdminArea, nil)
+	if err != nil {
+		if !errors.Is(err, apperr.ErrNotFound) && !errors.Is(err, apperr.ErrInvalidArgument) {
+			s.logger.Warn(ctx, "failed to resolve the event's admin area",
+				append(attrs, slog.String("admin_area", draft.AdminArea), slog.String("error", err.Error()))...)
+		}
+		return nil, nil
+	}
+	code := area.Code
+	if area.TimeZone != nil {
+		return &code, area.TimeZone
+	}
+	if draft.TimeZone == "" {
+		return &code, nil
+	}
+	zones, err := s.areas.ListByCountry(ctx, area.CountryCode)
+	if err != nil {
+		s.logger.Warn(ctx, "failed to read the time zones of the event's country",
+			append(attrs, slog.String("country", area.CountryCode), slog.String("error", err.Error()))...)
+		return &code, nil
+	}
+	for _, z := range zones.TimeZones {
+		if z.Name == draft.TimeZone {
+			zone := z.Name
+			return &code, &zone
+		}
+	}
+	return &code, nil
 }
 
 // searchQueriesOf extracts the "queries" argument of a Google Search
@@ -1166,6 +1208,7 @@ type singleStepEvent struct {
 	Venue     string `json:"venue"`
 	Country   string `json:"country"`
 	AdminArea string `json:"admin_area"`
+	TimeZone  string `json:"time_zone"`
 	LocalDate string `json:"local_date"`
 	OpenTime  string `json:"open_time"`
 	StartTime string `json:"start_time"`
@@ -1202,6 +1245,10 @@ var singleStepEventSchema = map[string]any{
 			"type":        "string",
 			"description": "ISO 3166-2 code of the venue's first-level subdivision (e.g. JP-13, TW-TPE, KR-11, US-CA). \"\" when uncertain.",
 		},
+		"time_zone": map[string]any{
+			"type":        "string",
+			"description": "IANA time zone name of the venue (e.g. Asia/Tokyo, Asia/Taipei, America/Chicago). \"\" when uncertain.",
+		},
 		"local_date": map[string]any{
 			"type":        "string",
 			"description": "Calendar date in YYYY-MM-DD. When the page omits the year, infer it from page context.",
@@ -1215,7 +1262,7 @@ var singleStepEventSchema = map[string]any{
 			"description": "Show start time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T18:30:00+09:00). \"\" when not published.",
 		},
 	},
-	"required": []string{"venue", "country", "admin_area", "local_date", "open_time", "start_time"},
+	"required": []string{"venue", "country", "admin_area", "time_zone", "local_date", "open_time", "start_time"},
 }
 
 // singleStepSeriesSchema describes one tour or show (one or more dates).
@@ -1279,6 +1326,7 @@ func parseSingleStepJSON(raw string) ([]EventDraft, error) {
 				Venue:     strings.TrimSpace(ev.Venue),
 				Country:   strings.TrimSpace(ev.Country),
 				AdminArea: strings.TrimSpace(ev.AdminArea),
+				TimeZone:  strings.TrimSpace(ev.TimeZone),
 				LocalDate: strings.TrimSpace(ev.LocalDate),
 				StartTime: strings.TrimSpace(ev.StartTime),
 				OpenTime:  strings.TrimSpace(ev.OpenTime),

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS homes (
 
 ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
 
+
 COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
 COMMENT ON COLUMN homes.id IS 'Unique home record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
@@ -105,17 +106,27 @@ CREATE TABLE IF NOT EXISTS venues (
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     listed_venue_name TEXT,
+    admin_area_first_level BOOLEAN NOT NULL DEFAULT TRUE,
+    time_zone TEXT,
+    country_code TEXT GENERATED ALWAYS AS (left(admin_area, 2)) STORED,
+    coordinates_fetch_time TIMESTAMPTZ,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
-    CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_venues_admin_area_first_level CHECK (admin_area_first_level),
+    CONSTRAINT chk_venues_coordinates_fetch_time CHECK ((latitude IS NULL) = (coordinates_fetch_time IS NULL))
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN venues.name IS 'Canonical venue name from Google Places API';
-COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13) for the venue location; NULL when not determinable with confidence';
-COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record';
-COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue from Google Places API';
-COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue from Google Places API';
+COMMENT ON COLUMN venues.name IS 'Venue name: the name its source listed, or the name a member saved; never a name read from the map catalog unsaved';
+COMMENT ON COLUMN venues.admin_area IS 'Code of the first-level Area of the venue (e.g., JP-13, HK); NULL only for a venue whose area is not known yet';
+COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID of the venue; kept indefinitely';
+COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude read from the map catalog at coordinates_fetch_time; cleared after 30 days';
+COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude read from the map catalog at coordinates_fetch_time; cleared after 30 days';
+COMMENT ON COLUMN venues.admin_area_first_level IS 'Always true; with admin_area it lets the foreign key require a first-level Area';
+COMMENT ON COLUMN venues.time_zone IS 'IANA time zone of the venue, in which its events'' wall-clock times are read; one of its country''s zones, equal to the Area''s zone when the Area has one; NULL only while not known yet';
+COMMENT ON COLUMN venues.country_code IS 'Country of the venue, the first two letters of admin_area; with time_zone it lets the foreign key require a zone of that country';
+COMMENT ON COLUMN venues.coordinates_fetch_time IS 'When the coordinates were read from the map catalog; set exactly when they are';
 COMMENT ON COLUMN venues.listed_venue_name IS 'Raw scraped venue name as returned by Gemini; used for DB-first lookup to avoid redundant Places API calls';
 
 -- Series type enum
@@ -411,6 +422,7 @@ CREATE TABLE IF NOT EXISTS concert_candidates (
     resolved_admin_area TEXT,
     resolved_latitude DOUBLE PRECISION,
     resolved_longitude DOUBLE PRECISION,
+    time_zone TEXT,
     find_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_concert_candidates_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
@@ -426,6 +438,7 @@ COMMENT ON COLUMN concert_candidates.open_time IS 'Doors-open time. NULL when no
 COMMENT ON COLUMN concert_candidates.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
 COMMENT ON COLUMN concert_candidates.admin_area IS 'Administrative area extracted by Gemini for the concert. NULL when not extracted.';
 COMMENT ON COLUMN concert_candidates.source_url IS 'Source URL where the concert was found. NULL when not provided.';
+COMMENT ON COLUMN concert_candidates.time_zone IS 'IANA time zone of the venue as discovery resolved it: the Area''s zone, else the source''s when it is one of the country''s zones; NULL when neither is known';
 COMMENT ON COLUMN concert_candidates.resolved_place_id IS 'Google Places place id of the resolved venue. NULL when the listed name could not be resolved.';
 COMMENT ON COLUMN concert_candidates.resolved_venue_name IS 'Canonical venue name resolved via Google Places. NULL when unresolved.';
 COMMENT ON COLUMN concert_candidates.resolved_admin_area IS 'ISO 3166-2 admin area of the resolved venue. NULL when unresolved or indeterminate.';
@@ -451,6 +464,7 @@ CREATE TABLE IF NOT EXISTS rejected_concerts (
     resolved_place_id TEXT,
     resolved_venue_name TEXT,
     resolved_admin_area TEXT,
+    time_zone TEXT,
     reason TEXT NOT NULL,
     reviewed_by TEXT,
     reject_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -468,6 +482,7 @@ COMMENT ON COLUMN rejected_concerts.open_time IS 'Doors-open time of the rejecte
 COMMENT ON COLUMN rejected_concerts.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
 COMMENT ON COLUMN rejected_concerts.admin_area IS 'Administrative area extracted for the rejected concert. NULL when not extracted.';
 COMMENT ON COLUMN rejected_concerts.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
+COMMENT ON COLUMN rejected_concerts.time_zone IS 'IANA time zone of the venue as discovery resolved it, kept from the candidate; NULL when it had none';
 COMMENT ON COLUMN rejected_concerts.resolved_place_id IS 'Google Places place id of the resolved venue at rejection time. NULL when unresolved.';
 COMMENT ON COLUMN rejected_concerts.resolved_venue_name IS 'Resolved canonical venue name at rejection time. NULL when unresolved.';
 COMMENT ON COLUMN rejected_concerts.resolved_admin_area IS 'Resolved admin area at rejection time. NULL when unresolved.';
@@ -1407,3 +1422,23 @@ COMMENT ON TABLE area_memberships IS 'The first-level areas each region groups (
 COMMENT ON COLUMN area_memberships.region_code IS 'The region';
 COMMENT ON COLUMN area_memberships.member_code IS 'A first-level area the region contains';
 COMMENT ON COLUMN area_memberships.member_first_level IS 'Always true; with member_code it lets the foreign key require a first-level member';
+
+-- The home Area of each user (OpenSpec change globalize-venues, Decision 8).
+-- It replaces homes, which stays until the code that reads it is gone.
+CREATE TABLE IF NOT EXISTS user_home_areas (
+    user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    area_code TEXT NOT NULL,
+    area_first_level BOOLEAN NOT NULL DEFAULT TRUE CHECK (area_first_level),
+    CONSTRAINT fk_user_home_areas_area FOREIGN KEY (area_code, area_first_level) REFERENCES areas (code, is_first_level)
+);
+
+COMMENT ON TABLE user_home_areas IS 'The home Area of each user: the first-level Area where the user attends live events without considering it a trip. One row per user; deleted with the user';
+COMMENT ON COLUMN user_home_areas.user_id IS 'The user whose home this is';
+COMMENT ON COLUMN user_home_areas.area_code IS 'Code of the first-level Area of the home (e.g., JP-13, HK)';
+COMMENT ON COLUMN user_home_areas.area_first_level IS 'Always true; with area_code it lets the foreign key require a first-level Area';
+
+-- Venues name a first-level Area and a time zone of its country (OpenSpec
+-- change globalize-venues, Decisions 1 and 5). They are added here, after
+-- the reference tables they refer to.
+ALTER TABLE venues ADD CONSTRAINT fk_venues_admin_area FOREIGN KEY (admin_area, admin_area_first_level) REFERENCES areas (code, is_first_level);
+ALTER TABLE venues ADD CONSTRAINT fk_venues_time_zone FOREIGN KEY (country_code, time_zone) REFERENCES country_time_zones (country_code, time_zone);

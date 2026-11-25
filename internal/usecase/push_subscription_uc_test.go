@@ -379,7 +379,7 @@ func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", ReferencePoint: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				expectNotificationRequested(t, d.publisher, "user-nearby", entity.NotificationTypeNewConcerts)
@@ -412,7 +412,7 @@ func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", ReferencePoint: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				expectNotificationRequested(t, d.publisher, "user-nearby", entity.NotificationTypeNewConcerts)
@@ -438,7 +438,7 @@ func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(farConcerts, nil).Once()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", ReferencePoint: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No Notify — NEARBY follower filtered out.

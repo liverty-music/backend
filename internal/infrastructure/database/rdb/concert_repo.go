@@ -147,7 +147,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.time_zone
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -168,7 +168,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.time_zone
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -188,7 +188,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -207,14 +207,17 @@ const (
 	// their coordinates fall outside the box (or are NULL). The precise Haversine
 	// 200 km cut and HOME/NEARBY classification happen in the use-case layer.
 	// Venue lat/lng are included (withCoords) so that classification can run.
-	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax, $7 admin_area.
+	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax,
+	// $7 lngMin2, $8 lngMax2 (a second longitude range for a box across
+	// ±180°, else the first one again), $9 admin_area. The box parameters are
+	// NULL when the reference has no point.
 	// The fanVisibilityGuard excludes DRAFT, CANCELLED and UNLISTED first-party events.
 	listConcertsByLocationQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -222,8 +225,9 @@ const (
 		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE e.local_event_date BETWEEN $1 AND $2
 		  AND (
-		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
-		    OR v.admin_area = $7
+		    ($3::float8 IS NOT NULL AND v.latitude BETWEEN $3 AND $4
+		     AND (v.longitude BETWEEN $5 AND $6 OR v.longitude BETWEEN $7 AND $8))
+		    OR v.admin_area = $9
 		  )` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
@@ -235,7 +239,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -277,7 +281,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -304,7 +308,7 @@ const (
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, ` + seriesPublishStateColumn + `,
 		       m.id, m.organizer_id,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		       v.id, v.name, v.admin_area, v.time_zone, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -376,7 +380,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
 		&seriesImageID, &imageOrgID,
-		&venue.ID, &venue.Name, &venue.AdminArea,
+		&venue.ID, &venue.Name, &venue.AdminArea, &venue.TimeZone,
 	}
 	if withCoords {
 		dests = append(dests, &lat, &lng)
@@ -678,13 +682,18 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 }
 
 // ListByLocation retrieves the concerts in [from, to] whose venue
-// GeoLocation.MayBeNear admits: inside location.Box() or in its admin area.
+// GeoLocation.MayBeNear admits: inside location.Box() (one or two longitude
+// ranges) or in its admin area.
 // Venue lat/lng are included so the use-case layer can apply the precise
 // Haversine 200 km cut and HOME/NEARBY classification.
 func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.Concert, error) {
-	box := location.Box()
+	var boxArgs [6]*float64
+	if box, ok := location.Box(); ok {
+		second := box.Lng[len(box.Lng)-1]
+		boxArgs = [6]*float64{&box.LatMin, &box.LatMax, &box.Lng[0][0], &box.Lng[0][1], &second[0], &second[1]}
+	}
 	rows, err := r.db.Pool.Query(ctx, listConcertsByLocationQuery,
-		from, to, box.LatMin, box.LatMax, box.LngMin, box.LngMax, location.AdminArea,
+		from, to, boxArgs[0], boxArgs[1], boxArgs[2], boxArgs[3], boxArgs[4], boxArgs[5], location.AdminArea,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by location",

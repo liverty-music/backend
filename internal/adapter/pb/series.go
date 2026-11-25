@@ -4,6 +4,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 // SeriesImageURLs composes the public CDN URLs of series image variants.
@@ -137,6 +138,21 @@ func FromVenueCandidates(candidates []*entity.MapPlaceCandidate) []*organizerven
 			Name:    &entityv1.VenueName{Value: c.Name},
 			Address: c.Address,
 		})
+	}
+	return out
+}
+
+// FromPlaceDraft converts a place draft to its proto message.
+func FromPlaceDraft(d *usecase.PlaceDraft) *organizervenuev1.PlaceDraft {
+	out := &organizervenuev1.PlaceDraft{
+		Name:        &entityv1.VenueName{Value: d.Name},
+		CountryCode: &entityv1.CountryCode{Value: d.CountryCode},
+	}
+	if d.SuggestedAdminArea != nil {
+		out.SuggestedAdminArea = &entityv1.AdminArea{Value: *d.SuggestedAdminArea}
+	}
+	if d.TimeZone != nil {
+		out.TimeZone = &entityv1.TimeZone{Value: *d.TimeZone}
 	}
 	return out
 }

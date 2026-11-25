@@ -70,14 +70,11 @@ func FromHome(home *entity.Home) *proto.Home {
 	if home == nil {
 		return nil
 	}
-	pb := &proto.Home{
+	// The reference point stays on the server; a Home carries only its codes.
+	return &proto.Home{
 		CountryCode: home.CountryCode,
 		Level_1:     home.Level1,
 	}
-	if home.Level2 != nil {
-		pb.Level_2 = home.Level2
-	}
-	return pb
 }
 
 // ToHome converts protobuf Home to domain Home entity.
@@ -85,14 +82,10 @@ func ToHome(pbHome *proto.Home) *entity.Home {
 	if pbHome == nil {
 		return nil
 	}
-	home := &entity.Home{
+	return &entity.Home{
 		CountryCode: pbHome.CountryCode,
 		Level1:      pbHome.Level_1,
 	}
-	if pbHome.Level_2 != nil {
-		home.Level2 = pbHome.Level_2
-	}
-	return home
 }
 
 // GetClaimsFromContext extracts JWT claims from the authenticated context.
