@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/genai"
 
@@ -66,14 +68,14 @@ func (a *VenueAreaAsker) AskVenueArea(ctx context.Context, venueName, sourceURL 
 	text := strings.TrimSpace(resp.Text())
 	start, end := strings.Index(text, "{"), strings.LastIndex(text, "}")
 	if start < 0 || end < start {
-		return nil, fmt.Errorf("gemini answered without a JSON object: %q", text)
+		return nil, apperr.New(codes.Internal, fmt.Sprintf("gemini answered without a JSON object: %q", text))
 	}
 	var answer struct {
 		AdminArea string `json:"admin_area"`
 		TimeZone  string `json:"time_zone"`
 	}
 	if err := json.Unmarshal([]byte(text[start:end+1]), &answer); err != nil {
-		return nil, fmt.Errorf("parse gemini's venue area answer: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "parse gemini's venue area answer")
 	}
 	return &entity.VenueAreaAnswer{
 		AdminArea: strings.TrimSpace(answer.AdminArea),

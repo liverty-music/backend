@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestVenueAreaAsker_AskVenueArea(t *testing.T) {
 			got, err := asker.AskVenueArea(context.Background(), "Zepp Haneda", "https://example.com/tour")
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				assert.ErrorIs(t, err, apperr.ErrInternal)
 				return
 			}
 			require.NoError(t, err)
