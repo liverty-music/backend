@@ -90,6 +90,10 @@ func TestArea_Group(t *testing.T) {
 		gironde := &entity.Area{Code: "FR-33", Kind: entity.AreaKindSubdivision, CountryCode: "FR", ParentCode: new("FR-NAQ"), NameEN: "Gironde"}
 		assert.Error(t, kanto.Group(gironde))
 	})
+	t.Run("Area of another country", func(t *testing.T) {
+		t.Parallel()
+		assert.Error(t, kanto.Group(subdivision("KR-11")))
+	})
 }
 
 func TestArea_ValidateTimeZone(t *testing.T) {

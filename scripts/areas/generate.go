@@ -494,6 +494,8 @@ func (g *generator) addRegions() {
 		for _, m := range r.Members {
 			if a, ok := g.areas[m]; !ok || !a.FirstLevel() {
 				g.fail("regions.csv: member %s of %s is not a first-level area", m, r.Code)
+			} else if a.CountryCode != r.Code[:2] {
+				g.fail("regions.csv: member %s of %s is in another country", m, r.Code)
 			}
 		}
 		g.areas[r.Code] = &Area{Code: r.Code, Kind: kindRegion, CountryCode: r.Code[:2], NameEN: r.NameEN, NameJA: r.NameJA}

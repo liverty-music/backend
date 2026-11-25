@@ -141,18 +141,22 @@ func (a *Area) ValidateTimeZone(countryZones []string) error {
 	return nil
 }
 
-// Group adds member to the region a. Only a first-level Area can be grouped,
-// and grouping does not make the region its parent.
+// Group adds member to the region a. Only a first-level Area of the region's
+// country can be grouped, and grouping does not make the region its parent.
 //
 // # Possible errors
 //
-//   - InvalidArgument: a is not a region, or member is not first-level.
+//   - InvalidArgument: a is not a region, or member is not a first-level
+//     Area of the region's country.
 func (a *Area) Group(member *Area) error {
 	if a.Kind != AreaKindRegion {
 		return apperr.New(codes.InvalidArgument, "only a region groups areas")
 	}
 	if !member.IsFirstLevel() {
 		return apperr.New(codes.InvalidArgument, "a region groups only first-level areas")
+	}
+	if member.CountryCode != a.CountryCode {
+		return apperr.New(codes.InvalidArgument, "a region groups only areas of its own country")
 	}
 	if !slices.Contains(member.RegionCodes, a.Code) {
 		member.RegionCodes = append(member.RegionCodes, a.Code)

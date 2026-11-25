@@ -250,6 +250,13 @@ func TestGenerate_Regions(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "member FR-33 of FR-SUDOUEST is not a first-level area")
 	})
+	t.Run("a member of another country fails", func(t *testing.T) {
+		in := fixture()
+		in.Regions = append(in.Regions, Region{Code: "JP-ABROAD", NameEN: "Abroad", Members: []string{"US-CA"}})
+		_, err := Generate(in, nil)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "member US-CA of JP-ABROAD is in another country")
+	})
 }
 
 func TestSeed_SQLOrdersReferencesFirst(t *testing.T) {
