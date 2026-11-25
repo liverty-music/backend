@@ -1,7 +1,9 @@
 # First-level Areas of several-zone countries that lie wholly in one IANA zone,
 # per the zone.tab comments of the pinned tzdata. An Area left out spans zones
 # (US-TX, US-FL, CA-ON, AU-NSW, BR-PE with Fernando de Noronha, ...) and its
-# venues take the zone a member or the admin confirms.
+# venues take the zone a member or the admin confirms. Germany leaves out BW
+# (Busingen), Portugal its islands, Chile Aysen, Magallanes and Valparaiso
+# (Easter Island); every Argentine province is in one zone.
 code,time_zone
 US-CT,America/New_York
 US-DE,America/New_York
@@ -99,3 +101,73 @@ MX-BCS,America/Mazatlan
 MX-SIN,America/Mazatlan
 MX-SON,America/Hermosillo
 MX-BCN,America/Tijuana
+DE-BB,Europe/Berlin
+DE-BE,Europe/Berlin
+DE-BY,Europe/Berlin
+DE-HB,Europe/Berlin
+DE-HE,Europe/Berlin
+DE-HH,Europe/Berlin
+DE-MV,Europe/Berlin
+DE-NI,Europe/Berlin
+DE-NW,Europe/Berlin
+DE-RP,Europe/Berlin
+DE-SH,Europe/Berlin
+DE-SL,Europe/Berlin
+DE-SN,Europe/Berlin
+DE-ST,Europe/Berlin
+DE-TH,Europe/Berlin
+PT-01,Europe/Lisbon
+PT-02,Europe/Lisbon
+PT-03,Europe/Lisbon
+PT-04,Europe/Lisbon
+PT-05,Europe/Lisbon
+PT-06,Europe/Lisbon
+PT-07,Europe/Lisbon
+PT-08,Europe/Lisbon
+PT-09,Europe/Lisbon
+PT-10,Europe/Lisbon
+PT-11,Europe/Lisbon
+PT-12,Europe/Lisbon
+PT-13,Europe/Lisbon
+PT-14,Europe/Lisbon
+PT-15,Europe/Lisbon
+PT-16,Europe/Lisbon
+PT-17,Europe/Lisbon
+PT-18,Europe/Lisbon
+CL-AN,America/Santiago
+CL-AP,America/Santiago
+CL-AR,America/Santiago
+CL-AT,America/Santiago
+CL-BI,America/Santiago
+CL-CO,America/Santiago
+CL-LI,America/Santiago
+CL-LL,America/Santiago
+CL-LR,America/Santiago
+CL-ML,America/Santiago
+CL-NB,America/Santiago
+CL-RM,America/Santiago
+CL-TA,America/Santiago
+AR-B,America/Argentina/Buenos_Aires
+AR-C,America/Argentina/Buenos_Aires
+AR-X,America/Argentina/Cordoba
+AR-H,America/Argentina/Cordoba
+AR-W,America/Argentina/Cordoba
+AR-E,America/Argentina/Cordoba
+AR-P,America/Argentina/Cordoba
+AR-N,America/Argentina/Cordoba
+AR-G,America/Argentina/Cordoba
+AR-S,America/Argentina/Cordoba
+AR-A,America/Argentina/Salta
+AR-L,America/Argentina/Salta
+AR-Q,America/Argentina/Salta
+AR-R,America/Argentina/Salta
+AR-Y,America/Argentina/Jujuy
+AR-T,America/Argentina/Tucuman
+AR-K,America/Argentina/Catamarca
+AR-U,America/Argentina/Catamarca
+AR-F,America/Argentina/La_Rioja
+AR-J,America/Argentina/San_Juan
+AR-M,America/Argentina/Mendoza
+AR-D,America/Argentina/San_Luis
+AR-Z,America/Argentina/Rio_Gallegos
+AR-V,America/Argentina/Ushuaia

@@ -126,8 +126,15 @@ type TimeZone struct {
 	Name, NameEN, NameJA string
 }
 
+// Country is one row of the countries table: a country or territory that
+// has first-level areas, with its CLDR territory names.
+type Country struct {
+	Code, NameEN, NameJA string
+}
+
 // Seed is the generated reference data.
 type Seed struct {
+	Countries    []Country  // by code
 	Areas        []Area     // ordered so that every parent and replacement comes first
 	TimeZones    []TimeZone // by name
 	CountryZones []ZoneEntry
@@ -163,6 +170,9 @@ func (s *Seed) Snapshot() Snapshot {
 	for _, m := range s.Memberships {
 		snap.Rows["membership "+m[0]+" "+m[1]] = ""
 	}
+	for _, c := range s.Countries {
+		snap.Rows["country "+c.Code] = rowHash(countryValues(c))
+	}
 	return snap
 }
 
@@ -177,6 +187,11 @@ func (s *Seed) Since(prev *Snapshot) *Seed {
 		return !ok || old != hash
 	}
 	out := &Seed{}
+	for _, c := range s.Countries {
+		if changed("country "+c.Code, rowHash(countryValues(c))) {
+			out.Countries = append(out.Countries, c)
+		}
+	}
 	for _, a := range s.Areas {
 		if changed("area "+a.Code, rowHash(areaValues(a))) {
 			out.Areas = append(out.Areas, a)
@@ -202,7 +217,7 @@ func (s *Seed) Since(prev *Snapshot) *Seed {
 
 // Empty reports whether the seed writes nothing.
 func (s *Seed) Empty() bool {
-	return len(s.Areas) == 0 && len(s.TimeZones) == 0 && len(s.CountryZones) == 0 && len(s.Memberships) == 0
+	return len(s.Countries) == 0 && len(s.Areas) == 0 && len(s.TimeZones) == 0 && len(s.CountryZones) == 0 && len(s.Memberships) == 0
 }
 
 func rowHash(values string) string {
@@ -636,6 +651,24 @@ func (g *generator) seed() *Seed {
 	for _, r := range g.in.Regions {
 		for _, m := range r.Members {
 			s.Memberships = append(s.Memberships, [2]string{r.Code, m})
+		}
+	}
+
+	seen := map[string]bool{}
+	for _, a := range s.Areas {
+		if a.FirstLevel() && !seen[a.CountryCode] {
+			seen[a.CountryCode] = true
+			s.Countries = append(s.Countries, Country{
+				Code:   a.CountryCode,
+				NameEN: g.in.TerritoryNames["en"][a.CountryCode],
+				NameJA: g.in.TerritoryNames["ja"][a.CountryCode],
+			})
+		}
+	}
+	slices.SortFunc(s.Countries, func(a, b Country) int { return strings.Compare(a.Code, b.Code) })
+	for _, c := range s.Countries {
+		if c.NameEN == "" {
+			g.fail("country %s has no English territory name", c.Code)
 		}
 	}
 	return s

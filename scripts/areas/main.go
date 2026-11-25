@@ -141,6 +141,13 @@ func (s *Seed) SQL() string {
 		b.WriteString(conflict + ";\n")
 	}
 	var rows []string
+	for _, c := range s.Countries {
+		rows = append(rows, countryValues(c))
+	}
+	upsert("INSERT INTO countries (code, name_en, name_ja)", rows,
+		"ON CONFLICT (code) DO UPDATE SET name_en = EXCLUDED.name_en, name_ja = EXCLUDED.name_ja")
+
+	rows = nil
 	for _, z := range s.TimeZones {
 		rows = append(rows, zoneValues(z))
 	}
@@ -167,6 +174,11 @@ func (s *Seed) SQL() string {
 	}
 	upsert("INSERT INTO area_memberships (region_code, member_code)", rows, "ON CONFLICT DO NOTHING")
 	return b.String()
+}
+
+// countryValues renders a countries row.
+func countryValues(c Country) string {
+	return "(" + lit(c.Code) + ", " + lit(c.NameEN) + ", " + litOrNull(c.NameJA) + ")"
 }
 
 // zoneValues renders a time_zones row.
