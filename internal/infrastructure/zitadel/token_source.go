@@ -2,6 +2,9 @@ package zitadel
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/zitadel/oidc/v3/pkg/client/profile"
@@ -32,4 +35,15 @@ func jwtProfileFromPath(ctx context.Context, keyPath string) middleware.JWTProfi
 		return profile.NewJWTProfileTokenSource(ctx, issuer, key.UserID, key.KeyID, key.Key, scopes,
 			profile.WithStaticTokenEndpoint(issuer, tokenEndpoint(issuer)))
 	}
+}
+
+// tokenUnreachable reports whether a call failed because no sign-in token
+// could be fetched for it: the request could not be sent, or the token
+// endpoint answered a server error. Such a failure carries no gRPC status.
+func tokenUnreachable(err error) bool {
+	if _, ok := errors.AsType[*url.Error](err); ok {
+		return true
+	}
+	tokenErr, ok := errors.AsType[*oauth2.RetrieveError](err)
+	return ok && tokenErr.Response != nil && tokenErr.Response.StatusCode >= http.StatusInternalServerError
 }

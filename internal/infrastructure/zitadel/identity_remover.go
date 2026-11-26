@@ -12,8 +12,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -76,13 +74,19 @@ func NewIdentityRemover(ctx context.Context, issuerURL, keyPath string, logger *
 // DeleteIdentity removes the Zitadel user identified by providerUserID. A NotFound
 // response means the user is already gone and counts as success, so a retry
 // after a partial deletion completes.
+//
+// # Possible errors
+//
+//   - Unavailable: Zitadel cannot be reached; the identity is either removed or
+//     still there.
+//   - Internal: any other failure.
 func (r *IdentityRemover) DeleteIdentity(ctx context.Context, providerUserID string) error {
 	if _, err := r.client.DeleteUser(ctx, &userpb.DeleteUserRequest{UserId: providerUserID}); err != nil {
 		if isNotFound(err) {
 			r.logger.Info(ctx, "identity already removed", slog.String("provider_user_id", providerUserID))
 			return nil
 		}
-		return apperr.Wrap(err, codes.Internal, "delete zitadel user")
+		return wrapGRPC(err, "delete zitadel user", slog.String("provider_user_id", providerUserID))
 	}
 	r.logger.Info(ctx, "identity removed", slog.String("provider_user_id", providerUserID))
 	return nil

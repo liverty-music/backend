@@ -3,6 +3,7 @@ package zitadel_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"google.golang.org/grpc"
@@ -53,6 +54,11 @@ func TestIdentityRemover_DeleteIdentity(t *testing.T) {
 			stubErr: grpcstatus.Error(grpccodes.PermissionDenied, "no permission"),
 			wantErr: apperr.ErrInternal,
 		},
+		{
+			name:    "returns Unavailable when zitadel answers that it is unavailable",
+			stubErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
+			wantErr: apperr.ErrUnavailable,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,4 +78,22 @@ func TestIdentityRemover_DeleteIdentity(t *testing.T) {
 			assert.Equal(t, []string{"zitadel-user-1"}, stub.deletedIDs)
 		})
 	}
+}
+
+// The issuer host under ".invalid" never resolves (RFC 6761), so neither the
+// token nor the call can be sent.
+//
+// @spec components/entity/user/delete-identity "Provider unreachable"
+func TestIdentityRemover_ProviderUnreachable(t *testing.T) {
+	t.Parallel()
+	logger, err := logging.New()
+	require.NoError(t, err)
+	r, err := infrazitadel.NewIdentityRemover(context.Background(), "https://auth.liverty-music.invalid", writeMachineKey(t), logger)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	err = r.DeleteIdentity(ctx, "zitadel-user-1")
+
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 }
