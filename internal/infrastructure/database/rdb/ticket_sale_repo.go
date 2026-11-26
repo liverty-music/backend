@@ -77,14 +77,15 @@ const (
 		ORDER BY ` + saleStartInstant + `, ts.id
 	`
 	// ticketSaleListDueForDrawQuery returns the Organizer's Lottery sales
-	// that still have an Entered entry and ended at or before $1, the instant
-	// entity.LotteryDrawDelay before now, or within a day after it: the
-	// repository applies the exact rule to the instants it computes, so a sale
-	// is not lost while PostgreSQL's time zone data and the binary's differ.
-	// A discovered sale has no entry.
+	// that ended at or before $1, the instant entity.LotteryDrawDelay before
+	// now, and still have an Entered entry. A discovered sale has no entry.
+	// This bound is not widened: lotteryEntryInsertQuery accepts entries until
+	// this same SQL end, so a sale is drawn only once the database refuses
+	// entries and, filtered again by the repository, the application's
+	// instant has passed too.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ` + saleEndInstant + ` <= $1::timestamptz + interval '1 day' AND ts.find_time IS NULL
+		WHERE ts.method = 2 AND ` + saleEndInstant + ` <= $1 AND ts.find_time IS NULL
 		  AND EXISTS (SELECT 1 FROM lottery_entries le WHERE le.ticket_sale_id = ts.id AND le.state = 1)
 		ORDER BY ` + saleEndInstant + `, ts.id
 	`

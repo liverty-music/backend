@@ -37,7 +37,8 @@ func (t TimeOfDay) MarshalText() ([]byte, error) { return []byte(t.String()), ni
 // InvalidArgument.
 func (t *TimeOfDay) UnmarshalText(text []byte) error {
 	parsed, err := time.Parse("15:04", string(text))
-	if err != nil {
+	// time.Parse also reads a one-digit hour, which may be a 12-hour clock.
+	if err != nil || len(text) != len("15:04") {
 		return apperr.New(codes.InvalidArgument, fmt.Sprintf("%q is not a time of day", text))
 	}
 	*t = TimeOfDayOf(parsed)
