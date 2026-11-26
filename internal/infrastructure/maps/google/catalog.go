@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -174,12 +175,31 @@ func (c *Client) GetPlaceCoordinates(ctx context.Context, placeID string) (*enti
 	return out, nil
 }
 
+// waitForDetailsSlot blocks until the client may send its next Place Details
+// request.
+func (c *Client) waitForDetailsSlot(ctx context.Context) error {
+	err := c.details.Wait(ctx)
+	if err == nil {
+		return nil
+	}
+	// The limiter refuses at once, with an error of its own, a wait that would
+	// end after the deadline.
+	if ctx.Err() == nil {
+		err = fmt.Errorf("%w: %w", context.DeadlineExceeded, err)
+	}
+	return api.FromHTTP(err, nil, "wait for a google maps place details slot")
+}
+
 // placeDetails reads one place with the given field mask.
 func (c *Client) placeDetails(ctx context.Context, placeID, fieldMask string) (*placeDetailsResponse, error) {
 	u := c.detailsBaseURL + "/" + url.PathEscape(placeID) + "?languageCode=" + catalogLanguageCode
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to create google maps place details request")
+	}
+
+	if err := c.waitForDetailsSlot(ctx); err != nil {
+		return nil, err
 	}
 
 	var data placeDetailsResponse
