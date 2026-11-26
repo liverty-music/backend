@@ -395,6 +395,7 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 
 	t.Run("a time the venue's clocks skip is published as unknown", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Time skipped at the venue"
 		d := newApprovalTestDeps(t, artist)
 		sc := d.candidate(new("JP-13"), nil, nil)
 		sc.LocalDate = time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC)

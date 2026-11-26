@@ -252,6 +252,25 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
+	t.Run("check the event again at a Venue another writer stored first", func(t *testing.T) {
+		t.Parallel()
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(nil, apperr.New(codes.NotFound, "no venue")).Once()
+		d.mapCatalog.EXPECT().GetPlace(mock.Anything, lifecyclePlaceID).Return(&entity.MapPlace{}, nil).Once()
+		// The surviving Venue is in Asia/Tokyo, where the date has passed
+		// although it has not in the member's zone.
+		d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(lifecycleVenueID, nil).Once()
+		// No CreateDraft expectation: nothing is stored.
+
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)), []*usecase.DraftEventInput{{
+			VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), AdminArea: new("US-CA"),
+			TimeZone: new("America/Los_Angeles"), LocalDate: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC),
+		}}, []string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
 	t.Run("fail with PERMISSION_DENIED for an artist the organizer does not represent", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/series/create "Unrepresented artist"

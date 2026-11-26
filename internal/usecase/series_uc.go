@@ -309,15 +309,18 @@ func (uc *seriesUseCase) planVenue(ctx context.Context, inp *DraftEventInput, ne
 		venue.Coordinates = place.Coordinates
 		venue.CoordinatesFetchTime = &fetch
 	}
+	if err := uc.venueRepo.CheckNew(ctx, venue); err != nil {
+		return nil, fmt.Errorf("check new venue: %w", err)
+	}
 	plan := &venuePlan{venue: venue}
 	newPlaces[placeID] = plan
 	return plan, nil
 }
 
 // saveVenue stores a planned Venue that is not held yet and returns the id of
-// the Venue the event is at. A new place with an area or zone Venue.Create
-// refuses is InvalidArgument.
-func (uc *seriesUseCase) saveVenue(ctx context.Context, plan *venuePlan) (string, error) {
+// the Venue the event is at. When another writer stored the place first, the
+// event is checked again against that Venue, whose time zone may differ.
+func (uc *seriesUseCase) saveVenue(ctx context.Context, plan *venuePlan, inp *DraftEventInput) (string, error) {
 	if plan.stored {
 		return plan.venue.ID, nil
 	}
@@ -325,7 +328,17 @@ func (uc *seriesUseCase) saveVenue(ctx context.Context, plan *venuePlan) (string
 	if err != nil {
 		return "", fmt.Errorf("create venue: %w", err)
 	}
-	plan.venue.ID, plan.stored = venueID, true
+	if venueID != plan.venue.ID {
+		held, err := uc.venueRepo.Get(ctx, venueID)
+		if err != nil {
+			return "", fmt.Errorf("get venue %s: %w", venueID, err)
+		}
+		if err := uc.checkTimesAtVenue(held, inp); err != nil {
+			return "", err
+		}
+		plan.venue = held
+	}
+	plan.stored = true
 	return venueID, nil
 }
 
@@ -369,7 +382,7 @@ func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID st
 	if inp.PerAccountLimit != nil {
 		limit = *inp.PerAccountLimit
 	}
-	venueID, err := uc.saveVenue(ctx, plan)
+	venueID, err := uc.saveVenue(ctx, plan, inp)
 	if err != nil {
 		return nil, fmt.Errorf("resolve venue for event on %s: %w", inp.LocalDate.Format("2006-01-02"), err)
 	}
