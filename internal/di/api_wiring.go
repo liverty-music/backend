@@ -520,7 +520,7 @@ func (w *apiWiring) buildPayments() error {
 // buildNotifications builds the usecases of ticket journeys and notifications.
 func (w *apiWiring) buildNotifications() error {
 	cfg, logger := w.cfg, w.logger
-	w.ticketJourneyUC = usecase.NewTicketJourneyUseCase(w.ticketJourneyRepo, w.userRepo, w.concertRepo, w.followRepo, w.lotteryEntryRepo, logger)
+	w.ticketJourneyUC = usecase.NewTicketJourneyUseCase(w.ticketJourneyRepo, w.userRepo, w.concertRepo, w.followRepo, w.lotteryEntryRepo, w.orderRepo, w.ticketStockRepo, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.

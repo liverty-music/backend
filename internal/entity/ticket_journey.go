@@ -63,7 +63,8 @@ const (
 	// TicketJourneySetByFan is a status the fan chose.
 	TicketJourneySetByFan TicketJourneySetBy = "fan"
 	// TicketJourneySetByPlatform is a fact the platform recorded: Applied for a
-	// lottery entry, Paid for a paid Order on Liverty Music.
+	// lottery entry, Lost for a lost one, Paid for a paid Order on Liverty
+	// Music.
 	TicketJourneySetByPlatform TicketJourneySetBy = "platform"
 	// TicketJourneySetByInference is a status the app inferred from the fan's
 	// own action: Tracking after a calendar add.
@@ -96,8 +97,10 @@ type TicketJourney struct {
 // status, set by setBy. No journey (a nil j) is replaceable by anything. A
 // status set by inference replaces no journey. Applied set by the platform
 // replaces a journey at Tracking, Applied or Lost, whoever set it, but not one
-// at Unpaid or Paid, where the fan already has a ticket. Any other status set
-// by the platform replaces any journey. A status the fan sets is stored with
+// at Unpaid or Paid, where the fan already has a ticket. Lost set by the
+// platform replaces a journey at Tracking or Applied, whoever set it, but not
+// one at Unpaid, Paid or Lost. Any other status set by the platform replaces
+// any journey. A status the fan sets is stored with
 // [TicketJourneyRepository.Upsert] and never asks this.
 func (j *TicketJourney) ReplaceableBy(status TicketJourneyStatus, setBy TicketJourneySetBy) bool {
 	if j == nil {
@@ -107,10 +110,14 @@ func (j *TicketJourney) ReplaceableBy(status TicketJourneyStatus, setBy TicketJo
 	case TicketJourneySetByInference:
 		return false
 	case TicketJourneySetByPlatform:
-		if status == TicketJourneyStatusApplied {
+		switch status {
+		case TicketJourneyStatusApplied:
 			return j.Status != TicketJourneyStatusUnpaid && j.Status != TicketJourneyStatusPaid
+		case TicketJourneyStatusLost:
+			return j.Status == TicketJourneyStatusTracking || j.Status == TicketJourneyStatusApplied
+		default:
+			return true
 		}
-		return true
 	default:
 		return true
 	}

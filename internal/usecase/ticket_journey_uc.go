@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/pannpers/go-logging/logging"
 
@@ -70,6 +71,26 @@ type TicketJourneyUseCase interface {
 	//   - The entry read's or the guarded upsert's failure, unchanged; the
 	//     announcement is redelivered.
 	MarkApplied(ctx context.Context, entered entity.LotteryEntryEnteredData) error
+
+	// MarkLost sets the fan's ticket journey for the event to Lost, set by the
+	// platform, for each lottery entry announced as lost (LotteryEntry.Lost,
+	// LOTTERY_ENTRY.lost). It records nothing when the entry was lost because
+	// the concert was cancelled, when another entry of the fan for the event is
+	// Entered or Won, because that entry's result decides the journey, or when
+	// the journey is not replaceable by it (Unpaid, Paid or Lost). A checkout
+	// or a resale entry does not hold the record back. It never raises a hype
+	// level. Nothing stores that an entry's loss was applied: each run decides
+	// from the fan's entries and journey as they are then. Running it again for
+	// the same entry therefore changes nothing while both are as the first run
+	// left them, but a redelivery can record Lost after the fan set Tracking or
+	// Applied or removed the journey, or after the other open entry that held
+	// the record back ended because the concert was cancelled.
+	//
+	// # Possible errors:
+	//
+	//   - A read's or the guarded upsert's failure, unchanged; the
+	//     announcement is redelivered.
+	MarkLost(ctx context.Context, lost *entity.LotteryEntry) error
 }
 
 // ticketJourneyUseCase implements the TicketJourneyUseCase interface.
@@ -79,6 +100,8 @@ type ticketJourneyUseCase struct {
 	concerts entity.ConcertRepository
 	follows  entity.FollowRepository
 	entries  entity.LotteryEntryRepository
+	orders   entity.OrderRepository
+	stocks   entity.TicketStockRepository
 	logger   *logging.Logger
 }
 
@@ -92,6 +115,8 @@ func NewTicketJourneyUseCase(
 	concerts entity.ConcertRepository,
 	follows entity.FollowRepository,
 	entries entity.LotteryEntryRepository,
+	orders entity.OrderRepository,
+	stocks entity.TicketStockRepository,
 	logger *logging.Logger,
 ) TicketJourneyUseCase {
 	return &ticketJourneyUseCase{
@@ -100,6 +125,8 @@ func NewTicketJourneyUseCase(
 		concerts: concerts,
 		follows:  follows,
 		entries:  entries,
+		orders:   orders,
+		stocks:   stocks,
 		logger:   logger,
 	}
 }
@@ -181,6 +208,61 @@ func (uc *ticketJourneyUseCase) MarkApplied(ctx context.Context, entered entity.
 		uc.raiseHypeToMatch(ctx, entered.UserID, entered.EventID, entity.TicketJourneyStatusApplied)
 	}
 	return nil
+}
+
+// MarkLost implements [TicketJourneyUseCase]. The announcement carries the
+// entry without its Order, so the fan and the event are read from the Order
+// and its TicketStock. Lost is final, so the entry itself is not read again.
+func (uc *ticketJourneyUseCase) MarkLost(ctx context.Context, lost *entity.LotteryEntry) error {
+	if lost.LostReason == entity.LotteryEntryLostReasonConcertCancelled {
+		return nil
+	}
+	order, err := uc.orders.Get(ctx, lost.OrderID)
+	if err != nil {
+		return err
+	}
+	stock, err := uc.stocks.Get(ctx, order.TicketStockID, time.Now())
+	if err != nil {
+		return err
+	}
+	open, err := uc.hasOtherOpenEntry(ctx, order.UserID, lost.ID, stock.EventID)
+	if err != nil {
+		return err
+	}
+	if open {
+		uc.logger.Info(ctx, "another lottery entry for the event is still open; journey left as it is",
+			slog.String("lottery_entry_id", string(lost.ID)))
+		return nil
+	}
+	_, err = uc.repo.UpsertIfReplaceable(ctx, &entity.TicketJourney{
+		UserID:      string(order.UserID),
+		EventID:     stock.EventID,
+		Status:      entity.TicketJourneyStatusLost,
+		StatusSetBy: entity.TicketJourneySetByPlatform,
+	})
+	return err
+}
+
+// hasOtherOpenEntry reports whether the user has a lottery entry for the event,
+// other than except, that is Entered or Won.
+func (uc *ticketJourneyUseCase) hasOtherOpenEntry(ctx context.Context, userID entity.UserID, except entity.LotteryEntryID, eventID string) (bool, error) {
+	entries, err := uc.entries.ListByUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.ID == except || (e.State != entity.LotteryEntryStateEntered && e.State != entity.LotteryEntryStateWon) {
+			continue
+		}
+		stock, err := uc.stocks.Get(ctx, e.Order.TicketStockID, time.Now())
+		if err != nil {
+			return false, err
+		}
+		if stock.EventID == eventID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // raiseHypeToMatch raises the fan's hype level for the artist of the event's

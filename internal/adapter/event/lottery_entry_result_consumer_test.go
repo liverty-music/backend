@@ -49,7 +49,7 @@ func startedWorkflows(t *testing.T) (*event.LotteryEntryResultConsumer, map[stri
 			return nil
 		}).Maybe()
 	orders := usecase.NewOrderUseCase(usecase.OrderDeps{Workflows: workflows, Clock: time.Now, Logger: newTestLogger(t)})
-	return event.NewLotteryEntryResultConsumer(orders, ucmocks.NewMockNotificationUseCase(t), newTestLogger(t)), started
+	return event.NewLotteryEntryResultConsumer(orders, ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t)), started
 }
 
 func TestLotteryEntryResultConsumer_HandleStartWorkflow(t *testing.T) {
@@ -105,7 +105,7 @@ func TestLotteryEntryResultConsumer_HandleStartWorkflow(t *testing.T) {
 		t.Parallel()
 		orders := ucmocks.NewMockOrderUseCase(t)
 		orders.EXPECT().StartDrawnEntryWorkflow(anyCtx, mock.Anything).Return(apperr.New(codes.Unavailable, "db down"))
-		consumer := event.NewLotteryEntryResultConsumer(orders, ucmocks.NewMockNotificationUseCase(t), newTestLogger(t))
+		consumer := event.NewLotteryEntryResultConsumer(orders, ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t))
 
 		assert.Error(t, consumer.HandleStartWorkflow(makeResultMsg(t, "announcement-4",
 			entity.SubjectLotteryEntryWon, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_UNSPECIFIED)))
@@ -113,7 +113,7 @@ func TestLotteryEntryResultConsumer_HandleStartWorkflow(t *testing.T) {
 
 	t.Run("a message under another subject is rejected", func(t *testing.T) {
 		t.Parallel()
-		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), newTestLogger(t))
+		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t))
 
 		assert.Error(t, consumer.HandleStartWorkflow(makeResultMsg(t, "announcement-5",
 			entity.SubjectLotteryEntryEntered, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_UNSPECIFIED)))
@@ -121,7 +121,7 @@ func TestLotteryEntryResultConsumer_HandleStartWorkflow(t *testing.T) {
 
 	t.Run("a malformed payload is rejected", func(t *testing.T) {
 		t.Parallel()
-		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), newTestLogger(t))
+		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t))
 		msg := malformedMsg()
 		msg.Metadata.Set("ce_type", entity.SubjectLotteryEntryWon)
 
@@ -136,7 +136,7 @@ func TestLotteryEntryResultConsumer_HandleSendLotteryLoss(t *testing.T) {
 		t.Parallel()
 		notifications := ucmocks.NewMockNotificationUseCase(t)
 		notifications.EXPECT().SendLotteryLoss(anyCtx, entity.LotteryEntryID("entry-1")).Return(nil).Once()
-		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), notifications, newTestLogger(t))
+		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), notifications, ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t))
 
 		require.NoError(t, consumer.HandleSendLotteryLoss(makeResultMsg(t, "announcement-1",
 			entity.SubjectLotteryEntryLost, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN)))
@@ -146,11 +146,51 @@ func TestLotteryEntryResultConsumer_HandleSendLotteryLoss(t *testing.T) {
 		t.Parallel()
 		notifications := ucmocks.NewMockNotificationUseCase(t)
 		notifications.EXPECT().SendLotteryLoss(anyCtx, entity.LotteryEntryID("entry-1")).Return(apperr.New(codes.Unavailable, "postmark down")).Once()
-		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), notifications, newTestLogger(t))
+		consumer := event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), notifications, ucmocks.NewMockTicketJourneyUseCase(t), newTestLogger(t))
 
 		err := consumer.HandleSendLotteryLoss(makeResultMsg(t, "announcement-1",
 			entity.SubjectLotteryEntryLost, entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN))
 
 		assert.True(t, eventmsg.IsRedeliverLater(err), "the message waits for a later delivery instead of the poison queue")
+	})
+}
+
+func TestLotteryEntryResultConsumer_HandleMarkLost(t *testing.T) {
+	t.Parallel()
+
+	lostEntry := mock.MatchedBy(func(e *entity.LotteryEntry) bool {
+		return e.ID == "entry-1" && e.OrderID == "order-1" && e.LostReason == entity.LotteryEntryLostReasonNotDrawn
+	})
+	setup := func(t *testing.T) (*event.LotteryEntryResultConsumer, *ucmocks.MockTicketJourneyUseCase) {
+		journeys := ucmocks.NewMockTicketJourneyUseCase(t)
+		return event.NewLotteryEntryResultConsumer(ucmocks.NewMockOrderUseCase(t), ucmocks.NewMockNotificationUseCase(t), journeys, newTestLogger(t)), journeys
+	}
+	msg := func(t *testing.T) *message.Message {
+		return makeResultMsg(t, "announcement-1", entity.SubjectLotteryEntryLost,
+			entityv1.LotteryEntryLostReason_LOTTERY_ENTRY_LOST_REASON_NOT_DRAWN)
+	}
+
+	t.Run("hands the lost entry to MarkLost", func(t *testing.T) {
+		t.Parallel()
+		consumer, journeys := setup(t)
+		journeys.EXPECT().MarkLost(mock.Anything, lostEntry).Return(nil).Once()
+
+		assert.NoError(t, consumer.HandleMarkLost(msg(t)))
+	})
+
+	t.Run("a failed MarkLost nacks the message", func(t *testing.T) {
+		t.Parallel()
+		consumer, journeys := setup(t)
+		journeys.EXPECT().MarkLost(mock.Anything, lostEntry).Return(apperr.ErrUnavailable).Once()
+
+		// The router nacks a message whose handler returns an error.
+		assert.ErrorIs(t, consumer.HandleMarkLost(msg(t)), apperr.ErrUnavailable)
+	})
+
+	t.Run("an unreadable announcement is refused", func(t *testing.T) {
+		t.Parallel()
+		consumer, _ := setup(t)
+
+		assert.Error(t, consumer.HandleMarkLost(malformedMsg()))
 	})
 }
