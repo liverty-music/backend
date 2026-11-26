@@ -453,4 +453,10 @@ func TestClient_PlaceDetailsPaced(t *testing.T) {
 	cancel()
 	_, err := c.GetPlaceCoordinates(ctx, "p")
 	assert.ErrorIs(t, err, apperr.ErrCanceled)
+
+	// The next slot is 200ms away, past this deadline.
+	short, cancelShort := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancelShort()
+	_, err = c.GetPlaceCoordinates(short, "p")
+	assert.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
 }
