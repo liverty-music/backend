@@ -30,14 +30,15 @@ func (d *userTestDeps) found(times int) {
 
 // removalStarts expects one delete-user run to be started with a deadline 24
 // hours ahead, and returns its input once Delete started it.
-func (d *userTestDeps) removalStarts(t *testing.T) *usecase.UserRequest {
+func (d *userTestDeps) removalStarts(t *testing.T) *usecase.UserDeletion {
 	t.Helper()
-	in := &usecase.UserRequest{}
+	in := &usecase.UserDeletion{}
 	d.workflows.EXPECT().Start(mock.Anything, usecase.WorkflowDeleteUser, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _, id string, input any, opts ...usecase.StartOption) error {
 			assert.True(t, strings.HasPrefix(id, usecase.WorkflowDeleteUser+":"+deletionTestUser.ID+":"), "workflow id %s", id)
 			assert.WithinDuration(t, time.Now().Add(24*time.Hour), usecase.NewStartOptions(opts...).Deadline, time.Minute)
-			*in = input.(usecase.UserRequest)
+			*in = input.(usecase.UserDeletion)
+			assert.Equal(t, usecase.UserDeletion{UserID: deletionTestUser.ID, ProviderUserID: "zitadel-user-1"}, *in)
 			return nil
 		}).Once()
 	return in
@@ -58,10 +59,15 @@ func (d *userTestDeps) removalRuns(t *testing.T, f usecase.Flow) {
 		}).Once()
 }
 
-// removes expects the identity and then the record to be removed once.
+// removes expects the record and then the identity to be removed once.
 func (d *userTestDeps) removes() {
-	identity := d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
-	d.repo.EXPECT().Delete(mock.Anything, deletionTestUser.ID).Return(nil).Once().NotBefore(identity)
+	record := d.repo.EXPECT().Delete(mock.Anything, deletionTestUser.ID).Return(nil).Once()
+	d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once().NotBefore(record)
+}
+
+// gone expects times reads that find no User.
+func (d *userTestDeps) gone(times int) {
+	d.repo.EXPECT().Get(mock.Anything, deletionTestUser.ID).Return(nil, apperr.New(codes.NotFound, "user not found")).Times(times)
 }
 
 func TestUserUseCase_Delete(t *testing.T) {
@@ -109,11 +115,11 @@ func TestUserUseCase_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := newUserTestDeps(t)
-			// Delete's check, then each of the two steps reads the User and
-			// its blockers.
-			d.found(5)
-			tt.reads.expect(ctx, d, 3)
-			d.serialized(2)
+			// Delete reads the User and its blockers, and so does the removal
+			// of the record.
+			d.found(4)
+			tt.reads.expect(ctx, d, 2)
+			d.serialized(1)
 			d.removalRuns(t, &inlineFlow{})
 			d.removes()
 
@@ -161,7 +167,7 @@ func TestUserUseCase_Delete(t *testing.T) {
 		t.Run(tt.name+" and starts no removal", func(t *testing.T) {
 			t.Parallel()
 			d := newUserTestDeps(t) // no workflow, lock or removal expectation
-			d.found(1)
+			d.found(2)
 			tt.reads.expect(ctx, d, 1)
 
 			assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrFailedPrecondition)
@@ -181,17 +187,16 @@ func TestUserUseCase_Delete(t *testing.T) {
 	t.Run("a second call removes the user after a removal ended with the record failing", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(10)
-		deletionReads{}.expect(ctx, d, 6)
-		d.serialized(4)
-		// The identity is already gone on the retry, which DeleteIdentity
-		// reports as success.
-		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Twice()
+		// Each call: Delete and its blockers, the removal and its blockers;
+		// the failed one reads the User once more.
+		d.found(9)
+		deletionReads{}.expect(ctx, d, 4)
+		d.serialized(2)
 		d.repo.EXPECT().Delete(mock.Anything, userID).Return(apperr.New(codes.Internal, "delete failed")).Once()
-		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
-
 		d.removalRuns(t, &inlineFlow{})
 		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrInternal)
+
+		d.removes()
 		d.removalRuns(t, &inlineFlow{})
 		assert.NoError(t, d.uc.Delete(ctx, userID))
 	})
@@ -205,32 +210,57 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 
 	ctx := context.Background()
 	userID := deletionTestUser.ID
-	request := usecase.UserRequest{UserID: userID}
+	request := usecase.UserDeletion{UserID: userID, ProviderUserID: "zitadel-user-1"}
 	unavailable := apperr.New(codes.Unavailable, "database down")
+	committed := []*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}}
+	// reads expects times blocker reads that find nothing, and checkouts
+	// times more that find none either.
+	reads := func(d *userTestDeps, times, checkouts int) {
+		uid := entity.UserID(userID)
+		d.ticketRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(times)
+		d.listingRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(times)
+		d.entryRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(times)
+		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(checkouts)
+	}
 
 	// @spec components/usecase/user/delete "Record removal fails once"
-	t.Run("tries the record removal again and succeeds without another call", func(t *testing.T) {
+	t.Run("tries the record removal again and removes both without another call", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(7)
-		deletionReads{}.expect(ctx, d, 4)
-		d.serialized(3)
-		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		d.found(6)
+		deletionReads{}.expect(ctx, d, 3)
+		d.serialized(2)
 		d.repo.EXPECT().Delete(mock.Anything, userID).Return(unavailable).Once()
-		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
+		d.removes()
 		d.removalRuns(t, &retryingFlow{})
 
 		assert.NoError(t, d.uc.Delete(ctx, userID))
 	})
 
-	// @spec components/usecase/user/delete "Identity provider down for a minute"
-	t.Run("Delete succeeds when the wait ends first, and the run removes the user later", func(t *testing.T) {
+	// @spec components/usecase/user/delete "Identity removal fails once"
+	t.Run("tries the identity removal again without removing the record twice", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		// Delete's check, 3 tries of the identity step and the record step.
-		d.found(9)
-		deletionReads{}.expect(ctx, d, 5)
-		d.serialized(4)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(1)
+		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
+		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").
+			Return(apperr.New(codes.Unavailable, "identity provider down")).Once()
+		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+
+		_, err := d.uc.RunDeleteUser(ctx, &retryingFlow{}, request)
+
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/user/delete "Identity provider down for a minute"
+	t.Run("Delete succeeds when the wait ends first, and the run removes the identity later", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(4)
+		deletionReads{}.expect(ctx, d, 2)
+		d.serialized(1)
 		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").
 			Return(apperr.New(codes.Unavailable, "identity provider down")).Twice()
 		d.removes()
@@ -245,15 +275,15 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 	})
 
 	// @spec components/usecase/user/delete "Restart in the middle"
-	t.Run("a resumed run removes the user without removing the identity again", func(t *testing.T) {
+	t.Run("a resumed run removes the identity without removing the user again", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(4)
-		deletionReads{}.expect(ctx, d, 2)
-		d.serialized(2)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(1)
 		d.removes()
 		f := newReplayFlow()
-		f.stopAt = "remove-user"
+		f.stopAt = "remove-identity"
 
 		_, err := d.uc.RunDeleteUser(ctx, f, request)
 		require.ErrorIs(t, err, errStopped)
@@ -264,13 +294,12 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 	})
 
 	// @spec components/usecase/user/delete "Failure that a retry cannot fix"
-	t.Run("Delete fails with the code the run ended with", func(t *testing.T) {
+	t.Run("Delete fails with the code of a record removal that failed and keeps the identity", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
+		d := newUserTestDeps(t) // no identity expectation: a call fails the test
 		d.found(5)
-		deletionReads{}.expect(ctx, d, 3)
-		d.serialized(2)
-		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		deletionReads{}.expect(ctx, d, 2)
+		d.serialized(1)
 		d.repo.EXPECT().Delete(mock.Anything, userID).Return(apperr.New(codes.Internal, "delete failed")).Once()
 		f := &retryingFlow{}
 		d.removalRuns(t, f)
@@ -279,13 +308,36 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 		assert.ErrorIs(t, err, usecase.ErrWorkflowFailed)
-		assert.Equal(t, 2, f.tries, "one try of each step")
+		assert.Equal(t, 1, f.tries)
+	})
+
+	// @spec components/usecase/user/delete "Identity that cannot be removed"
+	t.Run("Delete succeeds once the user is removed, though the run fails", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(4)
+		d.gone(1)
+		deletionReads{}.expect(ctx, d, 2)
+		d.serialized(1)
+		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
+		refused := apperr.New(codes.Internal, "delete zitadel user")
+		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(refused).Once()
+		var runErr error
+		in := d.removalStarts(t)
+		d.workflows.EXPECT().Await(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, _ string, _ time.Duration, _ any) error {
+				_, runErr = d.uc.RunDeleteUser(ctx, &retryingFlow{}, *in)
+				return fmt.Errorf("%w: %w", usecase.ErrWorkflowFailed, runErr)
+			}).Once()
+
+		assert.NoError(t, d.uc.Delete(ctx, userID))
+		assert.ErrorIs(t, runErr, apperr.ErrInternal, "the run ends with the failure, which is reported")
 	})
 
 	t.Run("a run that failed with DeadlineExceeded is not mistaken for the wait ending", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(1)
+		d.found(3)
 		deletionReads{}.expect(ctx, d, 1)
 		d.removalStarts(t)
 		d.workflows.EXPECT().Await(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -295,17 +347,12 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 	})
 
 	// @spec components/usecase/user/delete "Blocker appears before the removal"
-	t.Run("a blocker the first step finds keeps the user and its identity", func(t *testing.T) {
+	t.Run("a blocker the removal finds keeps the user and its identity", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(3)
-		uid := entity.UserID(userID)
-		d.ticketRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Twice()
-		d.listingRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Twice()
-		d.entryRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Twice()
-		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Once()
-		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, uid).
-			Return([]*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}}, nil).Once()
+		d.found(5)
+		reads(d, 2, 1)
+		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, entity.UserID(userID)).Return(committed, nil).Once()
 		d.serialized(1)
 		d.removalRuns(t, &retryingFlow{})
 
@@ -315,20 +362,14 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 		assert.ErrorIs(t, err, usecase.ErrWorkflowFailed)
 	})
 
-	// @spec components/usecase/user/delete "Blocker appears after the identity is removed"
-	t.Run("a blocker found before the next try of the record removal ends the run", func(t *testing.T) {
+	// @spec components/usecase/user/delete "Blocker appears before a retry"
+	t.Run("a blocker found before the next try keeps the user and its identity", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(6)
-		uid := entity.UserID(userID)
-		d.ticketRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(3)
-		d.listingRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(3)
-		d.entryRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Times(3)
-		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, uid).Return(nil, nil).Twice()
-		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, uid).
-			Return([]*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}}, nil).Once()
-		d.serialized(3)
-		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		d.found(4)
+		reads(d, 2, 1)
+		d.checkoutRepo.EXPECT().ListByUser(mock.Anything, entity.UserID(userID)).Return(committed, nil).Once()
+		d.serialized(2)
 		d.repo.EXPECT().Delete(mock.Anything, userID).Return(unavailable).Once()
 
 		_, err := d.uc.RunDeleteUser(ctx, &retryingFlow{}, request)
@@ -340,16 +381,27 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 	t.Run("a second removal finds the user gone and ends without an error", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
-		d.found(4)
-		d.repo.EXPECT().Get(mock.Anything, userID).Return(nil, apperr.New(codes.NotFound, "user not found")).Twice()
-		deletionReads{}.expect(ctx, d, 2)
-		d.serialized(4)
-		d.removes()
+		d.found(2)
+		d.gone(1)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(2)
+		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
+		// An identity already gone counts as removed.
+		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Twice()
 
 		_, first := d.uc.RunDeleteUser(ctx, &inlineFlow{}, request)
 		_, second := d.uc.RunDeleteUser(ctx, &inlineFlow{}, request)
 
 		assert.NoError(t, first)
 		assert.NoError(t, second)
+	})
+
+	t.Run("removes nothing without identity removal configured", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDepsNoVerifier(t) // no expectation: a read or removal fails the test
+
+		_, err := d.uc.RunDeleteUser(ctx, &inlineFlow{}, request)
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 }

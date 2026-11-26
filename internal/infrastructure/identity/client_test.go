@@ -335,22 +335,22 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 		users := mocks.NewMockUserRepository(t)
 		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil)
 		users.EXPECT().SerializeDeletion(mock.Anything, fan.ID, mock.Anything).
-			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Twice()
+			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Once()
 		users.EXPECT().Delete(mock.Anything, fan.ID).Return(nil).Once()
 		tickets := mocks.NewMockTicketRepository(t)
-		tickets.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
+		tickets.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		listings := mocks.NewMockResaleListingRepository(t)
-		listings.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
+		listings.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		entries := mocks.NewMockLotteryEntryRepository(t)
-		entries.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
+		entries.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		checkouts := mocks.NewMockCheckoutRepository(t)
-		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
+		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
 		client := identity.NewUserClient(startIdentityService(t, f))
 		uc := usecase.NewUserUseCase(users, nil, usecase.DeletionBlockerReads{
 			Tickets: tickets, ResaleListings: listings, LotteryEntries: entries, Checkouts: checkouts, Now: time.Now,
 		}, nil, nil, nil, client, usecase.PasskeyMailers{}, time.Now, logger)
 
-		_, err := uc.RunDeleteUser(ctx, inlineSteps{}, usecase.UserRequest{UserID: fan.ID})
+		_, err := uc.RunDeleteUser(ctx, inlineSteps{}, usecase.UserDeletion{UserID: fan.ID, ProviderUserID: fan.ProviderUserID})
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{"DeleteIdentity zitadel-fan-1"}, f.recorded())

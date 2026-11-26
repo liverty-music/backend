@@ -41,6 +41,7 @@ type UserUseCase interface {
 	//
 	//  - InvalidArgument: If email or name is invalid, or home is malformed.
 	//  - AlreadyExists: If the email is already claimed by a different identity.
+	//  - FailedPrecondition: If the account of this identity was removed.
 	Create(ctx context.Context, params *entity.NewUser) (*entity.User, error)
 
 	// Get retrieves a user by their unique ID.
@@ -87,8 +88,9 @@ type UserUseCase interface {
 	// Delete permanently removes a fan user, at the fan's own request or an
 	// admin's. It fails, removing nothing, while ListDeletionBlockers returns
 	// any blocker. Otherwise it starts the delete-user workflow and waits 5
-	// seconds for it; a removal still running then is a success, because it
-	// goes on to its end on its own.
+	// seconds for it. A removal still running then is a success, because it
+	// goes on to its end on its own, and so is one that failed after removing
+	// the User.
 	//
 	// # Possible errors
 	//
@@ -99,9 +101,9 @@ type UserUseCase interface {
 	Delete(ctx context.Context, id string) error
 
 	// RunDeleteUser is the delete-user workflow Delete starts: it removes the
-	// User's sign-in identity (User.DeleteIdentity) and then the User
-	// (User.Delete); the User's Orders, Tickets, Checkouts, lottery entries and
-	// resale listings are kept. Each step runs under the User's deletion lock
+	// User (User.Delete) and then its sign-in identity (User.DeleteIdentity);
+	// the User's Orders, Tickets, Checkouts, lottery entries and resale
+	// listings are kept. The removal of the User runs under its deletion lock
 	// (User.SerializeDeletion), counts a User already gone as removed and fails
 	// while the User has a deletion blocker. A step that fails with Unavailable
 	// is tried again.
@@ -112,7 +114,7 @@ type UserUseCase interface {
 	//  - Internal: identity removal is not configured.
 	//  - Any other failure of the reads or the removals, with its own code.
 	//  - The error of the workflow runtime (Canceled, Aborted).
-	RunDeleteUser(ctx context.Context, f Flow, in UserRequest) (struct{}, error)
+	RunDeleteUser(ctx context.Context, f Flow, in UserDeletion) (struct{}, error)
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming

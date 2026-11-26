@@ -801,7 +801,7 @@ func (_c *MockUserUseCase_ResolveCaller_Call) RunAndReturn(run func(ctx context.
 }
 
 // RunDeleteUser provides a mock function for the type MockUserUseCase
-func (_mock *MockUserUseCase) RunDeleteUser(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error) {
+func (_mock *MockUserUseCase) RunDeleteUser(ctx context.Context, f usecase.Flow, in usecase.UserDeletion) (struct{}, error) {
 	ret := _mock.Called(ctx, f, in)
 
 	if len(ret) == 0 {
@@ -810,15 +810,15 @@ func (_mock *MockUserUseCase) RunDeleteUser(ctx context.Context, f usecase.Flow,
 
 	var r0 struct{}
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) (struct{}, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserDeletion) (struct{}, error)); ok {
 		return returnFunc(ctx, f, in)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserRequest) struct{}); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.UserDeletion) struct{}); ok {
 		r0 = returnFunc(ctx, f, in)
 	} else {
 		r0 = ret.Get(0).(struct{})
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.UserRequest) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.UserDeletion) error); ok {
 		r1 = returnFunc(ctx, f, in)
 	} else {
 		r1 = ret.Error(1)
@@ -834,12 +834,12 @@ type MockUserUseCase_RunDeleteUser_Call struct {
 // RunDeleteUser is a helper method to define mock.On call
 //   - ctx context.Context
 //   - f usecase.Flow
-//   - in usecase.UserRequest
+//   - in usecase.UserDeletion
 func (_e *MockUserUseCase_Expecter) RunDeleteUser(ctx any, f any, in any) *MockUserUseCase_RunDeleteUser_Call {
 	return &MockUserUseCase_RunDeleteUser_Call{Call: _e.mock.On("RunDeleteUser", ctx, f, in)}
 }
 
-func (_c *MockUserUseCase_RunDeleteUser_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest)) *MockUserUseCase_RunDeleteUser_Call {
+func (_c *MockUserUseCase_RunDeleteUser_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.UserDeletion)) *MockUserUseCase_RunDeleteUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -849,9 +849,9 @@ func (_c *MockUserUseCase_RunDeleteUser_Call) Run(run func(ctx context.Context, 
 		if args[1] != nil {
 			arg1 = args[1].(usecase.Flow)
 		}
-		var arg2 usecase.UserRequest
+		var arg2 usecase.UserDeletion
 		if args[2] != nil {
-			arg2 = args[2].(usecase.UserRequest)
+			arg2 = args[2].(usecase.UserDeletion)
 		}
 		run(
 			arg0,
@@ -867,7 +867,7 @@ func (_c *MockUserUseCase_RunDeleteUser_Call) Return(val struct{}, err error) *M
 	return _c
 }
 
-func (_c *MockUserUseCase_RunDeleteUser_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.UserRequest) (struct{}, error)) *MockUserUseCase_RunDeleteUser_Call {
+func (_c *MockUserUseCase_RunDeleteUser_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.UserDeletion) (struct{}, error)) *MockUserUseCase_RunDeleteUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

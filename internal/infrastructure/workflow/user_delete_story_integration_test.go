@@ -2,7 +2,6 @@ package workflow_test
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
@@ -22,33 +20,34 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// failingRemovals is the user store whose record removal fails with
-// Unavailable while failing is set.
-type failingRemovals struct {
-	entity.UserRepository
+// failingIdentities is the identity provider, whose identity removal fails
+// with Unavailable while failing is set.
+type failingIdentities struct {
 	failing atomic.Bool
+	removed atomic.Bool
 }
 
-func (r *failingRemovals) Delete(ctx context.Context, id string) error {
-	if r.failing.Load() {
-		return apperr.New(codes.Unavailable, "the store is unreachable")
+func (i *failingIdentities) DeleteIdentity(context.Context, string) error {
+	if i.failing.Load() {
+		return apperr.New(codes.Unavailable, "the identity provider is unreachable")
 	}
-	return r.UserRepository.Delete(ctx, id)
+	i.removed.Store(true)
+	return nil
 }
 
 // deletionStory is a fan with a follow and an identity check, the API that
 // accepts their deletion and the worker that removes the account, both on one
 // database. Only the identity provider is a mock.
 type deletionStory struct {
-	dsn   string
-	db    *rdb.Database
-	users *failingRemovals
-	fan   *entity.User
-	api   usecase.UserUseCase
+	dsn        string
+	db         *rdb.Database
+	users      entity.UserRepository
+	identities *failingIdentities
+	fan        *entity.User
+	api        usecase.UserUseCase
 }
 
 // newDeletionStory starts the story. apiClock is the API's clock, which sets
@@ -68,7 +67,7 @@ func newDeletionStory(t *testing.T, apiClock usecase.Clock) *deletionStory {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	outbox := messaging.NewOutbox(watermill.NopLogger{}, pb.NewAnnouncementEncoder())
-	users := &failingRemovals{UserRepository: rdb.NewUserRepository(db, outbox)}
+	users := rdb.NewUserRepository(db, outbox)
 
 	fan, err := users.Create(ctx, storyFan("zitadel-fan-1"))
 	require.NoError(t, err)
@@ -90,15 +89,15 @@ func newDeletionStory(t *testing.T, apiClock usecase.Clock) *deletionStory {
 		Orders:         repository.NewOrderRepository(rdb.NewOrderRepository(db), payment.NewNoopOrderPayments(logger)),
 		Now:            time.Now,
 	}
-	identities := mocks.NewMockIdentityRemover(t)
-	identities.EXPECT().DeleteIdentity(mock.Anything, "zitadel-fan-1").Return(nil).Once()
+	identities := &failingIdentities{}
+	identities.failing.Store(true)
 
 	worker := usecase.NewUserUseCase(users, nil, reads, nil, nil, nil, identities, usecase.PasskeyMailers{}, time.Now, logger)
 	startWorker(t, dsn, func(rt *workflow.Runtime) {
 		workflow.Register(rt, usecase.WorkflowDeleteUser, worker.RunDeleteUser)
 	})
 	api := usecase.NewUserUseCase(users, nil, reads, newClient(t, dsn), nil, nil, nil, usecase.PasskeyMailers{}, apiClock, logger)
-	return &deletionStory{dsn: dsn, db: db, users: users, fan: fan, api: api}
+	return &deletionStory{dsn: dsn, db: db, users: users, identities: identities, fan: fan, api: api}
 }
 
 // storyFan is the sign-up of the story's fan, always with the same email
@@ -119,22 +118,24 @@ func (s *deletionStory) count(t *testing.T, query, userID string) int {
 }
 
 // @spec stories/delete-my-account "Failure halfway"
+// @spec stories/delete-my-account "Signing in before the identity is removed"
 func TestDeleteMyAccountStory_FailureHalfway(t *testing.T) {
 	ctx := context.Background()
 	s := newDeletionStory(t, time.Now)
-	s.users.failing.Store(true)
 
 	require.NoError(t, s.api.Delete(ctx, s.fan.ID), "the deletion is accepted")
 	_, err := s.users.Get(ctx, s.fan.ID)
-	require.NoError(t, err, "the account removal is still failing")
+	require.ErrorIs(t, err, apperr.ErrNotFound, "the account is removed")
+	require.False(t, s.identities.removed.Load(), "the identity removal is still failing")
 
-	s.users.failing.Store(false)
-	require.Eventually(t, func() bool {
-		_, err := s.users.Get(ctx, s.fan.ID)
-		return errors.Is(err, apperr.ErrNotFound)
-	}, waitLimit, 100*time.Millisecond, "the account is removed without the fan acting again")
+	_, err = s.api.Create(ctx, storyFan("zitadel-fan-1"))
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "signing in again creates no account")
 
-	again, err := s.users.Create(ctx, storyFan("zitadel-fan-2"))
+	s.identities.failing.Store(false)
+	require.Eventually(t, s.identities.removed.Load, waitLimit, 100*time.Millisecond,
+		"the identity is removed without the fan acting again")
+
+	again, err := s.api.Create(ctx, storyFan("zitadel-fan-2"))
 	require.NoError(t, err, "signing up again with the same email address creates a new account")
 	assert.NotEqual(t, s.fan.ID, again.ID)
 	for _, query := range []string{
@@ -154,7 +155,6 @@ func TestDeleteMyAccountStory_FailureHalfway(t *testing.T) {
 func TestDeleteMyAccountStory_CannotComplete(t *testing.T) {
 	ctx := context.Background()
 	s := newDeletionStory(t, func() time.Time { return time.Now().Add(-24*time.Hour + 8*time.Second) })
-	s.users.failing.Store(true)
 
 	require.NoError(t, s.api.Delete(ctx, s.fan.ID))
 
@@ -163,6 +163,5 @@ func TestDeleteMyAccountStory_CannotComplete(t *testing.T) {
 		`SELECT workflow_uuid FROM dbos.workflow_status WHERE workflow_uuid LIKE 'delete-user:' || $1 || ':%'`, s.fan.ID).Scan(&runID))
 	require.Eventually(t, func() bool { return needsAdmin(workflowStatus(t, s.dsn, runID)) },
 		waitLimit, 200*time.Millisecond, "an admin is told")
-	_, err := s.users.Get(ctx, s.fan.ID)
-	assert.NoError(t, err, "the account is still there")
+	assert.False(t, s.identities.removed.Load())
 }

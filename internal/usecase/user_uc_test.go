@@ -289,6 +289,20 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	})
 
 	// @spec components/usecase/user/create "Email used by another identity"
+	// @spec components/usecase/user/create "Identity of a removed User"
+	t.Run("fails with FailedPrecondition for the identity of a removed user", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		params := &entity.NewUser{ProviderUserID: "removed-1", Email: "removed@example.com", PreferredLanguage: "ja"}
+		d.repo.EXPECT().Create(mock.Anything, params).
+			Return(nil, apperr.New(codes.FailedPrecondition, "the account of this identity was removed")).Once()
+
+		user, err := d.uc.Create(context.Background(), params)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.Nil(t, user)
+	})
+
 	t.Run("duplicate email with different provider_user_id surfaces AlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
