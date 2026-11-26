@@ -40,6 +40,7 @@ func TestDiscoveredTicketSaleMergeParity(t *testing.T) {
 			name := fmt.Sprintf("stored %s, new %s", storedName, incomingName)
 			seriesID := seedSeriesOnly(t, db, "Tour "+name)
 			first := &entity.DiscoveredTicketSale{
+				TimeZone: "Asia/Tokyo",
 				SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 				SaleStartTime: start, SaleEndTime: oldEnd, ResultDate: stored,
 			}
@@ -51,6 +52,7 @@ func TestDiscoveredTicketSaleMergeParity(t *testing.T) {
 			// The same sale found again, its page corrected: another start time
 			// on the same Japan-time day, a new end time and name.
 			corrected := &entity.DiscoveredTicketSale{
+				TimeZone: "Asia/Tokyo",
 				SeriesID: seriesID, Name: "先行抽選(受付延長)", Method: entity.TicketSaleMethodLottery,
 				SaleStartTime: start.Add(2 * time.Hour), SaleEndTime: newEnd, ResultDate: incoming,
 			}
@@ -76,18 +78,18 @@ func TestDiscoveredTicketSaleMergeParity(t *testing.T) {
 
 	t.Run("another day, series or method is another sale", func(t *testing.T) {
 		seriesID := seedSeriesOnly(t, db, "Identity")
-		first := &entity.DiscoveredTicketSale{SeriesID: seriesID, Name: "n", Method: entity.TicketSaleMethodLottery, SaleStartTime: start, SaleEndTime: oldEnd}
+		first := &entity.DiscoveredTicketSale{TimeZone: "Asia/Tokyo", SeriesID: seriesID, Name: "n", Method: entity.TicketSaleMethodLottery, SaleStartTime: start, SaleEndTime: oldEnd}
 		existing := first.TicketSale(time.Now())
 		for name, other := range map[string]*entity.DiscoveredTicketSale{
-			"another day":    {SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: start.AddDate(0, 0, 1)},
-			"another series": {SeriesID: "series-2", Method: entity.TicketSaleMethodLottery, SaleStartTime: start},
-			"another method": {SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: start},
+			"another day":    {TimeZone: "Asia/Tokyo", SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: start.AddDate(0, 0, 1)},
+			"another series": {TimeZone: "Asia/Tokyo", SeriesID: "series-2", Method: entity.TicketSaleMethodLottery, SaleStartTime: start},
+			"another method": {TimeZone: "Asia/Tokyo", SeriesID: seriesID, Method: entity.TicketSaleMethodFirstCome, SaleStartTime: start},
 		} {
 			assert.False(t, existing.IsSameDiscoveredSale(other), name)
 		}
 		// 23:30 UTC is the next day in Japan.
 		lateUTC := time.Date(2026, 10, 4, 15, 30, 0, 0, time.UTC) // 10-05 00:30 JST
-		assert.True(t, existing.IsSameDiscoveredSale(&entity.DiscoveredTicketSale{SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: lateUTC}), "the same Japan-time day")
-		assert.False(t, (&entity.TicketSale{SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: start}).IsSameDiscoveredSale(first), "a sale of an Organizer is never one found again")
+		assert.True(t, existing.IsSameDiscoveredSale(&entity.DiscoveredTicketSale{TimeZone: "Asia/Tokyo", SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: lateUTC}), "the same Japan-time day")
+		assert.False(t, (&entity.TicketSale{TimeZone: "Asia/Tokyo", SeriesID: seriesID, Method: entity.TicketSaleMethodLottery, SaleStartTime: start}).IsSameDiscoveredSale(first), "a sale of an Organizer is never one found again")
 	})
 }

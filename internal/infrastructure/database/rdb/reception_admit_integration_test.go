@@ -36,6 +36,10 @@ const (
 	// writes.
 	receptionGrantMigration = "../../../../k8s/atlas/base/migrations/20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql"
 
+	// wallClockMigration ends with the grant of SELECT on venues, whose time
+	// zone an Event's times are read in.
+	wallClockMigration = "../../../../k8s/atlas/base/migrations/20261126060405_wall_clock_times.sql"
+
 	// outboxGrantMigration grants the reception-api role INSERT on the
 	// outbox, where Ticket.Admit records its announcement.
 	outboxGrantMigration = "../../../../k8s/atlas/base/migrations/20261030130100_grant_events_outbox_inserts.sql"
@@ -77,6 +81,14 @@ func connectAsReceptionRole(t *testing.T, db *rdb.Database) *rdb.Database {
 		"reception_links", "scanners",
 	).Replace(string(migration))
 	_, err = db.Pool.Exec(ctx, grants)
+	require.NoError(t, err)
+	// The grant block that ends the wall-clock migration gives the role the
+	// read of venues; the rest of that migration changes the schema.
+	wallClock, err := os.ReadFile(wallClockMigration)
+	require.NoError(t, err)
+	last := strings.LastIndex(string(wallClock), "\nDO $$")
+	require.GreaterOrEqual(t, last, 0, "the wall-clock migration ends with its grant block")
+	_, err = db.Pool.Exec(ctx, string(wallClock)[last:])
 	require.NoError(t, err)
 	outboxGrant, err := os.ReadFile(outboxGrantMigration)
 	require.NoError(t, err)
@@ -147,7 +159,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		t.Helper()
 		cleanTables(t, db)
 		s := &stage{eventID: seedAdmissionEvent(t, db), fan: testutil.NewDeviceKey(t)}
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_time = $2, start_time = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET local_open_time = '18:00', local_start_time = '19:00' WHERE id = $1`, s.eventID)
 		require.NoError(t, err)
 		s.fanID = entity.UserID(seedUser(t, db, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
 		s.tickets = seedIssuedTickets(t, db, s.eventID, string(s.fanID), n)
@@ -252,7 +264,7 @@ func TestScannerUseCase_Open_Integration(t *testing.T) {
 	const openProcedure = "/liverty_music.rpc.scanner.v1.ScannerService/Open"
 
 	eventID := seedAdmissionEvent(t, db)
-	_, err = db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, eventID, nov20(19, 0))
+	_, err = db.Pool.Exec(ctx, `UPDATE events SET local_start_time = '19:00' WHERE id = $1`, eventID)
 	require.NoError(t, err)
 	scanner := seedScanner(t, db, eventID)
 	receptionDB := connectAsReceptionRole(t, db)

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/type/date"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/genproto/googleapis/type/timeofday"
 )
 
 func TestFromConcert(t *testing.T) {
@@ -22,8 +22,8 @@ func TestFromConcert(t *testing.T) {
 	adminArea := "Tokyo"
 	listedVenueName := "Budokan"
 
-	startTime := time.Date(2025, 6, 15, 18, 0, 0, 0, time.UTC)
-	openTime := time.Date(2025, 6, 15, 17, 0, 0, 0, time.UTC)
+	startTime := entity.TimeOfDay{Hour: 18, Minute: 30}
+	openTime := entity.TimeOfDay{Hour: 17, Minute: 30}
 	localDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
 
 	tests := []struct {
@@ -71,12 +71,52 @@ func TestFromConcert(t *testing.T) {
 						AdminArea: &entityv1.AdminArea{Value: adminArea},
 					},
 					LocalDate:       &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
-					StartTime:       &entityv1.StartTime{Value: timestamppb.New(startTime)},
-					OpenTime:        &entityv1.OpenTime{Value: timestamppb.New(openTime)},
+					StartTime:       &entityv1.StartTime{Value: &timeofday.TimeOfDay{Hours: 18, Minutes: 30}},
+					OpenTime:        &entityv1.OpenTime{Value: &timeofday.TimeOfDay{Hours: 17, Minutes: 30}},
 					SeriesId:        &entityv1.SeriesId{Value: "series-id-2"},
 					ListedVenueName: &entityv1.ListedVenueName{Value: listedVenueName},
 				},
 				ArtistIds: []*entityv1.ArtistId{{Value: "artist-id-2"}},
+			},
+		},
+		{
+			// @spec components/adapter/fan/api/rpc/concert "Concert abroad"
+			name: "carry the local date and the times of day at a Venue abroad, with its time zone",
+			args: &entity.Concert{
+				ID: "event-id-6", SeriesID: "series-id-6", VenueID: "venue-id-6", LocalDate: time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC),
+				StartTime: &startTime, OpenTime: &openTime,
+				Venue:  &entity.Venue{ID: "venue-id-6", Name: "KSPO Dome", AdminArea: new("KR-11"), TimeZone: new("Asia/Seoul")},
+				Series: &entity.Series{ID: "series-id-6", Title: "Seoul Night", Type: entity.SeriesTypeSingle},
+			},
+			want: &entityv1.Concert{
+				Event: &entityv1.Event{
+					Id: &entityv1.EventId{Value: "event-id-6"},
+					Venue: &entityv1.Venue{
+						Id:        &entityv1.VenueId{Value: "venue-id-6"},
+						Name:      &entityv1.VenueName{Value: "KSPO Dome"},
+						AdminArea: &entityv1.AdminArea{Value: "KR-11"},
+						TimeZone:  &entityv1.TimeZone{Value: "Asia/Seoul"},
+					},
+					LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2027, Month: 3, Day: 14}},
+					StartTime: &entityv1.StartTime{Value: &timeofday.TimeOfDay{Hours: 18, Minutes: 30}},
+					OpenTime:  &entityv1.OpenTime{Value: &timeofday.TimeOfDay{Hours: 17, Minutes: 30}},
+					SeriesId:  &entityv1.SeriesId{Value: "series-id-6"},
+				},
+			},
+		},
+		{
+			// @spec components/adapter/fan/api/rpc/concert "Start time unknown"
+			name: "carry no start time when it is unknown",
+			args: &entity.Concert{
+				ID: "event-id-7", SeriesID: "series-id-7", LocalDate: localDate,
+				Series: &entity.Series{ID: "series-id-7", Title: "TBA", Type: entity.SeriesTypeSingle},
+			},
+			want: &entityv1.Concert{
+				Event: &entityv1.Event{
+					Id:        &entityv1.EventId{Value: "event-id-7"},
+					LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
+					SeriesId:  &entityv1.SeriesId{Value: "series-id-7"},
+				},
 			},
 		},
 		{

@@ -146,9 +146,8 @@ func TestConcertCandidateRepository_Upsert_OtherStartTimeRefreshes(t *testing.T)
 	ctx := context.Background()
 
 	artistID := seedArtist(t, db, "Start Time Artist", "aaaaaaaa-aaaa-aaaa-aaaa-100000000008")
-	jst := time.FixedZone("JST", 9*60*60)
-	matinee := time.Date(2026, 6, 15, 13, 0, 0, 0, jst)
-	evening := time.Date(2026, 6, 15, 18, 0, 0, 0, jst)
+	matinee := timeOfDayAt(13, 0)
+	evening := timeOfDayAt(18, 0)
 
 	first := buildConcertCandidateWithPlace(t, db, artistID, "place-start")
 	first.StartTime = &matinee
@@ -163,7 +162,7 @@ func TestConcertCandidateRepository_Upsert_OtherStartTimeRefreshes(t *testing.T)
 	require.Len(t, pending, 1, "no second concert candidate is stored")
 	assert.Equal(t, first.ID, pending[0].ID, "the existing concert candidate is refreshed")
 	require.NotNil(t, pending[0].StartTime)
-	assert.True(t, pending[0].StartTime.Equal(evening), "it now starts at 18:00")
+	assert.Equal(t, evening, *pending[0].StartTime, "it now starts at 18:00")
 }
 
 func TestConcertCandidateRepository_Upsert_BothNaturalKeyPaths(t *testing.T) {

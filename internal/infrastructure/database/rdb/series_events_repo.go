@@ -33,15 +33,15 @@ const (
 	// lockSeriesEventsQuery reads and locks every event of the series with
 	// the fields a lifecycle write decides on.
 	lockSeriesEventsQuery = `
-		SELECT id, venue_id, local_event_date, start_time, open_time, publish_state, per_account_limit
+		SELECT id, venue_id, local_event_date, local_start_time::text, local_open_time::text, publish_state, per_account_limit
 		FROM events
 		WHERE series_id = $1
 		FOR UPDATE
 	`
 
 	insertAuthoredEventQuery = `
-		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_time, open_time, publish_state, per_account_limit)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'DRAFT', $8)
+		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, local_start_time, local_open_time, publish_state, per_account_limit)
+		VALUES ($1, $2, $3, $4, $5, $6::text::time, $7::text::time, 'DRAFT', $8)
 	`
 
 	insertConcertRowQuery = `
@@ -69,14 +69,14 @@ const (
 
 	updateDraftEventQuery = `
 		UPDATE events
-		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, start_time = $5, open_time = $6,
+		SET venue_id = $2, listed_venue_name = $3, local_event_date = $4, local_start_time = $5::text::time, local_open_time = $6::text::time,
 		    per_account_limit = COALESCE($7, per_account_limit)
 		WHERE id = $1 AND publish_state = 'DRAFT'
 	`
 
 	updatePublishedEventTimesQuery = `
 		UPDATE events
-		SET start_time = $2, open_time = $3
+		SET local_start_time = $2::text::time, local_open_time = $3::text::time
 		WHERE id = $1 AND publish_state = 'PUBLISHED'
 	`
 
@@ -93,7 +93,7 @@ const (
 		JOIN series s ON s.id = e.series_id
 		WHERE e.venue_id = $1
 		  AND e.local_event_date = $2
-		  AND e.start_time IS NOT DISTINCT FROM $3
+		  AND e.local_start_time IS NOT DISTINCT FROM $3::text::time
 		  AND e.id <> $4
 		  AND ` + catalogEventCondition + `
 		FOR UPDATE OF e
@@ -164,13 +164,17 @@ func lockSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string) (map[stri
 	events := make(map[string]*entity.Event)
 	for rows.Next() {
 		var (
-			e     entity.Event
-			state sql.NullString
-			limit sql.NullInt32
+			e         entity.Event
+			state     sql.NullString
+			limit     sql.NullInt32
+			startText *string
+			openText  *string
 		)
-		if err := rows.Scan(&e.ID, &e.VenueID, &e.LocalDate, &e.StartTime, &e.OpenTime, &state, &limit); err != nil {
+		if err := rows.Scan(&e.ID, &e.VenueID, &e.LocalDate, &startText, &openText, &state, &limit); err != nil {
 			return nil, toAppErr(err, "failed to scan series event")
 		}
+		e.StartTime = timeOfDayFromText(startText)
+		e.OpenTime = timeOfDayFromText(openText)
 		e.SeriesID = seriesID
 		e.PublishState = nullPublishState(state)
 		e.PerAccountLimit = optionalInt(limit)
@@ -187,7 +191,7 @@ func lockSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string) (map[stri
 func insertDraftEvent(ctx context.Context, tx pgx.Tx, seriesID string, e *entity.Event, performerIDs []string) error {
 	limit := e.Limit()
 	if _, err := tx.Exec(ctx, insertAuthoredEventQuery,
-		e.ID, seriesID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, limit,
+		e.ID, seriesID, e.VenueID, e.ListedVenueName, e.LocalDate, timeOfDayText(e.StartTime), timeOfDayText(e.OpenTime), limit,
 	); err != nil {
 		return toAppErr(err, "failed to insert draft event", slog.String("series_id", seriesID))
 	}
@@ -219,7 +223,7 @@ func checkSlot(ctx context.Context, tx pgx.Tx, e *entity.Event, exceptID string)
 		state       sql.NullString
 		organizerID sql.NullString
 	)
-	err := tx.QueryRow(ctx, eventAtSlotQuery, e.VenueID, e.LocalDate, e.StartTime, exceptID).
+	err := tx.QueryRow(ctx, eventAtSlotQuery, e.VenueID, e.LocalDate, timeOfDayText(e.StartTime), exceptID).
 		Scan(&h.EventID, &h.SeriesID, &state, &organizerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -329,7 +333,7 @@ func applyEventEdit(ctx context.Context, tx pgx.Tx, seriesID string, edit entity
 		return insertDraftEvent(ctx, tx, seriesID, &added, performerArtistIDs)
 	case entity.EventEditDraft:
 		if _, err := tx.Exec(ctx, updateDraftEventQuery,
-			e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, e.StartTime, e.OpenTime, e.PerAccountLimit,
+			e.ID, e.VenueID, e.ListedVenueName, e.LocalDate, timeOfDayText(e.StartTime), timeOfDayText(e.OpenTime), e.PerAccountLimit,
 		); err != nil {
 			return toAppErr(err, "failed to update draft event", slog.String("event_id", e.ID))
 		}
@@ -341,7 +345,7 @@ func applyEventEdit(ctx context.Context, tx pgx.Tx, seriesID string, edit entity
 				return err
 			}
 		}
-		if _, err := tx.Exec(ctx, updatePublishedEventTimesQuery, e.ID, e.StartTime, e.OpenTime); err != nil {
+		if _, err := tx.Exec(ctx, updatePublishedEventTimesQuery, e.ID, timeOfDayText(e.StartTime), timeOfDayText(e.OpenTime)); err != nil {
 			return toAppErr(err, "failed to update published event times", slog.String("event_id", e.ID))
 		}
 	default:

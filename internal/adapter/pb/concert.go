@@ -8,7 +8,6 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"google.golang.org/genproto/googleapis/type/date"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // seriesTypeToProto maps the domain SeriesType string enum onto the generated
@@ -106,10 +105,10 @@ func FromEvent(e *entity.Event) *entityv1.Event {
 		proto.SeriesId = &entityv1.SeriesId{Value: e.SeriesID}
 	}
 	if e.StartTime != nil {
-		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*e.StartTime)}
+		proto.StartTime = &entityv1.StartTime{Value: TimeOfDayToProto(e.StartTime)}
 	}
 	if e.OpenTime != nil {
-		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*e.OpenTime)}
+		proto.OpenTime = &entityv1.OpenTime{Value: TimeOfDayToProto(e.OpenTime)}
 	}
 	if e.ListedVenueName != nil {
 		proto.ListedVenueName = &entityv1.ListedVenueName{Value: *e.ListedVenueName}

@@ -31,7 +31,13 @@ func newTestDB(t *testing.T) *rdb.Database {
 // newTestDBWithPool is newTestDB with a pool of at most maxConns connections.
 func newTestDBWithPool(t *testing.T, maxConns int) *rdb.Database {
 	t.Helper()
-	clone := testutil.NewDatabase(t)
+	return openTestDB(t, testutil.NewDatabase(t), maxConns)
+}
+
+// openTestDB connects to the test's database clone with a pool of at most
+// maxConns connections, closed when the test ends.
+func openTestDB(t *testing.T, clone testutil.TestDatabase, maxConns int) *rdb.Database {
+	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	db, err := rdb.New(context.Background(), config.DatabaseConfig{
@@ -194,8 +200,48 @@ func seedStockForEvent(t *testing.T, db *rdb.Database, eventID string, method en
 	return &stockFixture{ID: stockID, SaleID: saleID, EventID: eventID, SeatType: seatType, Quantity: quantity, Limit: limit}
 }
 
+// timeOfDayAt returns the time of day at hour and minute, for the start and
+// door times of test events.
+func timeOfDayAt(hour, minute int) entity.TimeOfDay {
+	return entity.TimeOfDay{Hour: hour, Minute: minute}
+}
+
+// timeOfDayArg returns t as the HH:MM text a TIME column takes (bind it with
+// $n::text::time), or nil for an unknown time.
+func timeOfDayArg(t *entity.TimeOfDay) *string {
+	if t == nil {
+		return nil
+	}
+	return new(t.String())
+}
+
+// setEventStartInstant moves the event, whose venue is in Japan, to the
+// calendar day and time of day that instant has in Japan.
+func setEventStartInstant(t *testing.T, db *rdb.Database, eventID string, instant time.Time) {
+	t.Helper()
+	jst := time.FixedZone("JST", 9*60*60)
+	local := instant.In(jst)
+	_, err := db.Pool.Exec(context.Background(),
+		`UPDATE events SET local_event_date = $2::date, local_start_time = $3::text::time WHERE id = $1`,
+		eventID, local.Format(time.DateOnly), local.Format("15:04"))
+	require.NoError(t, err)
+}
+
+// japanDate returns the calendar day of t in Japan at midnight UTC, the form
+// of a result date.
+func japanDate(t time.Time) time.Time {
+	return entity.LocalDateIn(t, time.FixedZone("JST", 9*60*60))
+}
+
+// todayInTokyo returns the current calendar day in Japan at midnight UTC, the
+// "today" of the Japanese venues the tests seed.
+func todayInTokyo() time.Time {
+	return entity.CurrentDateAtVenue(time.Now(), &entity.Venue{TimeZone: new("Asia/Tokyo")})
+}
+
 // seedSale creates a TicketSale of the given method and window naming the
-// event.
+// event, stored as the Asia/Tokyo wall-clock times of the start and end
+// instants.
 func seedSale(t *testing.T, db *rdb.Database, eventID string, method entity.TicketSaleMethod, start, end time.Time) entity.TicketSaleID {
 	t.Helper()
 	ctx := context.Background()
@@ -205,8 +251,8 @@ func seedSale(t *testing.T, db *rdb.Database, eventID string, method entity.Tick
 	}
 	id := entity.NewID()
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO ticket_sales (id, series_id, name, method, sale_start_time, sale_end_time)
-		SELECT $1, series_id, $3, $4, $5, $6 FROM events WHERE id = $2
+		INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time)
+		SELECT $1, series_id, $3, $4, 'Asia/Tokyo', $5::timestamptz AT TIME ZONE 'Asia/Tokyo', $6::timestamptz AT TIME ZONE 'Asia/Tokyo' FROM events WHERE id = $2
 	`, id, eventID, name, int16(method), start, end)
 	require.NoError(t, err)
 	_, err = db.Pool.Exec(ctx, `INSERT INTO ticket_sale_events (ticket_sale_id, event_id) VALUES ($1, $2)`, id, eventID)

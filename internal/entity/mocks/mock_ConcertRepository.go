@@ -187,7 +187,7 @@ func (_c *MockConcertRepository_Delete_Call) RunAndReturn(run func(ctx context.C
 }
 
 // FillEventStartTimes provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes []*time.Time, openTimes []*time.Time) error {
+func (_mock *MockConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes []*entity.TimeOfDay, openTimes []*entity.TimeOfDay) error {
 	ret := _mock.Called(ctx, eventIDs, startTimes, openTimes)
 
 	if len(ret) == 0 {
@@ -195,7 +195,7 @@ func (_mock *MockConcertRepository) FillEventStartTimes(ctx context.Context, eve
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []*time.Time, []*time.Time) error); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []*entity.TimeOfDay, []*entity.TimeOfDay) error); ok {
 		r0 = returnFunc(ctx, eventIDs, startTimes, openTimes)
 	} else {
 		r0 = ret.Error(0)
@@ -211,13 +211,13 @@ type MockConcertRepository_FillEventStartTimes_Call struct {
 // FillEventStartTimes is a helper method to define mock.On call
 //   - ctx context.Context
 //   - eventIDs []string
-//   - startTimes []*time.Time
-//   - openTimes []*time.Time
+//   - startTimes []*entity.TimeOfDay
+//   - openTimes []*entity.TimeOfDay
 func (_e *MockConcertRepository_Expecter) FillEventStartTimes(ctx any, eventIDs any, startTimes any, openTimes any) *MockConcertRepository_FillEventStartTimes_Call {
 	return &MockConcertRepository_FillEventStartTimes_Call{Call: _e.mock.On("FillEventStartTimes", ctx, eventIDs, startTimes, openTimes)}
 }
 
-func (_c *MockConcertRepository_FillEventStartTimes_Call) Run(run func(ctx context.Context, eventIDs []string, startTimes []*time.Time, openTimes []*time.Time)) *MockConcertRepository_FillEventStartTimes_Call {
+func (_c *MockConcertRepository_FillEventStartTimes_Call) Run(run func(ctx context.Context, eventIDs []string, startTimes []*entity.TimeOfDay, openTimes []*entity.TimeOfDay)) *MockConcertRepository_FillEventStartTimes_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -227,13 +227,13 @@ func (_c *MockConcertRepository_FillEventStartTimes_Call) Run(run func(ctx conte
 		if args[1] != nil {
 			arg1 = args[1].([]string)
 		}
-		var arg2 []*time.Time
+		var arg2 []*entity.TimeOfDay
 		if args[2] != nil {
-			arg2 = args[2].([]*time.Time)
+			arg2 = args[2].([]*entity.TimeOfDay)
 		}
-		var arg3 []*time.Time
+		var arg3 []*entity.TimeOfDay
 		if args[3] != nil {
-			arg3 = args[3].([]*time.Time)
+			arg3 = args[3].([]*entity.TimeOfDay)
 		}
 		run(
 			arg0,
@@ -250,7 +250,7 @@ func (_c *MockConcertRepository_FillEventStartTimes_Call) Return(err error) *Moc
 	return _c
 }
 
-func (_c *MockConcertRepository_FillEventStartTimes_Call) RunAndReturn(run func(ctx context.Context, eventIDs []string, startTimes []*time.Time, openTimes []*time.Time) error) *MockConcertRepository_FillEventStartTimes_Call {
+func (_c *MockConcertRepository_FillEventStartTimes_Call) RunAndReturn(run func(ctx context.Context, eventIDs []string, startTimes []*entity.TimeOfDay, openTimes []*entity.TimeOfDay) error) *MockConcertRepository_FillEventStartTimes_Call {
 	_c.Call.Return(run)
 	return _c
 }

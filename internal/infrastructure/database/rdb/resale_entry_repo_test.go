@@ -31,8 +31,7 @@ var (
 func seedResaleStock(t *testing.T, db *rdb.Database, quantity, limit int) *stockFixture {
 	t.Helper()
 	f := seedStock(t, db, entity.TicketSaleMethodLottery, quantity, limit)
-	_, err := db.Pool.Exec(context.Background(), `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleShowStart)
-	require.NoError(t, err)
+	setEventStartInstant(t, db, f.EventID, resaleShowStart)
 	seedPaidOrder(t, db, f, string(newUserID(t, db)), quantity, issuedTicketsTime)
 	return f
 }
@@ -99,11 +98,10 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 	t.Run("resale not open", func(t *testing.T) {
 		// @spec components/entity/resale-entry/create "Resale not open"
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 4, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleShowStart)
-		require.NoError(t, err)
+		setEventStartInstant(t, db, f.EventID, resaleShowStart)
 		fan := newUserID(t, db)
 
-		_, err = repo.Create(ctx, newResaleEntry(db, f, fan, 1))
+		_, err := repo.Create(ctx, newResaleEntry(db, f, fan, 1))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		entries, err := repo.ListByUser(ctx, fan)
@@ -115,7 +113,7 @@ func TestResaleEntryRepository_Create(t *testing.T) {
 		// A TicketSale cannot name an Event without a start time, so a fan
 		// cannot reach this: it is Internal, not "resale not open".
 		f := seedResaleStock(t, db, 4, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = NULL WHERE id = $1`, f.EventID)
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET local_start_time = NULL WHERE id = $1`, f.EventID)
 		require.NoError(t, err)
 		fan := newUserID(t, db)
 

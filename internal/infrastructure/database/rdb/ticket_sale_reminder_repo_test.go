@@ -18,6 +18,7 @@ func seedDiscoveredSale(t *testing.T, db *rdb.Database) entity.TicketSaleID {
 	t.Helper()
 	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	id, _, err := rdb.NewTicketSaleRepository(db, testOutbox).UpsertDiscovered(context.Background(), &entity.DiscoveredTicketSale{
+		TimeZone:      "Asia/Tokyo",
 		SeriesID:      seedSeriesOnly(t, db, "Reminder Tour"),
 		Name:          "オフィシャル先行",
 		Method:        entity.TicketSaleMethodLottery,

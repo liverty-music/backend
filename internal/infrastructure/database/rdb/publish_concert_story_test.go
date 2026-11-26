@@ -202,7 +202,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		_, _, err := s.series.Publish(s.ctx, s.orgID, seriesID, nil)
 		require.NoError(t, err)
 		in := s.input(eventID, 0)
-		doors := s.date.Add(8 * time.Hour)
+		doors := timeOfDayAt(8, 0)
 		in.OpenTime = &doors
 
 		_, _, err = s.series.Update(s.ctx, s.orgID, seriesID, s.draft("Story Tour", entity.SeriesVisibilityPublic),
@@ -212,7 +212,7 @@ func TestStory_PublishAnOrganizerConcert(t *testing.T) {
 		got := s.listed()
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime)
-		assert.True(t, got[0].OpenTime.Equal(doors))
+		assert.Equal(t, doors, *got[0].OpenTime)
 	})
 
 	t.Run("a published date cannot move to another venue", func(t *testing.T) {

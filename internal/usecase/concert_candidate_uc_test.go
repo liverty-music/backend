@@ -83,6 +83,10 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		places:          entitymocks.NewMockVenueMapCatalog(t),
 	}
 	approvalAreas(d.areas)
+	// Approve reads the decided Venue to check the candidate's times in its
+	// zone.
+	d.venueRepo.EXPECT().Get(mock.Anything, mock.Anything).
+		Return(&entity.Venue{TimeZone: new("America/New_York")}, nil).Maybe()
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
 	// concertSearchRepo, concertSearcher and metrics.
 	concerts := usecase.NewConcertUseCase(
@@ -224,6 +228,7 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 	t.Run("Unresolved concert candidate", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert-candidate/approve "Unresolved concert candidate"
+		// @spec components/entity/venue "Unresolved venue"
 		d := newApprovalTestDeps(t, artist)
 		sc := d.candidate(new("JP-13"), nil, nil)
 		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "JP-13")
@@ -233,11 +238,14 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 
 		require.NoError(t, d.approve(sc, nil, nil))
 
+		require.Len(t, d.createdVenues, 1)
 		v := d.createdVenues[0]
+		assert.Equal(t, "Zepp Haneda(TOKYO)", v.Name, "named by its listed name")
 		assert.Equal(t, "JP-13", *v.AdminArea)
 		assert.Equal(t, "Asia/Tokyo", *v.TimeZone)
 		assert.Nil(t, v.GooglePlaceID)
 		assert.Nil(t, v.Coordinates)
+		assert.Nil(t, v.CoordinatesFetchTime)
 	})
 
 	t.Run("Different place id for a stored venue", func(t *testing.T) {
@@ -385,6 +393,24 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 		assert.ErrorIs(t, d.approve(sc, nil, nil), apperr.ErrUnavailable)
 	})
 
+	t.Run("a time the venue's clocks skip is published as unknown", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := d.candidate(new("JP-13"), nil, nil)
+		sc.LocalDate = time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC)
+		sc.StartTime = &entity.TimeOfDay{Hour: 2, Minute: 30}
+		sc.OpenTime = &entity.TimeOfDay{Hour: 1, Minute: 30}
+		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "JP-13")
+		d.slotFree()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		require.NoError(t, d.approve(sc, nil, nil))
+
+		assert.Nil(t, d.createdConcerts[0].StartTime)
+		assert.Equal(t, &entity.TimeOfDay{Hour: 1, Minute: 30}, d.createdConcerts[0].OpenTime)
+	})
+
 	t.Run("approve is idempotent when concert candidate is already gone", func(t *testing.T) {
 		t.Parallel()
 		d := newApprovalTestDeps(t, artist)
@@ -413,7 +439,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 			SeriesID:        "series-1",
 			VenueID:         "venue-1",
 			LocalDate:       day,
-			StartTime:       &start,
+			StartTime:       tod(start),
 			ListedVenueName: new("Old Listed Name"),
 		}}, nil).Once()
 	sc := &entity.ConcertCandidate{
@@ -422,7 +448,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 		Title:           "Candidate Title",
 		LocalDate:       day,
 		ListedVenueName: "Venue ABC",
-		StartTime:       &start,
+		StartTime:       tod(start),
 		AdminArea:       new("JP-13"),
 	}
 	d.pending(sc)

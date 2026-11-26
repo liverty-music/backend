@@ -396,7 +396,11 @@ func (uc *resaleEntryUseCase) List(ctx context.Context, userID entity.UserID) ([
 func (uc *resaleEntryUseCase) views(ctx context.Context, entries []*entity.ResaleEntry) ([]*ResaleEntryView, error) {
 	now := uc.clock()
 	stocks := map[entity.TicketStockID]*entity.TicketStock{}
-	starts := map[string]*time.Time{}
+	type eventSchedule struct {
+		start *time.Time
+		zone  *time.Location
+	}
+	starts := map[string]eventSchedule{}
 	views := make([]*ResaleEntryView, 0, len(entries))
 	for _, e := range entries {
 		stock, ok := stocks[e.Order.TicketStockID]
@@ -415,10 +419,13 @@ func (uc *resaleEntryUseCase) views(ctx context.Context, entries []*entity.Resal
 				if err != nil {
 					return nil, err
 				}
-				start = event.StartTime
+				start = eventSchedule{zone: event.Location()}
+				if instant, ok := event.StartInstant(); ok {
+					start.start = &instant
+				}
 				starts[stock.EventID] = start
 			}
-			view.NextDrawTime = e.NextDrawTime(now, start)
+			view.NextDrawTime = e.NextDrawTime(now, start.start, start.zone)
 		}
 		views = append(views, view)
 	}

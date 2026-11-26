@@ -103,7 +103,30 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-11-25, globalize-venues)
+## Latest result (2026-11-26, globalize-venues wall-clock times)
+
+Event times are asked for as `HH:MM` at the venue, and sale times as local
+date-times with their IANA zone. This run checks the new formats only, with
+one repetition on the cheapest cases; it does not compare recall.
+`gemini-4-hydrogen`, thinking `low`.
+
+| workload | cases | tier | result |
+|---|---|---|---|
+| concert search (`ab_results/20261126T094109Z.*`) | go!go!vanillas | Flex (temporary local change) | recall 1.00; start and open time accuracy 1.00; all 17 returned events carried `HH:MM` start and open times |
+| concert search, same run | [Alexandros] | Flex | 503 "high demand" on all 3 attempts |
+| ticket sale search (`ab_results/ticket_sale_20261126T094644Z.*`) | kinggnu, zutomayo, creepynuts | standard | 6/6 sales found, 0 extra, 0 wrong; cost $0.186 at the 2027 price |
+
+The go!go!vanillas Taipei show came back as 19:30 / 20:00 `Asia/Taipei`, which
+is what its page states (`ggv-asiatour2026.jp`, read 2026-11-26): the model did
+not convert it to Japan time.
+
+Flex accepted URL context, Google Search and the response schema for this model
+(response `serviceTier: flex`), but returned 503 on 2 of 3 concert attempts for
+the case that succeeded, on every attempt of the other, and on all 6 ticket sale
+calls in two runs minutes apart. Cost columns of the Flex run are at the standard
+price.
+
+## Earlier result (2026-11-25, globalize-venues)
 
 The response schema gains a required `time_zone` per event, and
 `admin_area` is resolved to a first-level Area code

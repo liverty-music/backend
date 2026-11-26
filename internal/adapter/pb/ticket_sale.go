@@ -1,9 +1,13 @@
 package pb
 
 import (
+	"time"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_sale/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
+	"google.golang.org/genproto/googleapis/type/datetime"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -19,8 +23,8 @@ func FromTicketSale(s *entity.TicketSale) *entityv1.TicketSale {
 		SeriesId:                &entityv1.SeriesId{Value: s.SeriesID},
 		Name:                    &entityv1.TicketSaleName{Value: s.Name},
 		Method:                  ticketSaleMethodToProto(s.Method),
-		SaleStartTime:           timestamppb.New(s.SaleStartTime),
-		SaleEndTime:             timestamppb.New(s.SaleEndTime),
+		SaleStartTime:           SaleTimeToProto(s.SaleStartTime, s.Location()),
+		SaleEndTime:             SaleTimeToProto(s.SaleEndTime, s.Location()),
 		VerificationRequirement: verificationRequirementToProto(s.VerificationRequirement),
 		EventIds:                make([]*entityv1.EventId, 0, len(s.EventIDs)),
 	}
@@ -92,22 +96,50 @@ func ToVerificationRequirement(r entityv1.VerificationRequirement) entity.Verifi
 	}
 }
 
+// SaleWindowFromProto reads a sale window from its start and end date-times:
+// both name one IANA time zone, which is returned with the instants of the two
+// times. It fails with InvalidArgument when either is invalid (see
+// [SaleTimeFromProto]) or they name different zones. A missing end is a zero
+// instant, which the use case refuses.
+func SaleWindowFromProto(start, end *datetime.DateTime) (zone string, startInstant, endInstant time.Time, err error) {
+	startInstant, zone, err = SaleTimeFromProto(start)
+	if err != nil {
+		return "", time.Time{}, time.Time{}, err
+	}
+	if end == nil {
+		return zone, startInstant, time.Time{}, nil
+	}
+	var endZone string
+	endInstant, endZone, err = SaleTimeFromProto(end)
+	if err != nil {
+		return "", time.Time{}, time.Time{}, err
+	}
+	if endZone != zone {
+		return "", time.Time{}, time.Time{}, apperr.New(codes.InvalidArgument, "the start and end times of a sale must name the same time zone")
+	}
+	return zone, startInstant, endInstant, nil
+}
+
 // CreateTicketSaleInputFromProto maps an organizer Create request to the use
-// case input.
-func CreateTicketSaleInputFromProto(req *organizerticketsalev1.CreateRequest) usecase.CreateTicketSaleInput {
+// case input. It fails with InvalidArgument when the window is invalid (see
+// [SaleWindowFromProto]).
+func CreateTicketSaleInputFromProto(req *organizerticketsalev1.CreateRequest) (usecase.CreateTicketSaleInput, error) {
+	zone, start, end, err := SaleWindowFromProto(req.GetSaleStartTime(), req.GetSaleEndTime())
+	if err != nil {
+		return usecase.CreateTicketSaleInput{}, err
+	}
 	in := usecase.CreateTicketSaleInput{
 		SeriesID:                req.GetSeriesId().GetValue(),
 		Name:                    req.GetName().GetValue(),
 		Method:                  ToTicketSaleMethod(req.GetMethod()),
-		SaleStart:               req.GetSaleStartTime().AsTime(),
+		TimeZone:                zone,
+		SaleStart:               start,
+		SaleEnd:                 end,
 		VerificationRequirement: ToVerificationRequirement(req.GetVerificationRequirement()),
 		EventIDs:                make([]string, 0, len(req.GetEventIds())),
-	}
-	if req.GetSaleEndTime() != nil {
-		in.SaleEnd = req.GetSaleEndTime().AsTime()
 	}
 	for _, id := range req.GetEventIds() {
 		in.EventIDs = append(in.EventIDs, id.GetValue())
 	}
-	return in
+	return in, nil
 }

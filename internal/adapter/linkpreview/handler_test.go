@@ -1,6 +1,7 @@
 package linkpreview_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,10 +33,21 @@ const (
 	cdnBaseURL    = "https://cdn.example.com"
 )
 
-// jstTime returns an instant at the given Japan-time hour on 2026-11-20.
-func jstTime(hour int) *time.Time {
-	t := time.Date(2026, 11, 20, hour, 0, 0, 0, time.FixedZone("JST", 9*60*60))
-	return &t
+// wallTime returns the time of day at hour:minute at the Venue.
+func wallTime(hour, minute int) *entity.TimeOfDay {
+	return &entity.TimeOfDay{Hour: hour, Minute: minute}
+}
+
+// fakeZones answers ListByCountry with the time zones of each country, and
+// fails for a country it has none of.
+type fakeZones map[string][]*entity.AreaTimeZone
+
+func (z fakeZones) ListByCountry(_ context.Context, country string) (*entity.CountryAreas, error) {
+	zones, ok := z[country]
+	if !ok {
+		return nil, apperr.New(codes.NotFound, "no such country")
+	}
+	return &entity.CountryAreas{TimeZones: zones}, nil
 }
 
 // concertOpts customise the fixture Concert.
@@ -71,8 +83,8 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 	eventState := o.state
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,
-		OpenTime: jstTime(18), StartTime: jstTime(19),
-		Venue:        &entity.Venue{Name: "Shibuya WWW", AdminArea: &area},
+		OpenTime: wallTime(18, 0), StartTime: wallTime(19, 0),
+		Venue:        &entity.Venue{Name: "Shibuya WWW", AdminArea: &area, TimeZone: new("Asia/Tokyo")},
 		PublishState: &eventState,
 		Series:       s,
 		Artists:      []*entity.Artist{{Name: "The Band"}},
@@ -106,7 +118,7 @@ func newFixture(t *testing.T) *fixture {
 	logger, err := logging.New()
 	require.NoError(t, err)
 	uc := mocks.NewMockConcertUseCase(t)
-	h := linkpreview.NewHandler(uc, linkpreview.NewTagBuilder(siteBaseURL, cdnURLs(t)), logger)
+	h := linkpreview.NewHandler(uc, fakeZones{"GB": {{Name: "Europe/London", NameEN: "London", NameJA: new("ロンドン")}}}, linkpreview.NewTagBuilder(siteBaseURL, cdnURLs(t)), logger)
 	mux := http.NewServeMux()
 	mux.Handle(linkpreview.Pattern, h)
 	srv := httptest.NewServer(mux)
@@ -147,7 +159,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 	// @spec components/infrastructure/fan/web/global/link-preview "Shared on X"
 	t.Parallel()
 	f := newFixture(t)
-	day1 := newConcert(eventID, nov20, concertOpts{cover: true, desc: "Two nights at Shibuya WWW."})
+	day1 := newConcert(eventID, nov20, concertOpts{cover: true, desc: "Two nights."})
 	f.uc.EXPECT().Get(mock.Anything, eventID).Return(day1, nil).Once()
 	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{
 		day1, newConcert(day2ID, nov21, concertOpts{cover: true}),
@@ -158,7 +170,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "ONE MAN LIVE | The Band", metaContent(t, body, "og:title"))
 	assert.Equal(t,
-		"2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都） 全2公演 11/20(金)・11/21(土) Two nights at Shibuya WWW.",
+		"2026年11月20日(金) 開場18:00 開演19:00 日本時間 Shibuya WWW（東京都） 全2公演 11/20(金)・11/21(土) Two nights.",
 		metaContent(t, body, "og:description"))
 	assert.Equal(t, cdnBaseURL+"/"+organizerID+"/"+seriesImageID+"/large", metaContent(t, body, "og:image"))
 	assert.Equal(t, siteBaseURL+"/concerts/"+eventID, metaContent(t, body, "og:url"))
@@ -167,6 +179,38 @@ func TestHandler_SharedOnX(t *testing.T) {
 	assert.Equal(t, "ja_JP", metaContent(t, body, "og:locale"))
 	assert.Equal(t, "en_US", metaContent(t, body, "og:locale:alternate"))
 	assert.Equal(t, "summary_large_image", metaContent(t, body, "twitter:card"))
+}
+
+func TestHandler_EventAbroad(t *testing.T) {
+	// @spec components/infrastructure/fan/web/global/link-preview "Event abroad"
+	t.Parallel()
+	f := newFixture(t)
+	c := newConcert(eventID, time.Date(2027, 2, 20, 0, 0, 0, 0, time.UTC), concertOpts{})
+	c.OpenTime, c.StartTime = wallTime(18, 30), wallTime(19, 30)
+	c.Venue = &entity.Venue{Name: "The Roundhouse", AdminArea: new("GB-ENG"), TimeZone: new("Europe/London")}
+	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
+	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
+
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
+
+	desc := metaContent(t, body, "og:description")
+	assert.Equal(t, "2027年2月20日(土) 開場18:30 開演19:30 ロンドン時間 The Roundhouse", desc)
+	assert.NotContains(t, desc, "日本")
+}
+
+func TestHandler_ZoneNameWithoutPublishedName(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	c := newConcert(eventID, nov20, concertOpts{})
+	c.Venue = &entity.Venue{Name: "Hall", AdminArea: new("US-NY"), TimeZone: new("America/New_York")}
+	f.uc.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
+	f.uc.EXPECT().ListBySeries(mock.Anything, seriesID).Return([]*entity.Concert{c}, nil).Once()
+
+	_, body := f.get(t, "/link-preview/concerts/"+eventID)
+
+	// The country's zone names cannot be read, so the city of the IANA name
+	// stands in for the published name.
+	assert.Equal(t, "2026年11月20日(金) 開場18:00 開演19:00 New York時間 Hall", metaContent(t, body, "og:description"))
 }
 
 func TestHandler_SingleEventWithoutCover(t *testing.T) {
@@ -178,7 +222,7 @@ func TestHandler_SingleEventWithoutCover(t *testing.T) {
 
 	_, body := f.get(t, "/link-preview/concerts/"+eventID)
 
-	assert.Equal(t, "2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都）", metaContent(t, body, "og:description"))
+	assert.Equal(t, "2026年11月20日(金) 開場18:00 開演19:00 日本時間 Shibuya WWW（東京都）", metaContent(t, body, "og:description"))
 	assert.Equal(t, siteBaseURL+"/og-default.png", metaContent(t, body, "og:image"))
 }
 

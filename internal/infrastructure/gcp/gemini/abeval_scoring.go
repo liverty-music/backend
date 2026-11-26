@@ -97,20 +97,21 @@ func CompareEvent(scraped ScoredEvent, expected GroundTruthEvent) FieldAccuracy 
 	return got
 }
 
-// timesEqual treats a zero time.Time and an empty/invalid ISO string as
-// equivalent. Otherwise it requires time.Equal (which is timezone-aware).
-func timesEqual(got time.Time, want string) bool {
-	if got.IsZero() && want == "" {
+// timesEqual treats an unknown time (nil) and an empty ISO string as
+// equivalent. Otherwise the fixture's RFC 3339 time, read at the clock of its
+// own offset (the wall-clock time the page states), must equal got.
+func timesEqual(got *entity.TimeOfDay, want string) bool {
+	if got == nil && want == "" {
 		return true
 	}
-	if got.IsZero() || want == "" {
+	if got == nil || want == "" {
 		return false
 	}
 	parsed, err := time.Parse(time.RFC3339, want)
 	if err != nil {
 		return false
 	}
-	return got.Equal(parsed)
+	return *got == entity.TimeOfDayOf(parsed)
 }
 
 // PricingTable maps a model ID to its USD-per-1M-token prices.

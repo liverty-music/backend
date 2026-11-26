@@ -1,0 +1,99 @@
+{
+  "calls": [
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "case": "kinggnu",
+      "rep": 1,
+      "found": [
+        "King Gnu CLUB GNU 2次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c6a-9e24-701e-88c6-158d7639b711 「CLUB GNU」チケット2次先行受付 method=2 2026-11-10T09:00:00Z..2026-11-19T14:59:00Z result=2026-12-02"
+      ],
+      "dropped": {},
+      "requests": 1,
+      "search_queries": [
+        "site:kinggnu.jp KICKOFF",
+        "King Gnu 10th Anniversary Opening Live KICKOFF チケット",
+        "King Gnu KICKOFF 先行 一般発売"
+      ],
+      "prompt_tokens": 1836,
+      "candidates_tokens": 351,
+      "thinking_tokens": 776,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.053206500000000004,
+      "latency_ms": 11778,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "case": "zutomayo",
+      "rep": 1,
+      "found": [
+        "ずとまよ PREMIUM会員二次先行",
+        "ずとまよ 一般最速先行",
+        "ずとまよ プレミアム席 Upgrade"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd ZUTOMAYO PREMIUM会員二次先行 method=2 2026-11-07T11:00:00Z..2026-11-09T14:59:00Z result=2026-11-17",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd 一般最速先行 method=2 2026-11-17T11:00:00Z..2026-11-29T14:59:00Z result=2026-12-05",
+        "01a15368-3dbe-7f95-b7eb-2b29e01c27fd プレミアム席 Upgrade method=2 2026-12-01T11:00:00Z..2026-12-06T14:59:00Z result=2026-12-12"
+      ],
+      "dropped": {},
+      "requests": 1,
+      "search_queries": [
+        "ずっと真夜中でいいのに \"LÚ.NIM.LÀL\" チケット",
+        "site:zutomayo.net アピクラ電機",
+        "\"アピクラ電機\" チケット 先行"
+      ],
+      "prompt_tokens": 1835,
+      "candidates_tokens": 804,
+      "thinking_tokens": 1182,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.059647500000000006,
+      "latency_ms": 15000,
+      "empty": false
+    },
+    {
+      "model": "gemini-4-hydrogen",
+      "thinking": "low",
+      "case": "creepynuts",
+      "rep": 1,
+      "found": [
+        "Creepy Nuts オフィシャル4次先行",
+        "Creepy Nuts アップグレード1次受付"
+      ],
+      "missed": [],
+      "extra": [],
+      "wrong": [],
+      "returned": [
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 オフィシャル4次先行 method=2 2026-11-13T03:00:00Z..2026-11-29T14:59:00Z",
+        "01a05c49-6a32-7795-bc34-7a9b8be922c3 アップグレード1次受付(抽選) method=2 2026-12-11T09:00:00Z..2026-12-20T14:59:00Z"
+      ],
+      "dropped": {},
+      "requests": 1,
+      "search_queries": [
+        "site:creepynuts.com ONEMAN TOUR 2027",
+        "Creepy Nuts ONEMAN TOUR 2027 チケット",
+        "\"Creepy Nuts\" \"オフィシャル4次先行\" 2027",
+        "\"Creepy Nuts\" \"Pre-sale for non-residence\" 2027"
+      ],
+      "prompt_tokens": 1829,
+      "candidates_tokens": 850,
+      "thinking_tokens": 1130,
+      "tool_use_tokens": 0,
+      "cost_usd_2027": 0.0735935,
+      "latency_ms": 21645,
+      "empty": false
+    }
+  ],
+  "now": "2026-11-06T12:00:00+09:00"
+}

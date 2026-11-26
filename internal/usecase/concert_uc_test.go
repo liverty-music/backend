@@ -188,6 +188,9 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 	t.Run("classifies concerts into home/nearby/away by date", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/list-followed "Upcoming by default"
+		// No from-date reaches the repository, which then counts each Concert's
+		// date against the current date at its own Venue.
 		d := newConcertTestDeps(t)
 
 		home := &entity.Home{Level1: "JP-13", ReferencePoint: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}} // Tokyo
@@ -237,6 +240,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 	t.Run("no home set puts everything in away", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/list-followed "No home area"
 		d := newConcertTestDeps(t)
 
 		concerts := []*entity.Concert{
@@ -254,6 +258,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 	t.Run("empty concerts returns nil groups", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/list-followed "Follows nothing"
 		d := newConcertTestDeps(t)
 
 		home := &entity.Home{Level1: "JP-13"}
@@ -266,6 +271,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 	t.Run("threads an explicit past from through to the repository", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert/list-followed "From a past date"
 		d := newConcertTestDeps(t)
 
 		home := &entity.Home{Level1: "JP-13"}
@@ -882,7 +888,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 
 	concertDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 
-	startUTC := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	startUTC := todAt(18, 0)
 
 	type testCase struct {
 		name            string
@@ -897,7 +903,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "same date, same start_time — deduped",
 			existing: []*entity.Concert{
-				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
+				{ID: "c1", LocalDate: concertDate, StartTime: startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
 			scraped: []*entity.DiscoveredSeries{
 				{
@@ -910,7 +916,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "same date, scraped nil start_time — deduped",
 			existing: []*entity.Concert{
-				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
+				{ID: "c1", LocalDate: concertDate, StartTime: startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
 			scraped: []*entity.DiscoveredSeries{
 				{
@@ -991,7 +997,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "different date — distinct concerts",
 			existing: []*entity.Concert{
-				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
+				{ID: "c1", LocalDate: concertDate, StartTime: startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
 			scraped: []*entity.DiscoveredSeries{
 				{
@@ -1005,7 +1011,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "mixed batch: one matches existing date, one is genuinely new date",
 			existing: []*entity.Concert{
-				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
+				{ID: "c1", LocalDate: concertDate, StartTime: startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
 			scraped: []*entity.DiscoveredSeries{
 				{
@@ -1615,7 +1621,7 @@ func TestSearchNewConcerts_HandsOnOnce(t *testing.T) {
 	t.Run("drops an event pending review at the same date and venue at another start time", func(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
-		evening := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+		evening := todAt(18, 0)
 		pending := []*entity.DiscoveredSeries{{Title: "Show", Type: entity.SeriesTypeSingle, Events: []*entity.DiscoveredEvent{
 			{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: evening},
 		}}}

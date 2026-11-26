@@ -33,23 +33,23 @@ func TestDiscoveredMergeParity(t *testing.T) {
 	newSeries := func(title string) *entity.Series {
 		return &entity.Series{ID: entity.NewID(), Title: title, Type: entity.SeriesTypeSingle}
 	}
-	start := time.Date(2027, 2, 1, 18, 0, 0, 0, time.UTC)
-	openA, openB := start.Add(-time.Hour), start.Add(-90*time.Minute)
+	start := timeOfDayAt(18, 0)
+	openA, openB := timeOfDayAt(17, 0), timeOfDayAt(16, 30)
 
 	day := 0
 	for _, withStart := range []bool{false, true} {
-		for _, existingOpen := range []*time.Time{nil, &openA} {
-			for _, incomingOpen := range []*time.Time{nil, &openB} {
+		for _, existingOpen := range []*entity.TimeOfDay{nil, &openA} {
+			for _, incomingOpen := range []*entity.TimeOfDay{nil, &openB} {
 				day++
 				date := time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, day)
-				var startTime *time.Time
+				var startTime *entity.TimeOfDay
 				if withStart {
 					startTime = &start
 				}
 				seriesID := newSeries("merge")
 				_, err := seriesRepo.Create(ctx, seriesID)
 				require.NoError(t, err)
-				concertOf := func(open *time.Time) *entity.Concert {
+				concertOf := func(open *entity.TimeOfDay) *entity.Concert {
 					return &entity.Concert{
 						ID: entity.NewID(), SeriesID: seriesID.ID, VenueID: venueID,
 						LocalDate: date, StartTime: startTime, OpenTime: open,
@@ -64,14 +64,14 @@ func TestDiscoveredMergeParity(t *testing.T) {
 
 				wantStart, wantOpen := existing.MergeDiscovered(&incoming.Event)
 
-				var gotStart, gotOpen *time.Time
+				var gotStart, gotOpen *string
 				var rows int
 				require.NoError(t, db.Pool.QueryRow(ctx,
-					`SELECT count(*), min(start_time), min(open_time) FROM events WHERE venue_id = $1 AND local_event_date = $2`, venueID, date).Scan(&rows, &gotStart, &gotOpen))
+					`SELECT count(*), min(local_start_time)::text, min(local_open_time)::text FROM events WHERE venue_id = $1 AND local_event_date = $2`, venueID, date).Scan(&rows, &gotStart, &gotOpen))
 				name := fmt.Sprintf("start known %v, existing open %v, incoming open %v", withStart, existingOpen != nil, incomingOpen != nil)
 				assert.Equal(t, 1, rows, "one row stays: "+name)
-				assertSameInstant(t, wantStart, gotStart, "start time: "+name)
-				assertSameInstant(t, wantOpen, gotOpen, "open time: "+name)
+				assertSameTimeOfDay(t, wantStart, gotStart, "start time: "+name)
+				assertSameTimeOfDay(t, wantOpen, gotOpen, "open time: "+name)
 			}
 		}
 	}
@@ -96,13 +96,15 @@ func TestDiscoveredMergeParity(t *testing.T) {
 	})
 }
 
-func assertSameInstant(t *testing.T, want, got *time.Time, msg string) {
+// assertSameTimeOfDay checks that got, a TIME column read as text, is the time
+// of day want, or NULL when want is nil.
+func assertSameTimeOfDay(t *testing.T, want *entity.TimeOfDay, got *string, msg string) {
 	t.Helper()
 	if want == nil {
 		assert.Nil(t, got, msg)
 		return
 	}
 	if assert.NotNil(t, got, msg) {
-		assert.True(t, want.Equal(*got), msg)
+		assert.Equal(t, want.String(), (*got)[:5], msg)
 	}
 }

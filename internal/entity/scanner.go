@@ -43,14 +43,10 @@ const (
 	// admissionWindowLead is how long before the start time the admission
 	// window opens. It is also the resale deadline's lead.
 	admissionWindowLead = 3 * time.Hour
-	// admissionWindowCloseHour is the hour (Japan time) on the day after the
+	// admissionWindowCloseHour is the hour (at the Venue) on the day after the
 	// event's local date at which the admission window closes.
 	admissionWindowCloseHour = 4
 )
-
-// japanTime is Japan Standard Time. Japan observes no daylight saving time,
-// so a fixed +09:00 zone is exact and needs no tzdata.
-var japanTime = time.FixedZone("Asia/Tokyo", 9*60*60)
 
 // Scanner is one device's right to admit fans to one event during the
 // event's admission window, issued by the Organizer for venue staff without
@@ -204,19 +200,23 @@ func (w AdmissionWindow) Contains(t time.Time) bool {
 }
 
 // AdmissionWindowOf derives the admission window from the event's current
-// local date and start time, in the time zone of the event's Venue
-// ([VenueTimeZone]): it opens 3 hours before the start time and closes at
-// 04:00 on the day after the local date. The open time
-// does not affect it, because an event may have none. ok is false when the
-// event has no start time (then it has no window).
+// local date and start time, in the time zone of the event's Venue: it opens
+// 3 hours before the start time and closes at 04:00 on the day after the local
+// date. The open time does not affect it, because an event may have none. ok
+// is false when the event has no start time or its Venue's zone is not known
+// (then it has no window).
 func AdmissionWindowOf(event *Event) (window AdmissionWindow, ok bool) {
-	if event == nil || event.StartTime == nil {
+	if event == nil {
+		return AdmissionWindow{}, false
+	}
+	start, ok := event.StartInstant()
+	if !ok {
 		return AdmissionWindow{}, false
 	}
 	y, m, d := event.LocalDate.Date()
 	return AdmissionWindow{
-		OpenTime:  event.StartTime.Add(-admissionWindowLead),
-		CloseTime: time.Date(y, m, d+1, admissionWindowCloseHour, 0, 0, 0, VenueTimeZone()),
+		OpenTime:  start.Add(-admissionWindowLead),
+		CloseTime: time.Date(y, m, d+1, admissionWindowCloseHour, 0, 0, 0, event.Location()),
 	}, true
 }
 

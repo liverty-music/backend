@@ -2,10 +2,9 @@ package rdb
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
-	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
@@ -26,22 +25,25 @@ func NewEventStartTimeRepository(db *Database) *EventStartTimeRepository {
 }
 
 const getEventStartTimeQuery = `
-	SELECT start_time FROM events WHERE id = $1
+	SELECT e.local_event_date, e.local_start_time::text, v.time_zone
+	FROM events e JOIN venues v ON v.id = e.venue_id
+	WHERE e.id = $1
 `
 
 // GetEventStartTime implements [usecase.EventStartTimeRepository].
 //
-// Returns nil when start_time is NULL (event time not yet published).
-func (r *EventStartTimeRepository) GetEventStartTime(ctx context.Context, eventID string) (*time.Time, error) {
-	var startAt sql.NullTime
+// Its StartTime is nil when local_start_time is NULL (event time not yet
+// published).
+func (r *EventStartTimeRepository) GetEventStartTime(ctx context.Context, eventID string) (*entity.EventStart, error) {
+	var (
+		start   entity.EventStart
+		startAt *string
+	)
 	row := r.db.Pool.QueryRow(ctx, getEventStartTimeQuery, eventID)
-	if err := row.Scan(&startAt); err != nil {
+	if err := row.Scan(&start.LocalDate, &startAt, &start.TimeZone); err != nil {
 		return nil, toAppErr(err, "failed to get event start time",
 			slog.String("event_id", eventID))
 	}
-	if !startAt.Valid {
-		return nil, nil
-	}
-	t := startAt.Time
-	return &t, nil
+	start.StartTime = timeOfDayFromText(startAt)
+	return &start, nil
 }

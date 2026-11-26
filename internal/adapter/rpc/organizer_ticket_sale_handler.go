@@ -55,12 +55,17 @@ func (h *OrganizerTicketSaleHandler) Create(
 	ctx context.Context,
 	req *ticketsalev1.CreateRequest,
 ) (*ticketsalev1.CreateResponse, error) {
+	// The request is read first: a time that cannot be read is refused before
+	// any use case runs.
+	in, err := pb.CreateTicketSaleInputFromProto(req)
+	if err != nil {
+		return nil, err
+	}
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
-
-	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, pb.CreateTicketSaleInputFromProto(req))
+	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +100,16 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 	ctx context.Context,
 	req *ticketsalev1.SetWindowRequest,
 ) (*ticketsalev1.SetWindowResponse, error) {
+	zone, start, end, err := pb.SaleWindowFromProto(req.GetSaleStartTime(), req.GetSaleEndTime())
+	if err != nil {
+		return nil, err
+	}
 	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
-
 	sale, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
-		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
-		req.GetSaleStartTime().AsTime(), req.GetSaleEndTime().AsTime())
+		entity.TicketSaleID(req.GetTicketSaleId().GetValue()), zone, start, end)
 	if err != nil {
 		return nil, err
 	}

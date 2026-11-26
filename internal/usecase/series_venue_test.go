@@ -120,6 +120,7 @@ func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/series/create "Member's values differ from the place's"
+			// @spec components/entity/venue "Name a member saved"
 			name:   "create the Venue with the name, area and zone the member saved, not the catalog's",
 			inputs: []*usecase.DraftEventInput{newPlaceInput("高尺スカイドーム", "ChIJgocheok", "KR-11", "Asia/Seoul")},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {

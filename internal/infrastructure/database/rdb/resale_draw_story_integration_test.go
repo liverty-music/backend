@@ -309,15 +309,15 @@ func TestResaleDrawStory_NobodyWinsAtTheLastDraw(t *testing.T) {
 	// The show is 8 days after the first-come sale (7 days) opens, so the
 	// card authorization still holds at the last draw.
 	start := storyWindowStart.Add(8 * 24 * time.Hour)
-	_, err := db.Pool.Exec(s.ctx, `UPDATE events SET start_time = $2, local_event_date = $3 WHERE id = $1`,
-		s.eventID, start, start.In(storyJST).Format(time.DateOnly))
+	_, err := db.Pool.Exec(s.ctx, `UPDATE events SET local_start_time = $2::text::time, local_event_date = $3 WHERE id = $1`,
+		s.eventID, start.In(storyJST).Format("15:04"), start.In(storyJST).Format(time.DateOnly))
 	require.NoError(t, err)
 	stock, seller := s.soldOutTo(2)
 	s.listOne(seller)
 	fan := s.newFan()
 	entry := s.apply(stock.ID, fan, 2, "pm_card_visa")
 
-	s.draw(entity.ResaleDeadlineAt(start), stock.ID)
+	s.draw(entity.ResaleDeadlineAt(start, storyJST), stock.ID)
 
 	lost := s.entry(entry.ID)
 	assert.Equal(t, entity.ResaleEntryStateLost, lost.State)

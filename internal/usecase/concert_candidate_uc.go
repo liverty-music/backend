@@ -75,10 +75,12 @@ type ExistingEventDisplay struct {
 	ListedVenueName string
 	// LocalDate is the local calendar date of the existing event.
 	LocalDate time.Time
-	// StartTime is the existing event's start time; nil when unknown.
-	StartTime *time.Time
-	// OpenTime is the existing event's door-open time; nil when unknown.
-	OpenTime *time.Time
+	// StartTime is the existing event's wall-clock start time at its venue; nil
+	// when unknown.
+	StartTime *entity.TimeOfDay
+	// OpenTime is the existing event's wall-clock door-open time; nil when
+	// unknown.
+	OpenTime *entity.TimeOfDay
 }
 
 // ConcertCandidateUseCase is the admin-console approval gate over
@@ -197,8 +199,8 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
 		if err := uc.concertRepo.FillEventStartTimes(ctx,
 			[]string{match.ID},
-			[]*time.Time{sc.StartTime},
-			[]*time.Time{sc.OpenTime},
+			[]*entity.TimeOfDay{sc.StartTime},
+			[]*entity.TimeOfDay{sc.OpenTime},
 		); err != nil {
 			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", sc.ID, err)
 		}
@@ -209,6 +211,38 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 		return nil, fmt.Errorf("insert event under series for concert candidate %q: %w", sc.ID, err)
 	}
 	return insertedIDs, nil
+}
+
+// dropSkippedTimes returns the candidate without a start or open time that
+// does not exist on its date at the Venue it is approved at, because the
+// clocks skip it there: such a discovered time is unknown. The zone the
+// candidate was discovered with may be missing or another one, so this is
+// checked once the Venue is decided.
+func (uc *concertCandidateUseCase) dropSkippedTimes(ctx context.Context, sc *entity.ConcertCandidate, venueID string) (*entity.ConcertCandidate, error) {
+	if sc.StartTime == nil && sc.OpenTime == nil {
+		return sc, nil
+	}
+	venue, err := uc.venueRepo.Get(ctx, venueID)
+	if err != nil {
+		return nil, fmt.Errorf("get venue %s: %w", venueID, err)
+	}
+	loc := venue.Location()
+	if loc == nil {
+		return sc, nil
+	}
+	kept := *sc
+	for _, t := range []**entity.TimeOfDay{&kept.StartTime, &kept.OpenTime} {
+		if *t == nil {
+			continue
+		}
+		if _, err := entity.LocalInstant(kept.LocalDate, **t, loc); err != nil {
+			uc.logger.Warn(ctx, "approve: a time does not exist at the venue, publishing it as unknown",
+				slog.String("concert_candidate_id", kept.ID), slog.String("time", (*t).String()),
+				slog.String("time_zone", loc.String()))
+			*t = nil
+		}
+	}
+	return &kept, nil
 }
 
 // Approve promotes a pending concert candidate to a published event, reconciling a
@@ -235,6 +269,11 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 	venueID, err := findOrCreateVenue(ctx, spec, uc.venueRepo, uc.logger)
 	if err != nil {
 		return nil, fmt.Errorf("resolve or create venue for concert candidate %q: %w", concertCandidateID, err)
+	}
+
+	sc, err = uc.dropSkippedTimes(ctx, sc, venueID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for
@@ -386,10 +425,10 @@ func duplicateEventAmong(events []*entity.Event, sc *entity.ConcertCandidate) *e
 		// Exact-start duplicate (or both-unknown at the same venue/date).
 		return match
 	}
-	if ev.StartTime.IsZero() {
+	if ev.StartTime == nil {
 		// Unknown-start concert candidate: a duplicate iff any known-start row exists here.
 		for _, e := range events {
-			if e.StartTime != nil && !e.StartTime.IsZero() {
+			if e.StartTime != nil {
 				return e
 			}
 		}
@@ -422,8 +461,8 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		}
 		if err := uc.concertRepo.FillEventStartTimes(ctx,
 			[]string{existing.ID},
-			[]*time.Time{sc.StartTime},
-			[]*time.Time{sc.OpenTime},
+			[]*entity.TimeOfDay{sc.StartTime},
+			[]*entity.TimeOfDay{sc.OpenTime},
 		); err != nil {
 			return nil, fmt.Errorf("adopt-candidate: fill start/open times: %w", err)
 		}
@@ -655,12 +694,8 @@ func candidateToEvent(sc *entity.ConcertCandidate) *entity.DiscoveredEvent {
 		ListedVenueName: sc.ListedVenueName,
 		LocalDate:       sc.LocalDate,
 	}
-	if sc.StartTime != nil {
-		ev.StartTime = *sc.StartTime
-	}
-	if sc.OpenTime != nil {
-		ev.OpenTime = *sc.OpenTime
-	}
+	ev.StartTime = sc.StartTime
+	ev.OpenTime = sc.OpenTime
 	if sc.AdminArea != nil {
 		ev.AdminArea = sc.AdminArea
 	}

@@ -48,7 +48,7 @@ func (f *settlementFixture) held(s *entity.Settlement, order *entity.Order) {
 
 // startsAt makes the start time of eventID start on every run.
 func (f *settlementFixture) startsAt(eventID string, start *time.Time) {
-	f.starts.EXPECT().GetEventStartTime(mock.Anything, eventID).Return(start, nil)
+	f.starts.EXPECT().GetEventStartTime(mock.Anything, eventID).Return(tokyoEventStart(start), nil)
 }
 
 // account makes the Organizer's payout account a, whose status the payment
@@ -335,7 +335,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_ReleaseGate(t *testing.T) {
 				Payment: entity.Payment{ProviderPaymentID: "pi_gate"}})
 			// Each run reads the start time again, in order.
 			for _, start := range tc.startTimes {
-				f.starts.EXPECT().GetEventStartTime(mock.Anything, "event-gate").Return(start, nil).Once()
+				f.starts.EXPECT().GetEventStartTime(mock.Anything, "event-gate").Return(tokyoEventStart(start), nil).Once()
 			}
 			released := false
 			if slices.Contains(tc.wantReleased, true) {

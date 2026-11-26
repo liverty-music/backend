@@ -39,12 +39,12 @@ func eventPageSeries(visibility entity.SeriesVisibility, state entity.PublishSta
 // eventPageConcert builds a Concert of the given Series as
 // ConcertRepository.ListByIDs returns it. Its Event has the Series' publish
 // state unless eventPageConcertIn gives another one.
-func eventPageConcert(id string, date time.Time, start *time.Time, series *entity.Series) *entity.Concert {
+func eventPageConcert(id string, date time.Time, start *entity.TimeOfDay, series *entity.Series) *entity.Concert {
 	return eventPageConcertIn(id, date, start, series, series.PublishState)
 }
 
 // eventPageConcertIn builds a Concert whose Event has the given publish state.
-func eventPageConcertIn(id string, date time.Time, start *time.Time, series *entity.Series, state *entity.PublishState) *entity.Concert {
+func eventPageConcertIn(id string, date time.Time, start *entity.TimeOfDay, series *entity.Series, state *entity.PublishState) *entity.Concert {
 	c := &entity.Concert{
 		Series:  series,
 		Artists: []*entity.Artist{{ID: "019a0000-0000-7000-8000-0000000000b1", Name: "The Band"}},
@@ -58,7 +58,7 @@ func eventPageConcertIn(id string, date time.Time, start *time.Time, series *ent
 }
 
 // eventIn builds an Event as Concert.ListEventsBySeries returns it.
-func eventIn(id string, date time.Time, start *time.Time, state entity.PublishState) *entity.Event {
+func eventIn(id string, date time.Time, start *entity.TimeOfDay, state entity.PublishState) *entity.Event {
 	return &entity.Event{ID: id, SeriesID: eventPageSeriesID, LocalDate: date, StartTime: start, PublishState: &state}
 }
 
@@ -196,10 +196,7 @@ func TestConcertUseCase_ListBySeries(t *testing.T) {
 
 	nov20 := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
 	nov21 := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
-	at := func(hour int) *time.Time {
-		t := time.Date(2026, 11, 20, hour-9, 0, 0, 0, time.UTC) // JST hour
-		return &t
-	}
+	at := func(hour int) *entity.TimeOfDay { return todAt(hour, 0) }
 	const (
 		idA = "019a0000-0000-7000-8000-0000000000e2"
 		idB = "019a0000-0000-7000-8000-0000000000e3"

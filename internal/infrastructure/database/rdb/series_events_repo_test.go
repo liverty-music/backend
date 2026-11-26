@@ -44,10 +44,9 @@ func newAuthoredFixture(t *testing.T, db *rdb.Database) *authoredFixture {
 	}
 }
 
-// jstAt returns the instant of hour:00 JST on date.
-func jstAt(date time.Time, hour int) *time.Time {
-	t := date.Add(time.Duration(hour-9) * time.Hour)
-	return &t
+// hourAt returns the time of day hour:00 at the venue.
+func hourAt(hour int) *entity.TimeOfDay {
+	return &entity.TimeOfDay{Hour: hour}
 }
 
 // series creates a first-party series with one event per given state, on
@@ -76,26 +75,26 @@ func (f *authoredFixture) series(states ...entity.PublishState) (string, []strin
 // otherSeries creates a first-party PUBLIC series of the given Organizer
 // with one event in the given state at the venue on date, starting at start,
 // and returns the event's id.
-func (f *authoredFixture) otherSeries(date time.Time, start *time.Time, state entity.PublishState, organizerID string) string {
+func (f *authoredFixture) otherSeries(date time.Time, start *entity.TimeOfDay, state entity.PublishState, organizerID string) string {
 	f.t.Helper()
 	seriesID := entity.NewID()
 	f.exec(`INSERT INTO series (id, title, type, organizer_id, visibility) VALUES ($1, 'Other Tour', 'TOUR', $2, 'PUBLIC')`, seriesID, organizerID)
 	eventID := entity.NewID()
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, 4)`,
-		eventID, seriesID, f.venueID, date, start, string(state))
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5::text::time, $6::event_publish_state, 4)`,
+		eventID, seriesID, f.venueID, date, timeOfDayArg(start), string(state))
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
 	return eventID
 }
 
 // discovered creates a discovered event at the venue on date, starting at
 // start, tracked by one fan, and returns its id and the fan's id.
-func (f *authoredFixture) discovered(date time.Time, start *time.Time) (eventID, fanID string) {
+func (f *authoredFixture) discovered(date time.Time, start *entity.TimeOfDay) (eventID, fanID string) {
 	f.t.Helper()
 	seriesID := entity.NewID()
 	f.exec(`INSERT INTO series (id, title, type) VALUES ($1, 'Found Tour', 'TOUR')`, seriesID)
 	eventID = entity.NewID()
-	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time) VALUES ($1, $2, $3, $4, $5)`,
-		eventID, seriesID, f.venueID, date, start)
+	f.exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time) VALUES ($1, $2, $3, $4, $5::text::time)`,
+		eventID, seriesID, f.venueID, date, timeOfDayArg(start))
 	f.exec(`INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
 	fanID = seedUser(f.t, f.db, "Fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 	f.exec(`INSERT INTO ticket_journeys (user_id, event_id, status) VALUES ($1, $2, 1)`, fanID, eventID)
@@ -365,14 +364,14 @@ func TestSeriesRepository_Update(t *testing.T) {
 		f := newAuthoredFixture(t, db)
 		seriesID, _ := f.series(entity.PublishStatePublished)
 		s, events := f.edit(seriesID)
-		events[0].OpenTime = jstAt(authoredFirstDate, 17)
+		events[0].OpenTime = hourAt(17)
 		events[0].VenueID = seedVenue(t, db, "Elsewhere")
 		events[0].LocalDate = authoredFirstDate.AddDate(0, 0, 3)
 
 		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
 		_, after := f.edit(seriesID)
-		assert.True(t, after[0].OpenTime.Equal(*jstAt(authoredFirstDate, 17)))
+		assert.Equal(t, *hourAt(17), *after[0].OpenTime)
 		assert.Equal(t, f.venueID, after[0].VenueID)
 		assert.True(t, after[0].LocalDate.Equal(authoredFirstDate))
 	})
@@ -415,22 +414,22 @@ func TestSeriesRepository_Update(t *testing.T) {
 		f := newAuthoredFixture(t, db)
 		seriesID, ids := f.series(entity.PublishStatePublished)
 		s, events := f.edit(seriesID)
-		events[0].StartTime = jstAt(authoredFirstDate, 18)
+		events[0].StartTime = hourAt(18)
 
 		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
 		_, after := f.edit(seriesID)
 		assert.Equal(t, ids[0], after[0].ID)
-		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
+		assert.Equal(t, *hourAt(18), *after[0].StartTime)
 	})
 
 	t.Run("merge a discovered event at the new slot into the PUBLISHED event", func(t *testing.T) {
 		// @spec components/entity/series/update "Discovered event at the new slot"
 		f := newAuthoredFixture(t, db)
 		seriesID, ids := f.series(entity.PublishStatePublished)
-		discoveredID, fanID := f.discovered(authoredFirstDate, jstAt(authoredFirstDate, 18))
+		discoveredID, fanID := f.discovered(authoredFirstDate, hourAt(18))
 		s, events := f.edit(seriesID)
-		events[0].StartTime = jstAt(authoredFirstDate, 18)
+		events[0].StartTime = hourAt(18)
 
 		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
@@ -440,16 +439,16 @@ func TestSeriesRepository_Update(t *testing.T) {
 		require.NoError(t, db.Pool.QueryRow(f.ctx, `SELECT event_id FROM ticket_journeys WHERE user_id = $1`, fanID).Scan(&tracked))
 		assert.Equal(t, ids[0], tracked, "the fan tracks the published event")
 		_, after := f.edit(seriesID)
-		assert.True(t, after[0].StartTime.Equal(*jstAt(authoredFirstDate, 18)))
+		assert.Equal(t, *hourAt(18), *after[0].StartTime)
 	})
 
 	t.Run("fail with FAILED_PRECONDITION when an event of another first-party series holds the new slot", func(t *testing.T) {
 		// @spec components/entity/series/update "First-party event at the new slot"
 		f := newAuthoredFixture(t, db)
 		seriesID, _ := f.series(entity.PublishStatePublished)
-		f.otherSeries(authoredFirstDate, jstAt(authoredFirstDate, 18), entity.PublishStatePublished, seedOrganizer(t, db))
+		f.otherSeries(authoredFirstDate, hourAt(18), entity.PublishStatePublished, seedOrganizer(t, db))
 		s, events := f.edit(seriesID)
-		events[0].StartTime = jstAt(authoredFirstDate, 18)
+		events[0].StartTime = hourAt(18)
 
 		err := f.repo.Update(f.ctx, s, events, []string{f.artistID})
 
@@ -525,7 +524,7 @@ func TestSeriesRepository_PublishEvents(t *testing.T) {
 		seriesID, ids := f.series(entity.PublishStateDraft)
 		f.discovered(authoredFirstDate, nil)
 		s, events := f.edit(seriesID)
-		events[0].StartTime = jstAt(authoredFirstDate, 18)
+		events[0].StartTime = hourAt(18)
 		require.NoError(t, f.repo.Update(f.ctx, s, events, []string{f.artistID}))
 
 		got, err := f.repo.PublishEvents(f.ctx, seriesID, ids, nil)

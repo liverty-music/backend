@@ -23,8 +23,9 @@ func NewEventRepository(db *Database) *EventRepository {
 }
 
 const getEventQuery = `
-	SELECT id, series_id, venue_id, listed_venue_name, local_event_date, start_time, open_time, publish_state, per_account_limit
-	FROM events WHERE id = $1
+	SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.local_start_time::text, e.local_open_time::text,
+	       e.publish_state, e.per_account_limit, v.time_zone
+	FROM events e JOIN venues v ON v.id = e.venue_id WHERE e.id = $1
 `
 
 // Get implements [entity.EventRepository].
@@ -32,13 +33,14 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 	var (
 		e          entity.Event
 		listedName sql.NullString
-		startAt    sql.NullTime
-		openAt     sql.NullTime
+		startAt    *string
+		openAt     *string
 		state      sql.NullString
 		limit      sql.NullInt32
+		zone       string
 	)
 	if err := r.db.Pool.QueryRow(ctx, getEventQuery, id).Scan(
-		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt, &state, &limit,
+		&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt, &openAt, &state, &limit, &zone,
 	); err != nil {
 		return nil, toAppErr(err, "failed to get event", slog.String("event_id", id))
 	}
@@ -46,14 +48,10 @@ func (r *EventRepository) Get(ctx context.Context, id string) (*entity.Event, er
 		name := listedName.String
 		e.ListedVenueName = &name
 	}
-	if startAt.Valid {
-		t := startAt.Time
-		e.StartTime = &t
-	}
-	if openAt.Valid {
-		t := openAt.Time
-		e.OpenTime = &t
-	}
+	e.StartTime = timeOfDayFromText(startAt)
+	e.OpenTime = timeOfDayFromText(openAt)
+	// Only the Venue's time zone is read: the one thing an instant needs.
+	e.Venue = &entity.Venue{ID: e.VenueID, TimeZone: &zone}
 	e.PublishState = nullPublishState(state)
 	e.PerAccountLimit = optionalInt(limit)
 	return &e, nil

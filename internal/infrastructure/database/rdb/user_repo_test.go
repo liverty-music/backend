@@ -202,6 +202,7 @@ func TestUserRepository_Get(t *testing.T) {
 		wantErr  error
 	}{
 		{
+			// @spec components/entity/user/get "User without a home"
 			name: "retrieves existing user",
 			setup: func() string {
 				cleanTables(t, db)
@@ -223,6 +224,7 @@ func TestUserRepository_Get(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
+			// @spec components/entity/user/get "Empty id"
 			name: "empty ID returns error",
 			setup: func() string {
 				return ""
@@ -230,6 +232,7 @@ func TestUserRepository_Get(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/entity/user/get "Unknown id"
 			name: "non-existent user returns not found",
 			setup: func() string {
 				cleanTables(t, db)
@@ -257,6 +260,8 @@ func TestUserRepository_Get(t *testing.T) {
 				require.NotNil(t, got.Home)
 				assert.Equal(t, "JP", got.Home.CountryCode)
 				assert.Equal(t, "JP-13", got.Home.Level1)
+			} else {
+				assert.Nil(t, got.Home)
 			}
 		})
 	}
@@ -269,22 +274,41 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name           string
-		setup          func() string // returns provider user ID
-		providerUserID func() string
-		wantErr        error
+		name    string
+		setup   func() string // returns provider user ID
+		wantErr error
+		// wantHome is the Home of the User found, nil for a User without one.
+		wantHome func() *entity.Home
 	}{
 		{
+			// @spec components/entity/user/get-by-provider-user-id "Registered identity"
 			name: "retrieves user by provider user ID",
 			setup: func() string {
 				cleanTables(t, db)
 				_, err := repo.Create(ctx, newTestUser("ext-by-ext-1", "byext@example.com", "ByExt"))
 				require.NoError(t, err)
+				_, err = repo.Create(ctx, newTestUserWithHome("ext-by-ext-2", "byext2@example.com", "ByExt2"))
+				require.NoError(t, err)
 				return "ext-by-ext-1"
 			},
-			wantErr: nil,
 		},
 		{
+			// @spec components/entity/user/get-by-provider-user-id "Registered identity"
+			name: "retrieves user with its home by provider user ID",
+			setup: func() string {
+				cleanTables(t, db)
+				_, err := repo.Create(ctx, newTestUser("ext-by-ext-3", "byext3@example.com", "ByExt3"))
+				require.NoError(t, err)
+				_, err = repo.Create(ctx, newTestUserWithHome("ext-by-ext-4", "byext4@example.com", "ByExt4"))
+				require.NoError(t, err)
+				return "ext-by-ext-4"
+			},
+			wantHome: func() *entity.Home {
+				return &entity.Home{CountryCode: "JP", Level1: "JP-13", ReferencePoint: areaPoint(t, db, "JP-13")}
+			},
+		},
+		{
+			// @spec components/entity/user/get-by-provider-user-id "Empty provider user ID"
 			name: "empty provider user ID returns error",
 			setup: func() string {
 				return ""
@@ -292,9 +316,12 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/entity/user/get-by-provider-user-id "Unregistered identity"
 			name: "non-existent provider user ID returns not found",
 			setup: func() string {
 				cleanTables(t, db)
+				_, err := repo.Create(ctx, newTestUser("ext-by-ext-5", "byext5@example.com", "ByExt5"))
+				require.NoError(t, err)
 				return "non-existent-ext-id"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -314,6 +341,11 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, extID, got.ProviderUserID)
+			if tt.wantHome == nil {
+				assert.Nil(t, got.Home)
+				return
+			}
+			assert.Equal(t, tt.wantHome(), got.Home)
 		})
 	}
 }

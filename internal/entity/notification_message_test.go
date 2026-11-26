@@ -16,12 +16,12 @@ var (
 // messageConcert is the 11/20 concert at ぴあアリーナMM of the tour 前世 2026 by
 // ヨルシカ, starting after messageNow, so its resale is open.
 func messageConcert() *entity.Concert {
-	start := time.Date(2026, 11, 20, 18, 0, 0, 0, messageTZ)
+	tokyo := "Asia/Tokyo"
 	return &entity.Concert{
 		ID:        "event-1",
 		LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		StartTime: &start,
-		Venue:     &entity.Venue{Name: "ぴあアリーナMM"},
+		StartTime: &entity.TimeOfDay{Hour: 18},
+		Venue:     &entity.Venue{Name: "ぴあアリーナMM", TimeZone: &tokyo},
 		Series:    &entity.Series{Title: "前世 2026"},
 		Artists:   []*entity.Artist{{ID: "artist-1", Name: "ヨルシカ"}},
 	}
@@ -316,7 +316,7 @@ func TestNotification_Message(t *testing.T) {
 		t.Parallel()
 		n := &entity.Notification{Type: entity.NotificationTypeResaleEntryLapsed, Subject: entity.NotificationSubject{ResaleEntryID: "entry-1"}}
 		s := messageSubject(entity.LoadedSubject{ResaleEntry: &entity.ResaleEntry{}})
-		s.Now = *s.Concerts[0].StartTime
+		s.Now = time.Date(2026, 11, 20, 18, 0, 0, 0, messageTZ)
 
 		assert.Equal(t, "Your entry ended because the card authorization expired.\n前世 2026", n.Message("en", s).Body)
 		assert.Equal(t, "カードの与信の有効期限が来たため申し込みが終了しました。\n前世 2026", n.Message("ja", s).Body)
@@ -326,7 +326,7 @@ func TestNotification_Message(t *testing.T) {
 		t.Parallel()
 		n := &entity.Notification{Type: entity.NotificationTypeResaleEntryLost, Subject: entity.NotificationSubject{ResaleEntryID: "entry-1"}}
 		s := messageSubject(entity.LoadedSubject{ResaleEntry: &entity.ResaleEntry{LostReason: entity.ResaleEntryLostReasonCardNotCharged}})
-		s.Now = *s.Concerts[0].StartTime
+		s.Now = time.Date(2026, 11, 20, 18, 0, 0, 0, messageTZ)
 
 		assert.NotContains(t, n.Message("en", s).Body, "apply again")
 	})

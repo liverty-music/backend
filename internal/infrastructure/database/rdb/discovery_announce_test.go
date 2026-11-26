@@ -99,6 +99,7 @@ func TestTicketSaleRepository_UpsertDiscoveredAnnounces(t *testing.T) {
 	oct5At18 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
 	lottery := func(seriesID string, start time.Time) *entity.DiscoveredTicketSale {
 		return &entity.DiscoveredTicketSale{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: start, SaleEndTime: time.Date(2026, 10, 22, 23, 59, 0, 0, jst),
 		}

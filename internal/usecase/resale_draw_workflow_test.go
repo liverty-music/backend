@@ -193,9 +193,9 @@ func TestResaleEntryUseCase_DrawResale(t *testing.T) {
 		t.Parallel()
 		f := newDrawFixture(t)
 		f.entries.EXPECT().ListDueStocks(mock.Anything).Return([]entity.ResaleDrawStock{
-			{StockID: "stock-s", EventID: "event-1", StartTime: &start},
-			{StockID: "stock-a", EventID: "event-1", StartTime: &start},
-			{StockID: "stock-m", EventID: "event-2", StartTime: &matinee},
+			{StockID: "stock-s", EventID: "event-1", StartTime: &start, VenueZone: reJST},
+			{StockID: "stock-a", EventID: "event-1", StartTime: &start, VenueZone: reJST},
+			{StockID: "stock-m", EventID: "event-2", StartTime: &matinee, VenueZone: reJST},
 		}, nil)
 		flow := &inlineFlow{}
 
@@ -213,7 +213,7 @@ func TestResaleEntryUseCase_DrawResale(t *testing.T) {
 	t.Run("a minute without a draw starts nothing", func(t *testing.T) {
 		t.Parallel()
 		f := newDrawFixture(t)
-		f.entries.EXPECT().ListDueStocks(mock.Anything).Return([]entity.ResaleDrawStock{{StockID: "stock-s", EventID: "event-1", StartTime: &start}}, nil)
+		f.entries.EXPECT().ListDueStocks(mock.Anything).Return([]entity.ResaleDrawStock{{StockID: "stock-s", EventID: "event-1", StartTime: &start, VenueZone: reJST}}, nil)
 		flow := &inlineFlow{}
 
 		_, err := f.uc.DrawResale(ctx, flow, reDrawAt.Add(time.Minute))

@@ -103,11 +103,16 @@ type TicketSale struct {
 	Name string
 	// Method is how tickets are allocated (FirstCome or Lottery).
 	Method TicketSaleMethod
-	// SaleStartTime is when the window opens.
+	// TimeZone is the IANA time zone the window's wall-clock times are read in:
+	// on an Organizer's sale one of the time zones of its events' Venues, on a
+	// discovered sale the zone its page states or its series' Venues share.
+	TimeZone string
+	// SaleStartTime is the instant the window opens: the sale's announced
+	// wall-clock start, read in TimeZone and in whole minutes.
 	SaleStartTime time.Time
-	// SaleEndTime is when the window closes: after SaleStartTime, and on an
-	// Organizer's sale no later than the start of every event the sale covers
-	// (checked by the usecase, which reads the events).
+	// SaleEndTime is the instant the window closes: after SaleStartTime, and on
+	// an Organizer's sale no later than the start of every event the sale
+	// covers (checked by the usecase, which reads the events).
 	SaleEndTime time.Time
 	// VerificationRequirement says whether a fan must hold an Active
 	// IdentityVerification. Always None on a discovered sale.
@@ -118,22 +123,23 @@ type TicketSale struct {
 	// EventIDs are the events an Organizer's sale sells, at least one, each an
 	// event of its Series. A discovered sale names none.
 	EventIDs []string
-	// ResultDate is the calendar day, in Japan time, on which a discovered
-	// lottery's results are announced: its year, month and day, at midnight
-	// UTC. It is no earlier than the Japan-time day of SaleEndTime. Nil when
-	// the pages do not state it, and always nil on a first-come sale and on an
+	// ResultDate is the calendar day on which a discovered lottery's results
+	// are announced, a date without a zone: its year, month and day, at
+	// midnight UTC. It is no earlier than the local date of SaleEndTime in
+	// TimeZone. Nil when the pages do not state it, and always nil on a first-come sale and on an
 	// Organizer's sale.
 	ResultDate *time.Time
 }
 
 // NewTicketSale returns an Organizer's sale of the events with a generated
 // UUIDv7 id and the verification requirement None.
-func NewTicketSale(seriesID, name string, method TicketSaleMethod, saleStart, saleEnd time.Time, eventIDs ...string) *TicketSale {
+func NewTicketSale(seriesID, name string, method TicketSaleMethod, timeZone string, saleStart, saleEnd time.Time, eventIDs ...string) *TicketSale {
 	return &TicketSale{
 		ID:            TicketSaleID(NewID()),
 		SeriesID:      seriesID,
 		Name:          name,
 		Method:        method,
+		TimeZone:      timeZone,
 		SaleStartTime: saleStart,
 		SaleEndTime:   saleEnd,
 		EventIDs:      eventIDs,
@@ -159,8 +165,14 @@ func (s *TicketSale) Validate() error {
 	if s.SaleStartTime.IsZero() {
 		return apperr.New(codes.InvalidArgument, "sale start time is required")
 	}
+	if _, err := LoadZone(s.TimeZone); err != nil {
+		return err
+	}
 	if err := s.ValidateWindow(s.SaleStartTime, s.SaleEndTime); err != nil {
 		return err
+	}
+	if s.SaleStartTime.Second() != 0 || s.SaleStartTime.Nanosecond() != 0 || s.SaleEndTime.Second() != 0 || s.SaleEndTime.Nanosecond() != 0 {
+		return apperr.New(codes.InvalidArgument, "sale times must be in whole minutes")
 	}
 	if n := utf8.RuneCountInString(s.Name); n < 1 || n > TicketSaleNameMaxLen {
 		return apperr.New(codes.InvalidArgument, "sale name must be 1 to 100 characters")
@@ -187,7 +199,7 @@ func (s *TicketSale) validateDiscovered() error {
 	if s.Method != TicketSaleMethodLottery {
 		return apperr.New(codes.InvalidArgument, "only a lottery has a result date")
 	}
-	if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime) {
+	if !IsResultDateOnOrAfterEnd(*s.ResultDate, s.SaleEndTime, s.Location()) {
 		return apperr.New(codes.InvalidArgument, "a result date is no earlier than the day of the sale end")
 	}
 	return nil
@@ -212,18 +224,21 @@ func (s *TicketSale) validateOrganizers() error {
 	return nil
 }
 
-// JapanDate returns the calendar day of t in Japan time (Asia/Tokyo), at
-// midnight UTC: the form of [TicketSale.ResultDate].
-func JapanDate(t time.Time) time.Time {
-	y, m, d := t.In(japanTime).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+// Location returns the sale's time zone; nil when it is not a known IANA name.
+func (s *TicketSale) Location() *time.Location {
+	loc, err := LoadZone(s.TimeZone)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
 
 // IsResultDateOnOrAfterEnd reports whether the result date (a calendar day, see
-// [TicketSale.ResultDate]) is no earlier than the Japan-time day of end.
-func IsResultDateOnOrAfterEnd(resultDate, end time.Time) bool {
+// [TicketSale.ResultDate]) is no earlier than the day of end in loc, the sale's
+// time zone.
+func IsResultDateOnOrAfterEnd(resultDate, end time.Time, loc *time.Location) bool {
 	y, m, d := resultDate.Date()
-	return !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(JapanDate(end))
+	return !time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(LocalDateIn(end, loc))
 }
 
 // CheckEventsOfSeries reports whether every event the sale names is among
@@ -254,7 +269,13 @@ func (s *TicketSale) ValidateWindow(start, end time.Time) error {
 		return apperr.New(codes.InvalidArgument, "sale end must be after the sale start")
 	}
 	if s.Method == TicketSaleMethodLottery && !s.IsDiscovered() {
-		if d := end.Sub(start); d < LotteryMinWindow || d > LotteryMaxWindow {
+		// Counted on the local date-times, so a window across a daylight
+		// saving change still lasts its calendar days.
+		loc := s.Location()
+		if loc == nil {
+			return apperr.New(codes.InvalidArgument, "a sale needs a time zone")
+		}
+		if d := CivilTime(end, loc).Sub(CivilTime(start, loc)); d < LotteryMinWindow || d > LotteryMaxWindow {
 			return apperr.New(codes.InvalidArgument, "a lottery window must last 1 to 14 days")
 		}
 	}
@@ -300,6 +321,22 @@ func (s *TicketSale) CheckEndsBeforeStarts(starts []time.Time) error {
 		}
 	}
 	return nil
+}
+
+// CheckTimeZoneOfEvents reports whether the sale's time zone is the time zone
+// of the Venue of one of the events it names, among events. It fails with
+// InvalidArgument, which callers return as it is.
+func (s *TicketSale) CheckTimeZoneOfEvents(events []*Event) error {
+	named := make(map[string]bool, len(s.EventIDs))
+	for _, id := range s.EventIDs {
+		named[id] = true
+	}
+	for _, e := range events {
+		if named[e.ID] && e.Venue != nil && e.Venue.TimeZone != nil && *e.Venue.TimeZone == s.TimeZone {
+			return nil
+		}
+	}
+	return apperr.New(codes.InvalidArgument, "a sale's time zone must be the time zone of one of its events' venues")
 }
 
 // IsOpenFirstComeAt reports whether the sale is a FirstCome sale whose window
@@ -398,28 +435,30 @@ func (s *TicketSale) CheckNoOverlap(others []*TicketSale) error {
 
 // IsSameDiscoveredSale reports whether the discovered sale d is the stored
 // discovered sale s found again: the same Series and method, and a start on the
-// same day in Japan time. A later discovery of the same sale (the page's times
-// corrected) is matched to it by this identity, not by id.
+// same day in the sale's time zone. A later discovery of the same sale (the
+// page's times corrected) is matched to it by this identity, not by id.
 func (s *TicketSale) IsSameDiscoveredSale(d *DiscoveredTicketSale) bool {
-	return s.IsDiscovered() && s.SeriesID == d.SeriesID && s.Method == d.Method &&
-		JapanDate(s.SaleStartTime).Equal(JapanDate(d.SaleStartTime))
+	loc := s.Location()
+	return s.IsDiscovered() && loc != nil && s.SeriesID == d.SeriesID && s.Method == d.Method &&
+		LocalDateIn(s.SaleStartTime, loc).Equal(LocalDateIn(d.SaleStartTime, loc))
 }
 
 // MergeDiscovered returns the sale as it is stored after the discovered sale d
 // of the same identity ([TicketSale.IsSameDiscoveredSale]) is merged into it:
 // it keeps its id, Series, method and discovered time and takes the new name
 // and times. It takes the new result date when there is one; otherwise it
-// keeps the stored one while it is no earlier than the Japan-time day of the
-// new end time, and clears it once a later end time makes it impossible.
+// keeps the stored one while it is no earlier than the day of the new end
+// time in the sale's zone, and clears it once a later end time makes it impossible.
 func (s *TicketSale) MergeDiscovered(d *DiscoveredTicketSale) *TicketSale {
 	merged := *s
 	merged.Name = d.Name
+	merged.TimeZone = d.TimeZone
 	merged.SaleStartTime = d.SaleStartTime
 	merged.SaleEndTime = d.SaleEndTime
 	switch {
 	case d.ResultDate != nil:
 		merged.ResultDate = d.ResultDate
-	case s.ResultDate != nil && IsResultDateOnOrAfterEnd(*s.ResultDate, d.SaleEndTime):
+	case s.ResultDate != nil && IsResultDateOnOrAfterEnd(*s.ResultDate, d.SaleEndTime, d.Location()):
 		merged.ResultDate = s.ResultDate
 	default:
 		merged.ResultDate = nil
@@ -500,11 +539,11 @@ type TicketSaleRepository interface {
 	ListDueForDraw(ctx context.Context, now time.Time) ([]*TicketSale, error)
 
 	// UpsertDiscovered stores a discovered sale. The known discovered sale with
-	// the same series and method and a start time on the same calendar day in
-	// Japan time (Asia/Tokyo) is the same sale: its name, start and end times
-	// are replaced with the discovered ones, its result date is replaced only
-	// when the discovered sale has one (a stored result date before the
-	// Japan-time day of the new end time is cleared), its id, series, method
+	// the same series and method and a start time on the same calendar day, each
+	// read in its sale's time zone, is the same sale: its name, time zone, start
+	// and end times are replaced with the discovered ones, its result date is
+	// replaced only when the discovered sale has one (a stored result date
+	// before the day of the new end time is cleared), its id, series, method
 	// and discovered time are kept, and UpsertOutcomeUpdated is returned with
 	// its id. Otherwise a new discovered sale, with the discovered result date
 	// when there is one, a new id and the current time as discovered time, is
@@ -550,16 +589,16 @@ type TicketSaleRepository interface {
 	//  - Internal: database failure.
 	ListWithPendingMilestones(ctx context.Context, lookahead, lookback time.Duration) ([]*TicketSale, error)
 
-	// SetWindow stores saleStart and saleEnd as the sale's window, leaves its
-	// other attributes and its events unchanged, and returns the updated sale
-	// with its events.
+	// SetWindow stores saleStart and saleEnd as the sale's window, read in
+	// timeZone, leaves its other attributes and its events unchanged, and
+	// returns the updated sale with its events.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: the window breaks the TicketSale rules.
 	//  - NotFound: no TicketSale has the id.
 	//  - Internal: database failure.
-	SetWindow(ctx context.Context, id TicketSaleID, saleStart, saleEnd time.Time) (*TicketSale, error)
+	SetWindow(ctx context.Context, id TicketSaleID, timeZone string, saleStart, saleEnd time.Time) (*TicketSale, error)
 
 	// SetVerificationRequirement sets the sale's verification requirement,
 	// leaves its other attributes and its events unchanged, and returns the

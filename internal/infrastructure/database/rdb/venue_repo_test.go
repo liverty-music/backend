@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -291,6 +292,7 @@ func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
 	assert.Equal(t, existing.ID, firstID)
 
 	t.Run("different place_id resolves to the existing row", func(t *testing.T) {
+		// @spec components/entity/venue/create "Listed name and admin area already held"
 		// Same (listed_venue_name, admin_area) but a DIFFERENT place_id — the
 		// insert conflicts on idx_venues_listed_name_admin_area and re-SELECTs.
 		gotID, err := repo.Create(ctx, &entity.Venue{
@@ -304,6 +306,43 @@ func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, existing.ID, gotID)
 		assert.Equal(t, 1, countVenuesByListedName(t, db, ctx, listedName))
+	})
+
+	t.Run("Place id already held", func(t *testing.T) {
+		// @spec components/entity/venue/create "Place id already held"
+		// Another listed name, so only the place id is held.
+		other := &entity.Venue{
+			ID:              uuid.NewV7().String(),
+			Name:            "Big Whale",
+			AdminArea:       new("JP-30"),
+			TimeZone:        new("Asia/Tokyo"),
+			GooglePlaceID:   new("CID-A"),
+			ListedVenueName: new("Big Whale"),
+		}
+		gotID, err := repo.Create(ctx, other)
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, gotID)
+		_, err = repo.Get(ctx, other.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound, "nothing is stored")
+		kept, err := repo.Get(ctx, existing.ID)
+		require.NoError(t, err)
+		assert.Equal(t, existing.Name, kept.Name)
+		assert.Equal(t, listedName, *kept.ListedVenueName)
+	})
+
+	t.Run("Same listed name, different admin area", func(t *testing.T) {
+		// @spec components/entity/venue/create "Same listed name, different admin area"
+		tokyo := &entity.Venue{ID: uuid.NewV7().String(), Name: "Zepp", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: new("Zepp")}
+		osaka := &entity.Venue{ID: uuid.NewV7().String(), Name: "Zepp", AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), ListedVenueName: new("Zepp")}
+		tokyoID, err := repo.Create(ctx, tokyo)
+		require.NoError(t, err)
+
+		osakaID, err := repo.Create(ctx, osaka)
+
+		require.NoError(t, err)
+		assert.Equal(t, osaka.ID, osakaID)
+		assert.NotEqual(t, tokyoID, osakaID)
+		assert.Equal(t, 2, countVenuesByListedName(t, db, ctx, "Zepp"))
 	})
 }
 
@@ -342,6 +381,45 @@ func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
 		assert.Equal(t, ids[0], ids[i], "every concurrent create must resolve to the same surviving row")
 	}
 	assert.Equal(t, 1, countVenuesByListedName(t, db, ctx, listedName))
+}
+
+func TestVenueRepository_Create_ConcurrentSamePlaceID(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewVenueRepository(db)
+	ctx := context.Background()
+
+	// @spec components/entity/venue/create "Concurrent create"
+	// Each round runs two Creates at once for a place id no Venue holds yet.
+	// Their listed names differ, so only the place id can make them one Venue.
+	for round := range 20 {
+		placeID := "ChIJconcurrent-" + strconv.Itoa(round)
+		var ids [2]string
+		var errs [2]error
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for i := range 2 {
+			wg.Go(func() {
+				name := placeID + "-" + strconv.Itoa(i)
+				<-start
+				ids[i], errs[i] = repo.Create(ctx, &entity.Venue{
+					ID: uuid.NewV7().String(), Name: name, AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"),
+					GooglePlaceID: &placeID, ListedVenueName: &name,
+				})
+			})
+		}
+		close(start)
+		wg.Wait()
+
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+		assert.Equal(t, ids[0], ids[1], "both return the id of the one Venue")
+		var n int
+		var storedID string
+		require.NoError(t, db.Pool.QueryRow(ctx, `SELECT count(*), min(id::text) FROM venues WHERE google_place_id = $1`, placeID).Scan(&n, &storedID))
+		assert.Equal(t, 1, n)
+		assert.Equal(t, storedID, ids[0])
+	}
 }
 
 func TestVenueRepository_BackfillPlaceID(t *testing.T) {

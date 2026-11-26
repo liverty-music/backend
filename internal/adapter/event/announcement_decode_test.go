@@ -10,7 +10,7 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/genproto/googleapis/type/datetime"
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
@@ -102,7 +102,7 @@ func TestReceivers_Protobuf(t *testing.T) {
 			Id:            &entityv1.TicketSaleId{Value: "sale-1"},
 			SeriesId:      &entityv1.SeriesId{Value: "series-1"},
 			Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY,
-			SaleStartTime: timestamppb.New(start),
+			SaleStartTime: &datetime.DateTime{Year: 2026, Month: 11, Day: 1, Hours: 12, TimeOffset: &datetime.DateTime_TimeZone{TimeZone: &datetime.TimeZone{Id: "Asia/Tokyo"}}},
 		}
 
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", sale)))

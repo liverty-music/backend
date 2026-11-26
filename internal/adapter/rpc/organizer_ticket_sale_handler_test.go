@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,7 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/genproto/googleapis/type/datetime"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // organizerTicketSaleFixture serves an OrganizerTicketSaleHandler behind the
@@ -48,24 +50,35 @@ func (f *organizerTicketSaleFixture) resolvesTo(organizerID string) {
 	f.orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(&entity.Organizer{ID: organizerID}, nil)
 }
 
+// localDateTime is a wall-clock date-time in the IANA time zone zone.
+func localDateTime(zone string, year, month, day, hour, minute int) *datetime.DateTime {
+	return &datetime.DateTime{
+		Year: int32(year), Month: int32(month), Day: int32(day), Hours: int32(hour), Minutes: int32(minute),
+		TimeOffset: &datetime.DateTime_TimeZone{TimeZone: &datetime.TimeZone{Id: zone}},
+	}
+}
+
 func TestOrganizerTicketSaleHandler(t *testing.T) {
 	t.Parallel()
+	// The window the members type: 2026-11-01 10:00 to 2026-11-08 10:00 in
+	// Asia/Tokyo.
 	start := time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
 	end := start.Add(7 * 24 * time.Hour)
+	tokyoStart, tokyoEnd := localDateTime("Asia/Tokyo", 2026, 11, 1, 10, 0), localDateTime("Asia/Tokyo", 2026, 11, 8, 10, 0)
 
 	createReq := func() *ticketsalev1.CreateRequest {
 		return &ticketsalev1.CreateRequest{
 			SeriesId:      &entityv1.SeriesId{Value: tkSeriesID},
 			Name:          &entityv1.TicketSaleName{Value: "一般発売"},
 			Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME,
-			SaleStartTime: timestamppb.New(start),
-			SaleEndTime:   timestamppb.New(end),
+			SaleStartTime: tokyoStart,
+			SaleEndTime:   tokyoEnd,
 			EventIds:      []*entityv1.EventId{{Value: testEventID}},
 		}
 	}
 	firstCome := func() *entity.TicketSale {
 		return &entity.TicketSale{
-			ID: tkSaleID, SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
+			ID: tkSaleID, SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, TimeZone: "Asia/Tokyo",
 			SaleStartTime: start, SaleEndTime: end, EventIDs: []string{testEventID},
 		}
 	}
@@ -76,7 +89,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
 		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
-			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStart: start, SaleEnd: end,
+			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, TimeZone: "Asia/Tokyo", SaleStart: start, SaleEnd: end,
 			EventIDs: []string{testEventID},
 		}).Return(firstCome(), nil)
 
@@ -97,7 +110,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		lottery := firstCome()
 		lottery.Method, lottery.EventIDs = entity.TicketSaleMethodLottery, []string{testEventID, otherEventID}
 		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
-			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodLottery, SaleStart: start, SaleEnd: end,
+			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodLottery, TimeZone: "Asia/Tokyo", SaleStart: start, SaleEnd: end,
 			VerificationRequirement: entity.VerificationRequirementJPKIOnly, EventIDs: []string{testEventID, otherEventID},
 		}).Return(lottery, nil)
 		req := createReq()
@@ -188,15 +201,58 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		// @spec components/adapter/organizer/api/rpc/ticket-sale "Member moves a window"
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
 		f.resolvesTo("org-1")
-		f.sales.EXPECT().SetWindow(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), start, end).
+		f.sales.EXPECT().SetWindow(mock.Anything, "org-1", entity.TicketSaleID(tkSaleID), "Asia/Tokyo", start, end).
 			Return(firstCome(), nil)
 
 		resp, err := f.client.SetWindow(context.Background(), &ticketsalev1.SetWindowRequest{
-			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: timestamppb.New(start), SaleEndTime: timestamppb.New(end),
+			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: tokyoStart, SaleEndTime: tokyoEnd,
 		})
 
 		require.NoError(t, err)
-		assert.True(t, resp.GetTicketSale().GetSaleEndTime().AsTime().Equal(end))
+		assert.Equal(t, "2026-11-08 10:00 Asia/Tokyo", localString(resp.GetTicketSale().GetSaleEndTime()))
+	})
+
+	t.Run("member opens a sale for a show abroad", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Sale for a show abroad"
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
+		f.resolvesTo("org-1")
+		taipeiStart := time.Date(2026, 11, 1, 4, 0, 0, 0, time.UTC)
+		taipeiEnd := time.Date(2026, 11, 7, 15, 59, 0, 0, time.UTC)
+		f.sales.EXPECT().Create(mock.Anything, "org-1", usecase.CreateTicketSaleInput{
+			SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodLottery, TimeZone: "Asia/Taipei",
+			SaleStart: taipeiStart, SaleEnd: taipeiEnd, EventIDs: []string{testEventID},
+		}).Return(&entity.TicketSale{
+			ID: tkSaleID, SeriesID: tkSeriesID, Name: "一般発売", Method: entity.TicketSaleMethodLottery, TimeZone: "Asia/Taipei",
+			SaleStartTime: taipeiStart, SaleEndTime: taipeiEnd, EventIDs: []string{testEventID},
+		}, nil)
+		req := createReq()
+		req.Method = entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY
+		req.SaleStartTime = localDateTime("Asia/Taipei", 2026, 11, 1, 12, 0)
+		req.SaleEndTime = localDateTime("Asia/Taipei", 2026, 11, 7, 23, 59)
+
+		resp, err := f.client.Create(context.Background(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, "2026-11-01 12:00 Asia/Taipei", localString(resp.GetTicketSale().GetSaleStartTime()))
+		assert.Equal(t, "2026-11-07 23:59 Asia/Taipei", localString(resp.GetTicketSale().GetSaleEndTime()))
+	})
+
+	t.Run("a time skipped by the clock change is refused", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/organizer/api/rpc/ticket-sale "Time skipped by the clock change"
+		// The wall-clock time does not exist in the zone, so no instant can be
+		// computed for it: the call fails with InvalidArgument and no use case,
+		// none of which carries an expectation here, is reached.
+		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
+
+		_, err := f.client.SetWindow(context.Background(), &ticketsalev1.SetWindowRequest{
+			TicketSaleId:  &entityv1.TicketSaleId{Value: tkSaleID},
+			SaleStartTime: localDateTime("America/New_York", 2027, 3, 14, 2, 30),
+			SaleEndTime:   localDateTime("America/New_York", 2027, 3, 14, 12, 0),
+		})
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
 	t.Run("no requirement sets none", func(t *testing.T) {
@@ -246,7 +302,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		_, err = f.client.ListByEvent(ctx, &ticketsalev1.ListByEventRequest{EventId: &entityv1.EventId{Value: testEventID}})
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 		_, err = f.client.SetWindow(ctx, &ticketsalev1.SetWindowRequest{
-			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: timestamppb.New(start), SaleEndTime: timestamppb.New(end),
+			TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: tokyoStart, SaleEndTime: tokyoEnd,
 		})
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 		_, err = f.client.SetVerificationRequirement(ctx, &ticketsalev1.SetVerificationRequirementRequest{
@@ -254,6 +310,11 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		})
 		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	})
+
+	offset := func(dt *datetime.DateTime) *datetime.DateTime {
+		dt.TimeOffset = &datetime.DateTime_UtcOffset{UtcOffset: &durationpb.Duration{Seconds: 9 * 60 * 60}}
+		return dt
+	}
 
 	// The usecase mocks carry no expectations in the cases below: a call that
 	// reached them would fail the test.
@@ -327,6 +388,61 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Offset instead of a time zone"
+			name: "create with an offset instead of a time zone",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = offset(localDateTime("Asia/Tokyo", 2026, 11, 1, 12, 0))
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Start and end in different time zones"
+			name: "create with a start and an end in different time zones",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleEndTime = localDateTime("Asia/Seoul", 2026, 11, 8, 10, 0)
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Time with seconds or a day that does not exist"
+			name: "create with a start on 30 February",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = localDateTime("Asia/Tokyo", 2027, 2, 30, 12, 0)
+				req.SaleEndTime = localDateTime("Asia/Tokyo", 2027, 3, 5, 12, 0)
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Time with seconds or a day that does not exist"
+			name: "create with an end time carrying seconds",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = localDateTime("Asia/Tokyo", 2027, 2, 20, 12, 0)
+				req.SaleEndTime = localDateTime("Asia/Tokyo", 2027, 3, 1, 12, 0)
+				req.SaleEndTime.Seconds = 30
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Window without a time zone"
+			name: "set window without a time zone",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				start, end := localDateTime("Asia/Tokyo", 2026, 11, 1, 12, 0), localDateTime("Asia/Tokyo", 2026, 11, 8, 12, 0)
+				start.TimeOffset, end.TimeOffset = nil, nil
+				_, err := c.SetWindow(ctx, &ticketsalev1.SetWindowRequest{
+					TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: start, SaleEndTime: end,
+				})
+				return err
+			},
+		},
+		{
 			// @spec components/adapter/organizer/api/rpc/ticket-sale "ListByEvent without an event"
 			name: "list by event without an event",
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
@@ -339,7 +455,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			name: "set window without an end time",
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
 				_, err := c.SetWindow(ctx, &ticketsalev1.SetWindowRequest{
-					TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: timestamppb.New(start),
+					TicketSaleId: &entityv1.TicketSaleId{Value: tkSaleID}, SaleStartTime: tokyoStart,
 				})
 				return err
 			},
@@ -362,4 +478,10 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})
 	}
+}
+
+// localString renders a returned date-time and its time zone as
+// "2026-11-08 10:00 Asia/Tokyo".
+func localString(dt *datetime.DateTime) string {
+	return fmt.Sprintf("%04d-%02d-%02d %02d:%02d %s", dt.GetYear(), dt.GetMonth(), dt.GetDay(), dt.GetHours(), dt.GetMinutes(), dt.GetTimeZone().GetId())
 }

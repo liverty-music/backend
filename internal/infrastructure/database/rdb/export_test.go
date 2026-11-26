@@ -24,3 +24,9 @@ const (
 	CatalogEventCondition    = catalogEventCondition
 	SeriesPublishStateColumn = seriesPublishStateColumn
 )
+
+// SaleInstant is the instant Go reads a stored sale time as.
+var SaleInstant = saleInstant
+
+// SaleEndInstantSQL is the SQL for the instant a sale ends.
+const SaleEndInstantSQL = saleEndInstant

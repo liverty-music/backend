@@ -72,8 +72,9 @@ For a lottery, also return result_date when a source page states the day its res
 Return JSON that follows the response schema. Return an empty phases array if no sale qualifies.`
 
 // publishedSaleDateTimeDesc is the shared description of the time fields.
-const publishedSaleDateTimeDesc = "RFC 3339 date-time with the UTC offset of the time zone the source page uses, " +
-	"e.g. 2026-11-01T10:00:00+09:00 for Japan or 2026-11-01T12:00:00+08:00 for a Taipei sale. " +
+const publishedSaleDateTimeDesc = "Local date and time as YYYY-MM-DDTHH:MM exactly as the source page states it, " +
+	"with no UTC offset and without converting it to another time zone, " +
+	"e.g. 2026-11-01T10:00 for a page that says 10:00 in Japan or 2026-11-01T12:00 for a sale a Taipei page opens at 12:00. " +
 	"Always include the year; if the page omits it, use the year that places the date before the end of the series' event_period."
 
 // publishedSalesResponseSchema returns the response JSON schema, with series_id
@@ -92,7 +93,7 @@ func publishedSalesResponseSchema(seriesIDs []string) map[string]any {
 					"type":                 "object",
 					"additionalProperties": false,
 					"required": []string{
-						"series_id", "name", "method", "apply_start_time", "apply_end_time",
+						"series_id", "name", "method", "time_zone", "apply_start_time", "apply_end_time",
 					},
 					"properties": map[string]any{
 						"series_id": map[string]any{
@@ -105,6 +106,9 @@ func publishedSalesResponseSchema(seriesIDs []string) map[string]any {
 							"type": "string", "enum": []string{salesMethodLottery, salesMethodFirstCome},
 							"description": "lottery: fans enter a draw (抽選). first_come: tickets are sold in order until sold out (先着).",
 						},
+						"time_zone": str("IANA time zone name of the time the source page states, e.g. Asia/Tokyo for Japan time or " +
+							"Asia/Taipei for a Taipei sale, which both apply_start_time and apply_end_time are read in. " +
+							"Empty when the page implies none."),
 						"apply_start_time": str(publishedSaleDateTimeDesc + " When applications or purchases open."),
 						"apply_end_time": str(publishedSaleDateTimeDesc + " When applications or purchases close. " +
 							"Leave the sale out if the page states no end time, also for a sale that ends when tickets run out."),
@@ -135,6 +139,7 @@ type publishedSaleJSON struct {
 	SeriesID       string `json:"series_id"`
 	Name           string `json:"name"`
 	Method         string `json:"method"`
+	TimeZone       string `json:"time_zone"`
 	ApplyStartTime string `json:"apply_start_time"`
 	ApplyEndTime   string `json:"apply_end_time"`
 	ResultDate     string `json:"result_date"`
@@ -538,14 +543,24 @@ func validatePublishedSale(
 		return nil, "unknown method", ""
 	}
 
-	start, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ApplyStartTime))
+	// The page's wall-clock times are read in the zone the page implies, else
+	// the zone the series' venues share; with neither the sale is dropped.
+	zone := strings.TrimSpace(p.TimeZone)
+	if zone == "" {
+		zone = sr.TimeZone
+	}
+	loc, err := entity.LoadZone(zone)
 	if err != nil {
-		return nil, "unparseable apply_start_time", ""
+		return nil, "no time zone", ""
+	}
+	start, reason := publishedSaleTime(p.ApplyStartTime, loc)
+	if reason != "" {
+		return nil, reason + " apply_start_time", ""
 	}
 	var end time.Time
-	if raw := strings.TrimSpace(p.ApplyEndTime); raw != "" {
-		if end, err = time.Parse(time.RFC3339, raw); err != nil {
-			return nil, "unparseable apply_end_time", ""
+	if strings.TrimSpace(p.ApplyEndTime) != "" {
+		if end, reason = publishedSaleTime(p.ApplyEndTime, loc); reason != "" {
+			return nil, reason + " apply_end_time", ""
 		}
 	}
 
@@ -553,21 +568,42 @@ func validatePublishedSale(
 		SeriesID:      p.SeriesID,
 		Name:          strings.TrimSpace(p.Name),
 		Method:        method,
+		TimeZone:      zone,
 		SaleStartTime: start,
 		SaleEndTime:   end,
 	}
 	if reason := c.FoundReason(now, sr); reason != "" {
 		return nil, reason, ""
 	}
-	c.ResultDate, resultDateReason = publishedResultDate(p.ResultDate, method, end)
+	c.ResultDate, resultDateReason = publishedResultDate(p.ResultDate, method, end, loc)
 	return c, "", resultDateReason
+}
+
+// publishedSaleTime reads a sale's wall-clock time (YYYY-MM-DDTHH:MM, seconds
+// cut off) in loc and returns its instant. The reason is "unparseable" or
+// "nonexistent" (the clocks skip the time in loc) when it cannot.
+func publishedSaleTime(raw string, loc *time.Location) (instant time.Time, reason string) {
+	raw = strings.TrimSpace(raw)
+	civil, err := time.Parse("2006-01-02T15:04", raw)
+	if err != nil {
+		civil, err = time.Parse("2006-01-02T15:04:05", raw)
+		if err != nil {
+			return time.Time{}, "unparseable"
+		}
+	}
+	civil = civil.Truncate(time.Minute)
+	instant, err = entity.LocalDateTimeInstant(civil, loc)
+	if err != nil {
+		return time.Time{}, "nonexistent"
+	}
+	return instant, ""
 }
 
 // publishedResultDate parses a sale's result_date. It returns nil and no
 // reason when the page states none, and nil with the reason when the date is
 // stated but cannot be kept: on a first-come sale, unparsable, or before the
-// Japan-time day of the end time.
-func publishedResultDate(raw string, method entity.TicketSaleMethod, end time.Time) (*time.Time, string) {
+// day of the end time in the sale's zone.
+func publishedResultDate(raw string, method entity.TicketSaleMethod, end time.Time, loc *time.Location) (*time.Time, string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ""
@@ -579,7 +615,7 @@ func publishedResultDate(raw string, method entity.TicketSaleMethod, end time.Ti
 	if err != nil {
 		return nil, "unparseable result_date"
 	}
-	if !entity.IsResultDateOnOrAfterEnd(d, end) {
+	if !entity.IsResultDateOnOrAfterEnd(d, end, loc) {
 		return nil, "result_date before the end date"
 	}
 	return &d, ""

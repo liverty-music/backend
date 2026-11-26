@@ -240,7 +240,8 @@ func (uc *orderUseCase) planResaleIssue(ctx context.Context, entryID entity.Resa
 	if err != nil {
 		return resaleIssuePlan{}, err
 	}
-	if event.StartTime == nil {
+	start, ok := event.StartInstant()
+	if !ok {
 		return resaleIssuePlan{}, apperr.New(codes.FailedPrecondition, "the event has no start time", attrs)
 	}
 	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, stock.EventID)
@@ -262,7 +263,7 @@ func (uc *orderUseCase) planResaleIssue(ctx context.Context, entryID entity.Resa
 		OrganizerID:            organizerID,
 		PlatformFeeRateBps:     organizer.PlatformFeeRateBps,
 		IdentityVerificationID: identityVerificationID,
-		StartTime:              *event.StartTime,
+		StartTime:              start,
 	}, nil
 }
 

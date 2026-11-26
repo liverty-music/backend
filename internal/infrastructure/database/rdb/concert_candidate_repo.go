@@ -23,18 +23,18 @@ const (
 	// stable.
 	upsertConcertCandidateByPlaceQuery = `
 		INSERT INTO concert_candidates (
-			id, artist_id, series_id, title, local_date, start_time, open_time,
+			id, artist_id, series_id, title, local_date, local_start_time, local_open_time,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, time_zone
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6::text::time, $7::text::time, $8, $9, $10, $11, $12)
 		ON CONFLICT (artist_id, local_date, resolved_place_id)
 		WHERE resolved_place_id IS NOT NULL
 		DO UPDATE SET
 			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
-			start_time            = EXCLUDED.start_time,
-			open_time             = EXCLUDED.open_time,
+			local_start_time    = EXCLUDED.local_start_time,
+			local_open_time     = EXCLUDED.local_open_time,
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
 			time_zone           = EXCLUDED.time_zone
@@ -47,18 +47,18 @@ const (
 	// the mutable payload is refreshed but find_time is kept.
 	upsertConcertCandidateByListedNameQuery = `
 		INSERT INTO concert_candidates (
-			id, artist_id, series_id, title, local_date, start_time, open_time,
+			id, artist_id, series_id, title, local_date, local_start_time, local_open_time,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, time_zone
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6::text::time, $7::text::time, $8, $9, $10, $11, $12)
 		ON CONFLICT (artist_id, local_date, listed_venue_name)
 		WHERE resolved_place_id IS NULL
 		DO UPDATE SET
 			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
-			start_time            = EXCLUDED.start_time,
-			open_time             = EXCLUDED.open_time,
+			local_start_time    = EXCLUDED.local_start_time,
+			local_open_time     = EXCLUDED.local_open_time,
 			admin_area          = EXCLUDED.admin_area,
 			source_url          = EXCLUDED.source_url,
 			resolved_place_id   = EXCLUDED.resolved_place_id,
@@ -66,7 +66,7 @@ const (
 	`
 
 	listPendingConcertCandidatesQuery = `
-		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
+		SELECT id, artist_id, series_id, title, local_date, local_start_time::text, local_open_time::text,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, time_zone, find_time
 		FROM concert_candidates
@@ -74,7 +74,7 @@ const (
 	`
 
 	getConcertCandidateByIDQuery = `
-		SELECT id, artist_id, series_id, title, local_date, start_time, open_time,
+		SELECT id, artist_id, series_id, title, local_date, local_start_time::text, local_open_time::text,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, time_zone, find_time
 		FROM concert_candidates
@@ -118,8 +118,8 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 		sc.SeriesID,
 		sc.Title,
 		sc.LocalDate,
-		sc.StartTime,
-		sc.OpenTime,
+		timeOfDayText(sc.StartTime),
+		timeOfDayText(sc.OpenTime),
 		sc.ListedVenueName,
 		sc.AdminArea,
 		sc.SourceURL,
@@ -214,15 +214,19 @@ func (r *ConcertCandidateRepository) ListPendingDedupKeysByArtist(ctx context.Co
 // scanConcertCandidateRow scans a single row from the standard concert_candidates
 // SELECT into a ConcertCandidate entity.
 func scanConcertCandidateRow(scan func(dest ...any) error) (*entity.ConcertCandidate, error) {
-	var sc entity.ConcertCandidate
+	var (
+		sc        entity.ConcertCandidate
+		startText *string
+		openText  *string
+	)
 	err := scan(
 		&sc.ID,
 		&sc.ArtistID,
 		&sc.SeriesID,
 		&sc.Title,
 		&sc.LocalDate,
-		&sc.StartTime,
-		&sc.OpenTime,
+		&startText,
+		&openText,
 		&sc.ListedVenueName,
 		&sc.AdminArea,
 		&sc.SourceURL,
@@ -233,5 +237,7 @@ func scanConcertCandidateRow(scan func(dest ...any) error) (*entity.ConcertCandi
 	if err != nil {
 		return nil, err
 	}
+	sc.StartTime = timeOfDayFromText(startText)
+	sc.OpenTime = timeOfDayFromText(openText)
 	return &sc, nil
 }

@@ -57,7 +57,7 @@ func newResaleFixture(t *testing.T, now time.Time) *resaleFixture {
 // expectEvent makes event-1 readable with its start time.
 func (f *resaleFixture) expectEvent() {
 	start := resaleEventStart
-	f.events.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start}, nil)
+	f.events.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", LocalDate: entity.LocalDateIn(start, tsJST), StartTime: tod(start), Venue: tokyoVenue()}, nil)
 }
 
 // fanTicket returns fan-1's Issued ticket t-1 of order-1 for event-1.

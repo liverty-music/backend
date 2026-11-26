@@ -702,7 +702,7 @@ func (w *apiWiring) consumerServer() *server.ConnectServer {
 	// Link preview tags for the fan web's /concerts/{id} HTML (fetched by Caddy
 	// templates). Public and outside the RPC rate limit, since every crawler
 	// request reaches fan-api from Caddy's Pod IP.
-	linkPreviewHandler := linkpreview.NewHandler(w.concertUC, linkpreview.NewTagBuilder(cfg.FanWebBaseURL, w.seriesImageURLBuilder), logger)
+	linkPreviewHandler := linkpreview.NewHandler(w.concertUC, w.areaRepo, linkpreview.NewTagBuilder(cfg.FanWebBaseURL, w.seriesImageURLBuilder), logger)
 	publicRoutes := []server.PublicHTTPRoute{
 		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
 	}

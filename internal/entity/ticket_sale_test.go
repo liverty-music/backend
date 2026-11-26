@@ -25,7 +25,7 @@ func saleWindow(method entity.TicketSaleMethod, start, end time.Time) *entity.Ti
 // namedSale returns an Organizer's sale with the given name, method and
 // window, naming one event.
 func namedSale(name string, method entity.TicketSaleMethod, start, end time.Time) *entity.TicketSale {
-	return entity.NewTicketSale("series-1", name, method, start, end, "event-1")
+	return entity.NewTicketSale("series-1", name, method, "Asia/Tokyo", start, end, "event-1")
 }
 
 // discoveredSale returns a discovered sale of the given method and window,
@@ -37,6 +37,7 @@ func discoveredSale(method entity.TicketSaleMethod, start, end time.Time) *entit
 		SeriesID:      "series-1",
 		Name:          "オフィシャル先行",
 		Method:        method,
+		TimeZone:      "Asia/Tokyo",
 		SaleStartTime: start,
 		SaleEndTime:   end,
 		FindTime:      &discovered,
@@ -253,6 +254,7 @@ func TestDiscoveredTicketSale_TicketSale(t *testing.T) {
 		SeriesID:      "series-1",
 		Name:          "一般発売",
 		Method:        entity.TicketSaleMethodFirstCome,
+		TimeZone:      "Asia/Tokyo",
 		SaleStartTime: oct(6, 19, 0),
 		SaleEndTime:   oct(10, 23, 59),
 	}
@@ -276,7 +278,7 @@ func TestTicketSale_Validate_Kind(t *testing.T) {
 			// @spec components/entity/ticket-sale "Organizer's presale"
 			name: "Organizer's sale naming two events",
 			sale: func() *entity.TicketSale {
-				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-2")
+				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-2")
 			},
 			valid: true,
 		},
@@ -284,13 +286,13 @@ func TestTicketSale_Validate_Kind(t *testing.T) {
 			// @spec components/entity/ticket-sale "Organizer's sale without an event"
 			name: "Organizer's sale naming no event",
 			sale: func() *entity.TicketSale {
-				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0))
+				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0))
 			},
 		},
 		{
 			name: "Organizer's sale naming an event twice",
 			sale: func() *entity.TicketSale {
-				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-1")
+				return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-1")
 			},
 		},
 		{
@@ -381,7 +383,7 @@ func TestTicketSale_Validate_Kind(t *testing.T) {
 func TestTicketSale_CheckEventsOfSeries(t *testing.T) {
 	t.Parallel()
 
-	sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-2")
+	sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-1", "event-2")
 
 	t.Run("events of its Series", func(t *testing.T) {
 		t.Parallel()
@@ -535,8 +537,8 @@ func TestTicketSale_IsLotteryClosedAt(t *testing.T) {
 	t.Parallel()
 
 	start, end := nov(1, 10, 0), nov(10, 10, 0)
-	lottery := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, start, end, "event-1")
-	firstCome := entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, start, end, "event-1")
+	lottery := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", start, end, "event-1")
+	firstCome := entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", start, end, "event-1")
 
 	assert.False(t, lottery.IsLotteryClosedAt(end.Add(-time.Second)), "open")
 	assert.True(t, lottery.IsLotteryClosedAt(end), "closed at the end time")
@@ -547,7 +549,7 @@ func TestTicketSale_IsLotteryClosedAt(t *testing.T) {
 func TestTicketSale_CheckDrawnFor(t *testing.T) {
 	t.Parallel()
 
-	sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1")
+	sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-1")
 	assert.NoError(t, sale.CheckDrawnFor(0), "no Entered entry is left for the stock")
 	assert.ErrorIs(t, sale.CheckDrawnFor(1), apperr.ErrFailedPrecondition)
 }
@@ -567,7 +569,7 @@ func TestTicketSale_CheckCreate(t *testing.T) {
 		}
 	}
 	lottery := func() *entity.TicketSale {
-		return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(11, 10, 0), "event-1")
+		return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(11, 10, 0), "event-1")
 	}
 
 	tests := []struct {
@@ -582,20 +584,20 @@ func TestTicketSale_CheckCreate(t *testing.T) {
 		{"start time not announced", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(true, nil, true) }, apperr.ErrFailedPrecondition},
 		{"event without a stock", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.EventFacts["event-1"] = facts(true, &start, false) }, apperr.ErrFailedPrecondition},
 		{"lottery ending at the start", func() *entity.TicketSale {
-			return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), start, "event-1")
+			return entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), start, "event-1")
 		}, func(*entity.TicketSaleCreateSnapshot) {}, apperr.ErrFailedPrecondition},
 		{"first-come ending at the start", func() *entity.TicketSale {
-			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), start, "event-1")
+			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(1, 10, 0), start, "event-1")
 		}, func(*entity.TicketSaleCreateSnapshot) {}, nil},
 		{"first-come ending after the start", func() *entity.TicketSale {
-			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), start.Add(time.Minute), "event-1")
+			return entity.NewTicketSale("series-1", "一般", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(1, 10, 0), start.Add(time.Minute), "event-1")
 		}, func(*entity.TicketSaleCreateSnapshot) {}, apperr.ErrFailedPrecondition},
 		{"business details missing", lottery, func(s *entity.TicketSaleCreateSnapshot) { s.OrganizerHasBusinessDetails = false }, apperr.ErrFailedPrecondition},
 		{"window overlaps another sale", lottery, func(s *entity.TicketSaleCreateSnapshot) {
-			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, nov(5, 10, 0), nov(15, 10, 0), "event-1")}
+			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(5, 10, 0), nov(15, 10, 0), "event-1")}
 		}, apperr.ErrFailedPrecondition},
 		{"back-to-back with another sale", lottery, func(s *entity.TicketSaleCreateSnapshot) {
-			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, nov(11, 10, 0), nov(15, 10, 0), "event-1")}
+			s.OtherSales = []*entity.TicketSale{entity.NewTicketSale("series-1", "x", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(11, 10, 0), nov(15, 10, 0), "event-1")}
 		}, nil},
 	}
 	for _, tt := range tests {
@@ -624,8 +626,8 @@ func TestTicketSale_CheckCreate(t *testing.T) {
 func TestTicketSale_IsOpenFirstComeAt(t *testing.T) {
 	t.Parallel()
 
-	firstCome := entity.NewTicketSale("s", "n", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(10, 10, 0), "e")
-	lottery := entity.NewTicketSale("s", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "e")
+	firstCome := entity.NewTicketSale("s", "n", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "e")
+	lottery := entity.NewTicketSale("s", "n", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "e")
 	assert.True(t, firstCome.IsOpenFirstComeAt(nov(5, 0, 0)))
 	assert.False(t, firstCome.IsOpenFirstComeAt(nov(10, 10, 0)), "closed at the end time")
 	assert.False(t, lottery.IsOpenFirstComeAt(nov(5, 0, 0)), "a lottery sale is not first-come")

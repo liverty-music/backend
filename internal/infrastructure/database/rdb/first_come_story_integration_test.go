@@ -122,6 +122,7 @@ func (s *firstComeStory) paymentIntent(cardAuthorizationID string) *stripe.Payme
 func (s *firstComeStory) createFirstCome(name string, start, end time.Time) entity.TicketSaleID {
 	s.t.Helper()
 	sale, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
+		TimeZone:  "Asia/Tokyo",
 		SeriesID:  s.seriesID,
 		Name:      name,
 		Method:    entity.TicketSaleMethodFirstCome,

@@ -346,8 +346,8 @@ func (_c *MockTicketSaleUseCase_SetVerificationRequirement_Call) RunAndReturn(ru
 }
 
 // SetWindow provides a mock function for the type MockTicketSaleUseCase
-func (_mock *MockTicketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, organizerID, saleID, saleStart, saleEnd)
+func (_mock *MockTicketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, organizerID, saleID, timeZone, saleStart, saleEnd)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetWindow")
@@ -355,18 +355,18 @@ func (_mock *MockTicketSaleUseCase) SetWindow(ctx context.Context, organizerID s
 
 	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) (*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, organizerID, saleID, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, string, time.Time, time.Time) (*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, organizerID, saleID, timeZone, saleStart, saleEnd)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, organizerID, saleID, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.TicketSaleID, string, time.Time, time.Time) *entity.TicketSale); ok {
+		r0 = returnFunc(ctx, organizerID, saleID, timeZone, saleStart, saleEnd)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.TicketSaleID, time.Time, time.Time) error); ok {
-		r1 = returnFunc(ctx, organizerID, saleID, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, entity.TicketSaleID, string, time.Time, time.Time) error); ok {
+		r1 = returnFunc(ctx, organizerID, saleID, timeZone, saleStart, saleEnd)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -382,13 +382,14 @@ type MockTicketSaleUseCase_SetWindow_Call struct {
 //   - ctx context.Context
 //   - organizerID string
 //   - saleID entity.TicketSaleID
+//   - timeZone string
 //   - saleStart time.Time
 //   - saleEnd time.Time
-func (_e *MockTicketSaleUseCase_Expecter) SetWindow(ctx any, organizerID any, saleID any, saleStart any, saleEnd any) *MockTicketSaleUseCase_SetWindow_Call {
-	return &MockTicketSaleUseCase_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, organizerID, saleID, saleStart, saleEnd)}
+func (_e *MockTicketSaleUseCase_Expecter) SetWindow(ctx any, organizerID any, saleID any, timeZone any, saleStart any, saleEnd any) *MockTicketSaleUseCase_SetWindow_Call {
+	return &MockTicketSaleUseCase_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, organizerID, saleID, timeZone, saleStart, saleEnd)}
 }
 
-func (_c *MockTicketSaleUseCase_SetWindow_Call) Run(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time)) *MockTicketSaleUseCase_SetWindow_Call {
+func (_c *MockTicketSaleUseCase_SetWindow_Call) Run(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time)) *MockTicketSaleUseCase_SetWindow_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -402,13 +403,17 @@ func (_c *MockTicketSaleUseCase_SetWindow_Call) Run(run func(ctx context.Context
 		if args[2] != nil {
 			arg2 = args[2].(entity.TicketSaleID)
 		}
-		var arg3 time.Time
+		var arg3 string
 		if args[3] != nil {
-			arg3 = args[3].(time.Time)
+			arg3 = args[3].(string)
 		}
 		var arg4 time.Time
 		if args[4] != nil {
 			arg4 = args[4].(time.Time)
+		}
+		var arg5 time.Time
+		if args[5] != nil {
+			arg5 = args[5].(time.Time)
 		}
 		run(
 			arg0,
@@ -416,6 +421,7 @@ func (_c *MockTicketSaleUseCase_SetWindow_Call) Run(run func(ctx context.Context
 			arg2,
 			arg3,
 			arg4,
+			arg5,
 		)
 	})
 	return _c
@@ -426,7 +432,7 @@ func (_c *MockTicketSaleUseCase_SetWindow_Call) Return(ticketSale *entity.Ticket
 	return _c
 }
 
-func (_c *MockTicketSaleUseCase_SetWindow_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleUseCase_SetWindow_Call {
+func (_c *MockTicketSaleUseCase_SetWindow_Call) RunAndReturn(run func(ctx context.Context, organizerID string, saleID entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleUseCase_SetWindow_Call {
 	_c.Call.Return(run)
 	return _c
 }

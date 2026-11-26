@@ -537,8 +537,8 @@ func (_c *MockTicketSaleRepository_SetVerificationRequirement_Call) RunAndReturn
 }
 
 // SetWindow provides a mock function for the type MockTicketSaleRepository
-func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
-	ret := _mock.Called(ctx, id, saleStart, saleEnd)
+func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error) {
+	ret := _mock.Called(ctx, id, timeZone, saleStart, saleEnd)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetWindow")
@@ -546,18 +546,18 @@ func (_mock *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.
 
 	var r0 *entity.TicketSale
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) (*entity.TicketSale, error)); ok {
-		return returnFunc(ctx, id, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, string, time.Time, time.Time) (*entity.TicketSale, error)); ok {
+		return returnFunc(ctx, id, timeZone, saleStart, saleEnd)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) *entity.TicketSale); ok {
-		r0 = returnFunc(ctx, id, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, string, time.Time, time.Time) *entity.TicketSale); ok {
+		r0 = returnFunc(ctx, id, timeZone, saleStart, saleEnd)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, time.Time, time.Time) error); ok {
-		r1 = returnFunc(ctx, id, saleStart, saleEnd)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, string, time.Time, time.Time) error); ok {
+		r1 = returnFunc(ctx, id, timeZone, saleStart, saleEnd)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -572,13 +572,14 @@ type MockTicketSaleRepository_SetWindow_Call struct {
 // SetWindow is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.TicketSaleID
+//   - timeZone string
 //   - saleStart time.Time
 //   - saleEnd time.Time
-func (_e *MockTicketSaleRepository_Expecter) SetWindow(ctx any, id any, saleStart any, saleEnd any) *MockTicketSaleRepository_SetWindow_Call {
-	return &MockTicketSaleRepository_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, id, saleStart, saleEnd)}
+func (_e *MockTicketSaleRepository_Expecter) SetWindow(ctx any, id any, timeZone any, saleStart any, saleEnd any) *MockTicketSaleRepository_SetWindow_Call {
+	return &MockTicketSaleRepository_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, id, timeZone, saleStart, saleEnd)}
 }
 
-func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time)) *MockTicketSaleRepository_SetWindow_Call {
+func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time)) *MockTicketSaleRepository_SetWindow_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -588,19 +589,24 @@ func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Cont
 		if args[1] != nil {
 			arg1 = args[1].(entity.TicketSaleID)
 		}
-		var arg2 time.Time
+		var arg2 string
 		if args[2] != nil {
-			arg2 = args[2].(time.Time)
+			arg2 = args[2].(string)
 		}
 		var arg3 time.Time
 		if args[3] != nil {
 			arg3 = args[3].(time.Time)
+		}
+		var arg4 time.Time
+		if args[4] != nil {
+			arg4 = args[4].(time.Time)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -611,7 +617,7 @@ func (_c *MockTicketSaleRepository_SetWindow_Call) Return(ticketSale *entity.Tic
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_SetWindow_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetWindow_Call {
+func (_c *MockTicketSaleRepository_SetWindow_Call) RunAndReturn(run func(ctx context.Context, id entity.TicketSaleID, timeZone string, saleStart time.Time, saleEnd time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetWindow_Call {
 	_c.Call.Return(run)
 	return _c
 }

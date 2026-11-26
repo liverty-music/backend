@@ -163,6 +163,7 @@ configMapGenerator:
   - migrations/20261125120000_upgrade_dbos_schema_to_130.sql
   - migrations/20261126010000_backfill_venue_areas.sql
   - migrations/20261126024811_require_venue_area_and_zone.sql
+  - migrations/20261126060405_wall_clock_times.sql
 # The reference data directory (see reference-data-migration.yaml). The keys
 # are the bare file names, as Atlas reads the directory from the ConfigMap.
 - name: atlas-reference-data-dir

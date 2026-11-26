@@ -58,8 +58,8 @@ func TestConcertRepository_Create(t *testing.T) {
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1b49b1"
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
-	startTime, _ := time.Parse("15:04", "20:00")
-	openTime, _ := time.Parse("15:04", "18:00")
+	startTime := timeOfDayAt(20, 0)
+	openTime := timeOfDayAt(18, 0)
 
 	setupFixtures := func(t *testing.T) {
 		t.Helper()
@@ -357,7 +357,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		// Second insert: same natural key with a different non-NULL open_time.
 		// Symmetric assertion to the start_time first-write-wins test —
 		// COALESCE(events.open_time, EXCLUDED.open_time) keeps the first value.
-		laterOpen := openTime.Add(2 * time.Hour)
+		laterOpen := timeOfDayAt(openTime.Hour+2, openTime.Minute)
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0c", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
@@ -371,7 +371,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].OpenTime)
-		require.True(t, got[0].OpenTime.Equal(openTime),
+		require.True(t, entity.SameTimeOfDay(got[0].OpenTime, &openTime),
 			"non-NULL open_time must NOT be overwritten by a different non-NULL incoming value")
 	})
 
@@ -584,8 +584,8 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1b1"
 	concertDate, _ := time.Parse("2006-01-02", "2026-08-15")
-	matinee := time.Date(2026, 8, 15, 13, 0, 0, 0, time.UTC)
-	evening := time.Date(2026, 8, 15, 18, 0, 0, 0, time.UTC)
+	matinee := timeOfDayAt(13, 0)
+	evening := timeOfDayAt(18, 0)
 
 	_, err := artistRepo.Create(ctx, &entity.Artist{
 		ID: artistID, Name: "Shared Artist",
@@ -777,10 +777,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// hard-coded date silently becomes past once the wall clock passes it).
 	futureDate := time.Now().UTC().AddDate(0, 0, 30)
 	pastDate := time.Now().UTC().AddDate(-1, 0, 0)
-	startTime, _ := time.Parse("15:04", "20:00")
-	openTime, _ := time.Parse("15:04", "18:00")
-	startTime2, _ := time.Parse("15:04", "21:00")
-	openTime2, _ := time.Parse("15:04", "19:00")
+	startTime := timeOfDayAt(20, 0)
+	openTime := timeOfDayAt(18, 0)
+	startTime2 := timeOfDayAt(21, 0)
+	openTime2 := timeOfDayAt(19, 0)
 
 	// Seed series for each concert.
 	s1 := seedSeries(t, ctx, seriesRepo, "Concert 1 (future)")
@@ -1045,7 +1045,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-10-01")
-		startTime, _ := time.Parse("15:04", "19:00")
+		startTime := timeOfDayAt(19, 0)
 
 		s1 := seedSeries(t, ctx, seriesRepo, "Multi Concert 1")
 		s2 := seedSeries(t, ctx, seriesRepo, "Multi Concert 2")
@@ -1160,7 +1160,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-08-01")
-		startTime, _ := time.Parse("15:04", "19:00")
+		startTime := timeOfDayAt(19, 0)
 
 		s1 := seedSeries(t, ctx, seriesRepo, "Followed Concert 1")
 		s2 := seedSeries(t, ctx, seriesRepo, "Unfollowed Concert")
@@ -1556,8 +1556,8 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 
 		day1, _ := time.Parse("2006-01-02", "2026-07-01")
 		day2, _ := time.Parse("2006-01-02", "2026-07-15")
-		earlyStart := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
-		lateStart := time.Date(2026, 7, 1, 20, 0, 0, 0, time.UTC)
+		earlyStart := timeOfDayAt(10, 0)
+		lateStart := timeOfDayAt(20, 0)
 
 		// Three events on day1 (a matinee, an evening show, and one with no
 		// announced start time) plus one on day2, all at distinct venues so the

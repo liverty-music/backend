@@ -32,6 +32,13 @@ type endedFixture struct {
 // endedNow is the time the ended-message tests' clock reads.
 var endedNow = time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
 
+// startsAtInTokyo makes the concert, at a Venue in Asia/Tokyo, start at the
+// instant start: its local date and start time are the ones of start there.
+func startsAtInTokyo(c *entity.Concert, start time.Time) {
+	c.LocalDate = entity.LocalDateIn(start, tsJST)
+	c.StartTime = tod(start.In(tsJST))
+}
+
 // newEndedFixture builds the use case for a concert starting at start.
 func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 	t.Helper()
@@ -43,8 +50,9 @@ func newEndedFixture(t *testing.T, start time.Time) *endedFixture {
 		workflows: ucmocks.NewMockWorkflows(t),
 	}
 	concert := &entity.Concert{Series: &entity.Series{Title: "Liverty Live 2026", OrganizerID: new("org-1")}}
-	concert.ID, concert.LocalDate, concert.StartTime = "event-1", start, &start
-	concert.Venue = &entity.Venue{Name: "Zepp Shinjuku"}
+	concert.ID = "event-1"
+	startsAtInTokyo(concert, start)
+	concert.Venue = &entity.Venue{Name: "Zepp Shinjuku", TimeZone: new("Asia/Tokyo")}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),
 		entitymocks.NewMockPushNotificationSender(t), f.workflows, anyPushMetrics(t), newTestLogger(t),
 		usecase.OrderConfirmationDeps{
@@ -112,7 +120,7 @@ func (f *endedFixture) pushedFor(t *testing.T, req usecase.DeliverRequest, start
 	r.fanReadable(renderedFan("fan-1", language))
 	r.resaleEntryReadable(&entity.ResaleEntry{ID: "entry-1", OrderID: "order-1", LostReason: reason}, "event-1")
 	concert := renderedConcert("event-1")
-	concert.StartTime = &start
+	startsAtInTokyo(concert, start)
 	r.concertsReadable(concert)
 	return r.push(t, req)
 }

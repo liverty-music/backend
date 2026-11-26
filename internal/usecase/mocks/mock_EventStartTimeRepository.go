@@ -6,8 +6,8 @@ package mocks
 
 import (
 	"context"
-	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -48,23 +48,23 @@ func (_m *MockEventStartTimeRepository) EXPECT() *MockEventStartTimeRepository_E
 }
 
 // GetEventStartTime provides a mock function for the type MockEventStartTimeRepository
-func (_mock *MockEventStartTimeRepository) GetEventStartTime(ctx context.Context, eventID string) (*time.Time, error) {
+func (_mock *MockEventStartTimeRepository) GetEventStartTime(ctx context.Context, eventID string) (*entity.EventStart, error) {
 	ret := _mock.Called(ctx, eventID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEventStartTime")
 	}
 
-	var r0 *time.Time
+	var r0 *entity.EventStart
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*time.Time, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*entity.EventStart, error)); ok {
 		return returnFunc(ctx, eventID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *time.Time); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *entity.EventStart); ok {
 		r0 = returnFunc(ctx, eventID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*time.Time)
+			r0 = ret.Get(0).(*entity.EventStart)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
@@ -105,12 +105,12 @@ func (_c *MockEventStartTimeRepository_GetEventStartTime_Call) Run(run func(ctx 
 	return _c
 }
 
-func (_c *MockEventStartTimeRepository_GetEventStartTime_Call) Return(time1 *time.Time, err error) *MockEventStartTimeRepository_GetEventStartTime_Call {
-	_c.Call.Return(time1, err)
+func (_c *MockEventStartTimeRepository_GetEventStartTime_Call) Return(eventStart *entity.EventStart, err error) *MockEventStartTimeRepository_GetEventStartTime_Call {
+	_c.Call.Return(eventStart, err)
 	return _c
 }
 
-func (_c *MockEventStartTimeRepository_GetEventStartTime_Call) RunAndReturn(run func(ctx context.Context, eventID string) (*time.Time, error)) *MockEventStartTimeRepository_GetEventStartTime_Call {
+func (_c *MockEventStartTimeRepository_GetEventStartTime_Call) RunAndReturn(run func(ctx context.Context, eventID string) (*entity.EventStart, error)) *MockEventStartTimeRepository_GetEventStartTime_Call {
 	_c.Call.Return(run)
 	return _c
 }

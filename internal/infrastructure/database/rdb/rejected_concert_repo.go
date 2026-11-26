@@ -15,12 +15,12 @@ type RejectedConcertRepository struct {
 
 const insertRejectedConcertQuery = `
 	INSERT INTO rejected_concerts (
-		id, artist_id, artist_name, title, local_date, start_time, open_time,
+		id, artist_id, artist_name, title, local_date, local_start_time, local_open_time,
 		listed_venue_name, admin_area, source_url,
 		resolved_place_id, time_zone,
 		reason, reviewed_by
 	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	VALUES ($1, $2, $3, $4, $5, $6::text::time, $7::text::time, $8, $9, $10, $11, $12, $13, $14)
 `
 
 // NewRejectedConcertRepository creates a new RejectedConcertRepository
@@ -37,8 +37,8 @@ func (r *RejectedConcertRepository) Append(ctx context.Context, log *entity.Reje
 		log.ArtistName,
 		log.Title,
 		log.LocalDate,
-		log.StartTime,
-		log.OpenTime,
+		timeOfDayText(log.StartTime),
+		timeOfDayText(log.OpenTime),
 		log.ListedVenueName,
 		log.AdminArea,
 		log.SourceURL,

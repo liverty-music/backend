@@ -168,6 +168,30 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 		assert.NotNil(t, resp)
 	})
 
+	t.Run("leave the from date out of the use case call when the request has none", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Upcoming view without a from-date"
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		concertUC := mocks.NewMockConcertUseCase(t)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewConcertHandler(concertUC, userUC, pbmocks.NewMockSeriesImageURLs(t), logger)
+
+		ctx := authctx.WithClaims(t.Context(), &authctx.Claims{Sub: "ext-user-1"})
+		user := &entity.User{ID: internalUserID}
+		userUC.EXPECT().ResolveCaller(mock.Anything, "ext-user-1").Return(user, nil).Once()
+		// A nil from date asks for each Concert on or after the current date at
+		// its own Venue; the handler must not fill in a date of its own.
+		concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID, user.Home, (*time.Time)(nil)).
+			Return([]*entity.ProximityGroup{}, nil).Once()
+
+		_, err = h.ListFollowed(ctx, &concertv1.ListFollowedRequest{})
+
+		require.NoError(t, err)
+	})
+
 	t.Run("threads the request from date to the use case", func(t *testing.T) {
 		t.Parallel()
 

@@ -14,10 +14,7 @@ func TestEarliestConcert(t *testing.T) {
 	date := func(y int, m time.Month, d int) time.Time {
 		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 	}
-	at := func(h, min int) *time.Time {
-		v := time.Date(2000, 1, 1, h, min, 0, 0, time.UTC)
-		return &v
-	}
+	at := func(h, min int) *entity.TimeOfDay { return &entity.TimeOfDay{Hour: h, Minute: min} }
 
 	sep3 := &entity.Concert{ID: "sep3", LocalDate: date(2026, 9, 3)}
 	sep10 := &entity.Concert{ID: "sep10", LocalDate: date(2026, 9, 10)}

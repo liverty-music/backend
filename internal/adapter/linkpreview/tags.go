@@ -30,9 +30,6 @@ const defaultImagePath = "/og-default.png"
 // cancelledTitlePrefix marks the preview title of a CANCELLED Series.
 const cancelledTitlePrefix = "【公演中止】"
 
-// jst is Japan time, in which every date and time of a preview is written.
-var jst = time.FixedZone("JST", 9*60*60)
-
 // jaWeekdays are the Japanese one-character weekday names, Sunday first.
 var jaWeekdays = [...]string{"日", "月", "火", "水", "木", "金", "土"}
 
@@ -73,10 +70,10 @@ func NewTagBuilder(siteBaseURL string, imageURLs pb.SeriesImageURLs) *TagBuilder
 // Build returns the preview Tags of concert. seriesConcerts are all Concerts
 // of its Series in date order, including concert itself; more than one adds
 // "全N公演" and the dates to the description.
-func (b *TagBuilder) Build(concert *entity.Concert, seriesConcerts []*entity.Concert) Tags {
+func (b *TagBuilder) Build(concert *entity.Concert, seriesConcerts []*entity.Concert, zoneName string) Tags {
 	return Tags{
 		Title:       title(concert),
-		Description: description(concert, seriesConcerts),
+		Description: description(concert, seriesConcerts, zoneName),
 		Image:       b.image(concert.Series),
 		URL:         b.siteBaseURL + "/concerts/" + concert.ID,
 	}
@@ -114,16 +111,21 @@ func title(c *entity.Concert) string {
 }
 
 // description is the date with weekday, the doors-open and start times when
-// announced and the venue with its prefecture, then "全N公演" with the dates
-// when the Series has several Events, then the start of the Series'
-// description, truncated to maxDescriptionRunes.
-func description(c *entity.Concert, seriesConcerts []*entity.Concert) string {
+// announced, each at the Venue's local time and followed by the name of the
+// Venue's time zone and 時間 (zoneName, 日本時間), and the venue with its
+// prefecture, then "全N公演" with the dates when the Series has several
+// Events, then the start of the Series' description, truncated to
+// maxDescriptionRunes.
+func description(c *entity.Concert, seriesConcerts []*entity.Concert, zoneName string) string {
 	parts := []string{longDate(c.LocalDate)}
 	if c.OpenTime != nil {
-		parts = append(parts, "開場"+c.OpenTime.In(jst).Format("15:04"))
+		parts = append(parts, "開場"+c.OpenTime.String())
 	}
 	if c.StartTime != nil {
-		parts = append(parts, "開演"+c.StartTime.In(jst).Format("15:04"))
+		parts = append(parts, "開演"+c.StartTime.String())
+	}
+	if (c.OpenTime != nil || c.StartTime != nil) && zoneName != "" {
+		parts[len(parts)-1] += " " + zoneName + "時間"
 	}
 	if v := venue(c.Venue); v != "" {
 		parts = append(parts, v)

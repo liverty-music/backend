@@ -47,7 +47,7 @@ func TestResaleDrawAt(t *testing.T) {
 	t.Run("day before the event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-entry "Day before the event"
-		draw, last := entity.ResaleDrawAt(novJST(9, 12), novJST(10, 19))
+		draw, last := entity.ResaleDrawAt(novJST(9, 12), novJST(10, 19), jst)
 		assert.True(t, draw)
 		assert.False(t, last)
 	})
@@ -55,7 +55,7 @@ func TestResaleDrawAt(t *testing.T) {
 	t.Run("evening show", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-entry "Evening show"
-		draw, last := entity.ResaleDrawAt(novJST(10, 12), novJST(10, 19))
+		draw, last := entity.ResaleDrawAt(novJST(10, 12), novJST(10, 19), jst)
 		assert.True(t, draw)
 		assert.True(t, last)
 	})
@@ -63,10 +63,10 @@ func TestResaleDrawAt(t *testing.T) {
 	t.Run("matinee", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/resale-entry "Matinee"
-		draw, last := entity.ResaleDrawAt(novJST(10, 11), novJST(10, 14))
+		draw, last := entity.ResaleDrawAt(novJST(10, 11), novJST(10, 14), jst)
 		assert.True(t, draw)
 		assert.True(t, last)
-		draw, _ = entity.ResaleDrawAt(novJST(10, 12), novJST(10, 14))
+		draw, _ = entity.ResaleDrawAt(novJST(10, 12), novJST(10, 14), jst)
 		assert.False(t, draw, "no draw at 12:00 that day")
 	})
 
@@ -75,40 +75,63 @@ func TestResaleDrawAt(t *testing.T) {
 		// The schedule runs on whole minutes: a start at 14:00:30 has its last
 		// draw at 11:00, not at 11:00:30, which no run would reach.
 		start := novJST(10, 14).Add(30 * time.Second)
-		draw, last := entity.ResaleDrawAt(novJST(10, 11), start)
+		draw, last := entity.ResaleDrawAt(novJST(10, 11), start, jst)
 		assert.True(t, draw)
 		assert.True(t, last)
 	})
 
 	t.Run("other times", func(t *testing.T) {
 		t.Parallel()
-		draw, _ := entity.ResaleDrawAt(novJST(9, 13), novJST(10, 19))
+		draw, _ := entity.ResaleDrawAt(novJST(9, 13), novJST(10, 19), jst)
 		assert.False(t, draw)
-		draw, _ = entity.ResaleDrawAt(novJST(11, 12), novJST(10, 19))
+		draw, _ = entity.ResaleDrawAt(novJST(11, 12), novJST(10, 19), jst)
 		assert.False(t, draw, "after the last draw")
 	})
 
 }
 
+func TestResaleDrawAt_EventAbroad(t *testing.T) {
+	t.Parallel()
+	// @spec components/entity/resale-entry "Event abroad"
+	london := wallZone(t, "Europe/London")
+	// 19:30 on 10 November 2026 in London (GMT, UTC+0).
+	start := time.Date(2026, 11, 10, 19, 30, 0, 0, london)
+
+	dayBefore := time.Date(2026, 11, 9, 12, 0, 0, 0, london)
+	assert.Equal(t, 21, dayBefore.In(jst).Hour(), "12:00 in London is 21:00 in Japan time")
+	draw, last := entity.ResaleDrawAt(dayBefore, start, london)
+	assert.True(t, draw)
+	assert.False(t, last)
+
+	draw, _ = entity.ResaleDrawAt(time.Date(2026, 11, 9, 12, 0, 0, 0, jst), start, london)
+	assert.False(t, draw, "noon in Japan time is not a draw of a London event")
+
+	deadline := time.Date(2026, 11, 10, 12, 0, 0, 0, london)
+	assert.True(t, deadline.Equal(entity.ResaleDeadlineAt(start, london)))
+	draw, last = entity.ResaleDrawAt(deadline, start, london)
+	assert.True(t, draw)
+	assert.True(t, last)
+}
+
 func TestResaleLastDrawMissed(t *testing.T) {
 	t.Parallel()
-	assert.False(t, entity.ResaleLastDrawMissed(novJST(10, 12), novJST(10, 19)), "at the deadline the last draw runs")
-	assert.True(t, entity.ResaleLastDrawMissed(novJST(10, 12).Add(time.Minute), novJST(10, 19)))
-	assert.False(t, entity.ResaleLastDrawMissed(novJST(9, 12), novJST(10, 19)))
+	assert.False(t, entity.ResaleLastDrawMissed(novJST(10, 12), novJST(10, 19), jst), "at the deadline the last draw runs")
+	assert.True(t, entity.ResaleLastDrawMissed(novJST(10, 12).Add(time.Minute), novJST(10, 19), jst))
+	assert.False(t, entity.ResaleLastDrawMissed(novJST(9, 12), novJST(10, 19), jst))
 }
 
 func TestNextResaleDrawTime(t *testing.T) {
 	t.Parallel()
 
-	next, ok := entity.NextResaleDrawTime(time.Date(2026, 11, 5, 15, 0, 0, 0, jst), novJST(10, 19))
+	next, ok := entity.NextResaleDrawTime(time.Date(2026, 11, 5, 15, 0, 0, 0, jst), novJST(10, 19), jst)
 	require.True(t, ok)
 	assert.True(t, next.Equal(novJST(6, 12)))
 
-	next, ok = entity.NextResaleDrawTime(time.Date(2026, 11, 10, 9, 0, 0, 0, jst), novJST(10, 14))
+	next, ok = entity.NextResaleDrawTime(time.Date(2026, 11, 10, 9, 0, 0, 0, jst), novJST(10, 14), jst)
 	require.True(t, ok)
 	assert.True(t, next.Equal(novJST(10, 11)), "the matinee's last draw")
 
-	_, ok = entity.NextResaleDrawTime(novJST(10, 11), novJST(10, 14))
+	_, ok = entity.NextResaleDrawTime(novJST(10, 11), novJST(10, 14), jst)
 	assert.False(t, ok, "resale closed")
 }
 
@@ -335,10 +358,12 @@ func TestResaleEntry_CheckCreate(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC) // 18:00 JST; the deadline is noon JST
-	deadline := entity.ResaleDeadlineAt(start)
+	deadline := entity.ResaleDeadlineAt(start, jst)
+	tokyo := "Asia/Tokyo"
+	startTime := &entity.TimeOfDay{Hour: 18}
 	soldOut := &entity.TicketStock{ID: "stock-1", SeatTypeID: "seat-1", Quantity: 4, SoldCount: 4}
 	event := func(mutate func(*entity.Event)) *entity.Event {
-		e := &entity.Event{StartTime: &start}
+		e := &entity.Event{LocalDate: localDay(2026, 12, 20), StartTime: startTime, Venue: &entity.Venue{TimeZone: &tokyo}}
 		if mutate != nil {
 			mutate(e)
 		}
@@ -357,7 +382,7 @@ func TestResaleEntry_CheckCreate(t *testing.T) {
 		wantErr  error
 	}{
 		{"open", entry(deadline.Add(-time.Hour), 2), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil)}, nil},
-		{"event without a start time", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: &entity.Event{}}, apperr.ErrInternal},
+		{"event without a start time", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: &entity.Event{Venue: &entity.Venue{TimeZone: &tokyo}}}, apperr.ErrInternal},
 		{"at the deadline", entry(deadline, 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(nil)}, apperr.ErrFailedPrecondition},
 		{"stock not sold out", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: &entity.TicketStock{Quantity: 4, SoldCount: 3}, Event: event(nil)}, apperr.ErrFailedPrecondition},
 		{"cancelled event", entry(deadline.Add(-time.Hour), 1), entity.ResaleCreateSnapshot{Stock: soldOut, Event: event(func(e *entity.Event) {
@@ -412,7 +437,7 @@ func TestResaleDrawDue(t *testing.T) {
 	t.Parallel()
 
 	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC) // 18:00 JST
-	deadline := entity.ResaleDeadlineAt(start)
+	deadline := entity.ResaleDeadlineAt(start, jst)
 	noon := time.Date(2026, 12, 18, 12, 0, 0, 0, time.FixedZone("JST", 9*3600))
 	tests := []struct {
 		name              string
@@ -426,7 +451,7 @@ func TestResaleDrawDue(t *testing.T) {
 		{"past the deadline: the last draw was missed", deadline.Add(time.Minute), true, false, true},
 	}
 	for _, tt := range tests {
-		due, last, missed := entity.ResaleDrawDue(tt.at, start)
+		due, last, missed := entity.ResaleDrawDue(tt.at, start, jst)
 		assert.Equal(t, tt.wantDue, due, tt.name)
 		assert.Equal(t, tt.wantLast, last, tt.name)
 		assert.Equal(t, tt.wantMissed, missed, tt.name)
@@ -449,7 +474,7 @@ func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
 
 	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 12, 10, 0, 0, 0, 0, time.UTC)
-	wantNext, ok := entity.NextResaleDrawTime(now, start)
+	wantNext, ok := entity.NextResaleDrawTime(now, start, jst)
 	require.True(t, ok)
 
 	for state, want := range map[entity.ResaleEntryState]struct{ next, ended bool }{
@@ -460,7 +485,7 @@ func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
 		entity.ResaleEntryStateWithdrawn: {false, false},
 	} {
 		e := &entity.ResaleEntry{State: state}
-		next := e.NextDrawTime(now, &start)
+		next := e.NextDrawTime(now, &start, jst)
 		if want.next {
 			require.NotNil(t, next, state.String())
 			assert.Equal(t, wantNext, *next, state.String())
@@ -471,8 +496,8 @@ func TestResaleEntry_NextDrawTimeAndEndedEmail(t *testing.T) {
 	}
 
 	entered := &entity.ResaleEntry{State: entity.ResaleEntryStateEntered}
-	assert.Nil(t, entered.NextDrawTime(now, nil), "an event without a start time has no draw")
-	assert.Nil(t, entered.NextDrawTime(start, &start), "the last draw has passed")
+	assert.Nil(t, entered.NextDrawTime(now, nil, jst), "an event without a start time has no draw")
+	assert.Nil(t, entered.NextDrawTime(start, &start, jst), "the last draw has passed")
 }
 
 func TestResaleEntry_EndedEmailDue(t *testing.T) {

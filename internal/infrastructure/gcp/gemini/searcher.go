@@ -199,8 +199,8 @@ type EventDraft struct {
 	AdminArea string // ISO 3166-2 as returned by the model (resolved later).
 	TimeZone  string // IANA time zone as returned by the model, or "".
 	LocalDate string // YYYY-MM-DD.
-	StartTime string // RFC3339 or "".
-	OpenTime  string // RFC3339 or "".
+	StartTime string // HH:MM at the venue, or "".
+	OpenTime  string // HH:MM at the venue, or "".
 	// Group ties together all drafts from the same series entry of the
 	// response so the caller can persist them under one Series. It is an
 	// intra-run handle: unique within a single parse only, NOT a cross-run
@@ -1071,37 +1071,19 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 
 	// The event's local date is the date at its Venue, so it is past when it
 	// is before the current date there at the search time, not before the
-	// UTC day: at 23:30 UTC the Venue is already on the next day.
-	if (&entity.DiscoveredEvent{LocalDate: date}).HasPassedAt(from) {
+	// UTC day: at 23:30 UTC the Venue is already on the next day. An event
+	// whose zone is not known is past only when its date is before the
+	// current date everywhere (UTC-12).
+	adminArea, timeZone := s.resolveArea(ctx, draft, attrs)
+	if (&entity.DiscoveredEvent{LocalDate: date, TimeZone: timeZone}).HasPassedAt(from) {
 		s.logger.Debug(ctx, "filtered past event",
 			append(attrs, slog.String("title", draft.Title), slog.String("date", draft.LocalDate))...,
 		)
 		return nil
 	}
 
-	var startTime time.Time
-	if draft.StartTime != "" && draft.StartTime != "null" {
-		if st, err := time.Parse(time.RFC3339, draft.StartTime); err != nil {
-			s.logger.Warn(ctx, "failed to parse event start time, using zero",
-				append(attrs, slog.String("start_time", draft.StartTime))...,
-			)
-		} else {
-			startTime = st
-		}
-	}
-
-	var openTime time.Time
-	if draft.OpenTime != "" && draft.OpenTime != "null" {
-		if ot, err := time.Parse(time.RFC3339, draft.OpenTime); err != nil {
-			s.logger.Warn(ctx, "failed to parse event open time, using zero",
-				append(attrs, slog.String("open_time", draft.OpenTime))...,
-			)
-		} else {
-			openTime = ot
-		}
-	}
-
-	adminArea, timeZone := s.resolveArea(ctx, draft, attrs)
+	startTime := s.wallClockTime(ctx, "start_time", draft.StartTime, date, timeZone, attrs)
+	openTime := s.wallClockTime(ctx, "open_time", draft.OpenTime, date, timeZone, attrs)
 
 	return &entity.DiscoveredEvent{
 		ListedVenueName: draft.Venue,
@@ -1111,6 +1093,34 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 		StartTime:       startTime,
 		OpenTime:        openTime,
 	}
+}
+
+// wallClockTime reads one of an event's times as the HH:MM the page states at
+// the venue; it is nil, with a log line, when it is empty, is not a time of
+// day, or (when the event's time zone is known) does not exist in the zone on
+// that date because the clocks skip it.
+func (s *ConcertSearcher) wallClockTime(ctx context.Context, field, text string, date time.Time, timeZone *string, attrs []slog.Attr) *entity.TimeOfDay {
+	if text == "" || text == "null" {
+		return nil
+	}
+	var tod entity.TimeOfDay
+	if err := tod.UnmarshalText([]byte(text)); err != nil {
+		s.logger.Warn(ctx, "failed to parse an event time, using unknown",
+			append(attrs, slog.String(field, text))...,
+		)
+		return nil
+	}
+	if timeZone != nil {
+		if loc, err := entity.LoadZone(*timeZone); err == nil {
+			if _, err := entity.LocalInstant(date, tod, loc); err != nil {
+				s.logger.Warn(ctx, "an event time does not exist in its time zone, using unknown",
+					append(attrs, slog.String(field, text), slog.String("time_zone", *timeZone))...,
+				)
+				return nil
+			}
+		}
+	}
+	return &tod
 }
 
 // resolveArea turns the model's admin area into the code of the first-level
@@ -1255,11 +1265,11 @@ var singleStepEventSchema = map[string]any{
 		},
 		"open_time": map[string]any{
 			"type":        "string",
-			"description": "Doors-open time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T17:30:00+09:00). \"\" when not published.",
+			"description": "Doors-open time as HH:MM on the 24-hour clock exactly as the page states it for the venue's local time, with no date, time zone or UTC offset and without converting it (e.g. 17:30). \"\" when not published.",
 		},
 		"start_time": map[string]any{
 			"type":        "string",
-			"description": "Show start time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T18:30:00+09:00). \"\" when not published.",
+			"description": "Show start time as HH:MM on the 24-hour clock exactly as the page states it for the venue's local time, with no date, time zone or UTC offset and without converting it (e.g. 18:30). \"\" when not published.",
 		},
 	},
 	"required": []string{"venue", "country", "admin_area", "time_zone", "local_date", "open_time", "start_time"},

@@ -68,13 +68,13 @@ func TestCreateFromDiscovered_ProcessedAgain(t *testing.T) {
 		places, nil, time.Now, logger,
 	)
 	day := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
-	start := time.Date(2027, 3, 1, 9, 0, 0, 0, time.UTC)
+	start, nextStart := timeOfDayAt(9, 0), timeOfDayAt(10, 0)
 	batch := func() entity.ConcertDiscoveredData {
 		return entity.ConcertDiscoveredData{ArtistID: artistID, ArtistName: "Rerun Band", Series: []*entity.DiscoveredSeries{{
 			Title: "Rerun Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/rerun",
 			Events: []*entity.DiscoveredEvent{
-				{ListedVenueName: "Zepp Haneda", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: day, StartTime: start},
-				{ListedVenueName: "Zepp Namba", AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), LocalDate: day.AddDate(0, 0, 2), StartTime: start.AddDate(0, 0, 2)},
+				{ListedVenueName: "Zepp Haneda", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: day, StartTime: &start},
+				{ListedVenueName: "Zepp Namba", AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), LocalDate: day.AddDate(0, 0, 2), StartTime: &nextStart},
 				{ListedVenueName: "Unknown Hall", AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), LocalDate: day.AddDate(0, 0, 4)},
 			},
 		}}}

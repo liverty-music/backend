@@ -39,8 +39,10 @@ type DraftEventInput struct {
 	TimeZone *string
 	// LocalDate is the calendar date of the performance (midnight UTC).
 	LocalDate time.Time
-	StartTime *time.Time
-	OpenTime  *time.Time
+	// StartTime and OpenTime are wall-clock times at the venue, read in its
+	// time zone.
+	StartTime *entity.TimeOfDay
+	OpenTime  *entity.TimeOfDay
 	// PerAccountLimit is the most tickets one account may hold for the event;
 	// nil when none is given. A new or DRAFT event then has the limit
 	// [entity.EventDefaultPerAccountLimit]; a PUBLISHED or CANCELLED event
@@ -333,6 +335,9 @@ func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID st
 	if err != nil {
 		return nil, fmt.Errorf("resolve venue for event on %s: %w", inp.LocalDate.Format("2006-01-02"), err)
 	}
+	if err := uc.checkTimesAtVenue(ctx, venueID, inp, true); err != nil {
+		return nil, err
+	}
 	lvn := inp.VenueName
 	draft := entity.PublishStateDraft
 	return &entity.Event{
@@ -566,6 +571,11 @@ func (uc *seriesUseCase) correctedEvent(ctx context.Context, current *entity.Eve
 	if err := current.CheckChange(&next, onSale); err != nil {
 		return nil, err
 	}
+	// A change that passes keeps the Venue, so the corrected times must exist
+	// in its zone.
+	if err := checkTimesExist(current.Location(), inp); err != nil {
+		return nil, err
+	}
 	return &next, nil
 }
 
@@ -708,9 +718,9 @@ func (uc *seriesUseCase) List(ctx context.Context, callerOrgID string) ([]*entit
 
 // validateEventInput checks that an event input carries a date, that
 // open_time <= start_time when both are set, and, for new and DRAFT events
-// (requirePlace, checkDate), that it carries a picked place id and its date is
-// not in the past relative to the current UTC day. It runs before any venue is
-// read or created, so a rejected save stores nothing.
+// (requirePlace, checkDate), that it carries a picked place id and its date has
+// not passed everywhere on earth. It runs before any venue is read or created,
+// so a rejected save stores nothing.
 func (uc *seriesUseCase) validateEventInput(inp *DraftEventInput, requirePlace, checkDate bool) error {
 	if requirePlace && (inp.PlaceID == nil || strings.TrimSpace(*inp.PlaceID) == "") {
 		return apperr.New(codes.InvalidArgument, "each event must give the place id of a venue picked from the map catalog")
@@ -719,15 +729,53 @@ func (uc *seriesUseCase) validateEventInput(inp *DraftEventInput, requirePlace, 
 		return apperr.New(codes.InvalidArgument, "each event must have a local date")
 	}
 	if checkDate {
-		today := uc.now().UTC().Truncate(24 * time.Hour)
-		if inp.LocalDate.UTC().Truncate(24 * time.Hour).Before(today) {
+		// The Venue is not resolved yet, and a held Venue keeps its own zone
+		// whatever the input says, so only a date that is past in UTC-12 is
+		// refused here. checkTimesAtVenue repeats the check in the resolved
+		// Venue's zone.
+		if inp.LocalDate.Before(entity.CurrentDateAtVenue(uc.now(), nil)) {
 			return apperr.New(codes.InvalidArgument,
 				fmt.Sprintf("event date %s is in the past", inp.LocalDate.Format("2006-01-02")),
 			)
 		}
 	}
-	if inp.OpenTime != nil && inp.StartTime != nil && inp.OpenTime.After(*inp.StartTime) {
+	if inp.OpenTime != nil && inp.StartTime != nil && inp.StartTime.Before(*inp.OpenTime) {
 		return apperr.New(codes.InvalidArgument, "open time must not be after start time")
+	}
+	return nil
+}
+
+// checkTimesAtVenue checks an event input against the resolved Venue's time
+// zone: its date is not before the current date at the Venue when checkDate,
+// and a start or open time is a wall-clock time that exists there (the clocks
+// skip one hour when they go forward). It fails with InvalidArgument.
+func (uc *seriesUseCase) checkTimesAtVenue(ctx context.Context, venueID string, inp *DraftEventInput, checkDate bool) error {
+	venue, err := uc.venueRepo.Get(ctx, venueID)
+	if err != nil {
+		return fmt.Errorf("get venue %s: %w", venueID, err)
+	}
+	if checkDate && inp.LocalDate.Before(entity.CurrentDateAtVenue(uc.now(), venue)) {
+		return apperr.New(codes.InvalidArgument,
+			fmt.Sprintf("event date %s is in the past", inp.LocalDate.Format("2006-01-02")),
+		)
+	}
+	return checkTimesExist(venue.Location(), inp)
+}
+
+// checkTimesExist fails with InvalidArgument when a start or open time of inp
+// is not a wall-clock time on its date in loc, because the clocks skip it. A
+// nil loc is an unknown zone and checks nothing.
+func checkTimesExist(loc *time.Location, inp *DraftEventInput) error {
+	if loc == nil {
+		return nil
+	}
+	for _, t := range []*entity.TimeOfDay{inp.StartTime, inp.OpenTime} {
+		if t == nil {
+			continue
+		}
+		if _, err := entity.LocalInstant(inp.LocalDate, *t, loc); err != nil {
+			return err
+		}
 	}
 	return nil
 }

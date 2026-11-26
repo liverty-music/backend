@@ -242,14 +242,10 @@ func toScraped(rc rawConcert) gemini.ScoredEvent {
 		}
 	}
 	if rc.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, rc.StartTime); err == nil {
-			ev.StartTime = t
-		}
+		ev.StartTime = wallClockOf(rc.StartTime)
 	}
 	if rc.OpenTime != "" {
-		if t, err := time.Parse(time.RFC3339, rc.OpenTime); err == nil {
-			ev.OpenTime = t
-		}
+		ev.OpenTime = wallClockOf(rc.OpenTime)
 	}
 	if s, ok := rc.AdminArea.(string); ok && s != "" {
 		ev.AdminArea = &s
@@ -292,4 +288,19 @@ func short(s string, n int) string {
 		return string(rs[:n]) + "…"
 	}
 	return s
+}
+
+// wallClockOf reads an event time recorded either as RFC 3339 (the form logged
+// before wall-clock times: its own clock is the time at the venue) or as
+// HH:MM.
+func wallClockOf(raw string) *entity.TimeOfDay {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		tod := entity.TimeOfDayOf(t)
+		return &tod
+	}
+	var tod entity.TimeOfDay
+	if err := tod.UnmarshalText([]byte(raw)); err == nil {
+		return &tod
+	}
+	return nil
 }

@@ -13,9 +13,9 @@ import (
 // announcedConcertsQuery reads, inside the announcing transaction, the
 // events to announce with their venues and performers.
 const announcedConcertsQuery = `
-	SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time,
+	SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.local_start_time::text, e.local_open_time::text,
 	       e.publish_state::text, e.per_account_limit,
-	       v.name, v.admin_area,
+	       v.name, v.admin_area, v.time_zone,
 	       COALESCE(ARRAY(SELECT ca.artist_id::text FROM concert_artists ca WHERE ca.event_id = e.id ORDER BY ca.artist_id), '{}')
 	FROM events e
 	JOIN venues v ON v.id = e.venue_id
@@ -100,11 +100,15 @@ func readAnnouncedConcerts(ctx context.Context, tx pgx.Tx, ids []string) (map[st
 			limit     sql.NullInt32
 			artistIDs []string
 			venue     entity.Venue
+			startText *string
+			openText  *string
 		)
-		if err := rows.Scan(&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
-			&state, &limit, &venue.Name, &venue.AdminArea, &artistIDs); err != nil {
+		if err := rows.Scan(&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &startText, &openText,
+			&state, &limit, &venue.Name, &venue.AdminArea, &venue.TimeZone, &artistIDs); err != nil {
 			return nil, toAppErr(err, "failed to scan an announced concert")
 		}
+		c.StartTime = timeOfDayFromText(startText)
+		c.OpenTime = timeOfDayFromText(openText)
 		venue.ID = c.VenueID
 		c.Venue = &venue
 		c.PublishState = nullPublishState(state)

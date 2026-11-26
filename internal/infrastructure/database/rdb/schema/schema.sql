@@ -234,8 +234,11 @@ CREATE TABLE IF NOT EXISTS events (
     local_event_date DATE NOT NULL,
     start_time TIMESTAMPTZ,
     open_time TIMESTAMPTZ,
+    local_start_time TIME,
+    local_open_time TIME,
     publish_state event_publish_state,
     per_account_limit INTEGER,
+    CONSTRAINT chk_events_local_times_whole_minutes CHECK (extract(second FROM local_start_time) = 0 AND extract(second FROM local_open_time) = 0),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_events_per_account_limit CHECK (per_account_limit BETWEEN 1 AND 10),
     CONSTRAINT chk_events_per_account_limit_first_party CHECK ((publish_state IS NULL) = (per_account_limit IS NULL))
@@ -247,16 +250,18 @@ COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggre
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
-COMMENT ON COLUMN events.start_time IS 'Event start time (absolute)';
-COMMENT ON COLUMN events.open_time IS 'Doors open time (absolute), if available';
+COMMENT ON COLUMN events.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN events.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN events.local_start_time IS 'Wall-clock time the event starts at its venue, a time of day in whole minutes on local_event_date, read in the venue''s time_zone; NULL when not announced. The instant is computed by the application from the date, this time and the zone';
+COMMENT ON COLUMN events.local_open_time IS 'Wall-clock time the doors open at the venue, read like local_start_time; NULL when not announced';
 COMMENT ON COLUMN events.publish_state IS 'Publish lifecycle of an event of a first-party series (DRAFT / PUBLISHED / CANCELLED). NULL exactly for an event of a discovered series; the series repository, the only writer of first-party events, always sets it. A DRAFT event is not a concert and holds no slot of uq_events_natural_key.';
 COMMENT ON COLUMN events.per_account_limit IS 'Most tickets one account may hold for the event across every ticket sale, seat type and official resale of it: 1 to 10 (one AdmissionCode presents at most 10 tickets), 4 when the Organizer gives none. Set exactly on an event of a first-party series; fixed once the event is PUBLISHED (checked by the application)';
 
 -- Physical identity of every event that is not DRAFT. A partial unique index,
 -- not a constraint, so DRAFT rows stay out of the key space.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_events_natural_key ON events (venue_id, local_event_date, start_time) NULLS NOT DISTINCT
+CREATE UNIQUE INDEX IF NOT EXISTS uq_events_natural_key ON events (venue_id, local_event_date, local_start_time) NULLS NOT DISTINCT
     WHERE publish_state IS DISTINCT FROM 'DRAFT';
-COMMENT ON INDEX uq_events_natural_key IS 'Physical identity of a performance: one row per (venue, local date, start time) among events that are not DRAFT, independent of series or performing artist. start_time is part of the key so two shows at one venue on one date with different start times (matinee/evening) are distinct; NULLS NOT DISTINCT collapses two shows whose start time is not yet published. The same physical show discovered via different artists/series resolves to one row. DRAFT events are excluded, so any number of drafts and one live or cancelled event can share a slot. Upserts infer it with ON CONFLICT (venue_id, local_event_date, start_time) WHERE publish_state IS DISTINCT FROM ''DRAFT''.';
+COMMENT ON INDEX uq_events_natural_key IS 'Physical identity of a performance: one row per (venue, local date, local start time) among events that are not DRAFT, independent of series or performing artist. local_start_time is part of the key so two shows at one venue on one date with different start times (matinee/evening) are distinct; NULLS NOT DISTINCT collapses two shows whose start time is not yet published. The same physical show discovered via different artists/series resolves to one row. DRAFT events are excluded, so any number of drafts and one live or cancelled event can share a slot. Upserts infer it with ON CONFLICT (venue_id, local_event_date, local_start_time) WHERE publish_state IS DISTINCT FROM ''DRAFT''.';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
@@ -414,6 +419,8 @@ CREATE TABLE IF NOT EXISTS concert_candidates (
     local_date DATE NOT NULL,
     start_time TIMESTAMPTZ,
     open_time TIMESTAMPTZ,
+    local_start_time TIME,
+    local_open_time TIME,
     listed_venue_name TEXT NOT NULL,
     admin_area TEXT,
     source_url TEXT,
@@ -433,8 +440,10 @@ COMMENT ON COLUMN concert_candidates.artist_id IS 'The performing artist this co
 COMMENT ON COLUMN concert_candidates.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
 COMMENT ON COLUMN concert_candidates.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
 COMMENT ON COLUMN concert_candidates.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
-COMMENT ON COLUMN concert_candidates.start_time IS 'Scheduled start time. NULL when the source did not state one.';
-COMMENT ON COLUMN concert_candidates.open_time IS 'Doors-open time. NULL when not announced.';
+COMMENT ON COLUMN concert_candidates.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN concert_candidates.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN concert_candidates.local_start_time IS 'Wall-clock start time at the venue, in whole minutes, as the source states it; read in time_zone. NULL when the source did not state one.';
+COMMENT ON COLUMN concert_candidates.local_open_time IS 'Wall-clock doors-open time at the venue, read like local_start_time. NULL when not announced.';
 COMMENT ON COLUMN concert_candidates.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
 COMMENT ON COLUMN concert_candidates.admin_area IS 'Administrative area extracted by Gemini for the concert. NULL when not extracted.';
 COMMENT ON COLUMN concert_candidates.source_url IS 'Source URL where the concert was found. NULL when not provided.';
@@ -458,6 +467,8 @@ CREATE TABLE IF NOT EXISTS rejected_concerts (
     local_date DATE NOT NULL,
     start_time TIMESTAMPTZ,
     open_time TIMESTAMPTZ,
+    local_start_time TIME,
+    local_open_time TIME,
     listed_venue_name TEXT NOT NULL,
     admin_area TEXT,
     source_url TEXT,
@@ -477,8 +488,10 @@ COMMENT ON COLUMN rejected_concerts.artist_id IS 'The performing artist the reje
 COMMENT ON COLUMN rejected_concerts.artist_name IS 'Artist display name captured at rejection time for readability.';
 COMMENT ON COLUMN rejected_concerts.title IS 'Descriptive title of the rejected concert.';
 COMMENT ON COLUMN rejected_concerts.local_date IS 'Scheduled calendar date of the rejected concert.';
-COMMENT ON COLUMN rejected_concerts.start_time IS 'Scheduled start time of the rejected concert. NULL when unknown.';
-COMMENT ON COLUMN rejected_concerts.open_time IS 'Doors-open time of the rejected concert. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN rejected_concerts.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN rejected_concerts.local_start_time IS 'Wall-clock start time of the rejected concert at its venue, in whole minutes, read in time_zone. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts.local_open_time IS 'Wall-clock doors-open time of the rejected concert, read like local_start_time. NULL when unknown.';
 COMMENT ON COLUMN rejected_concerts.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
 COMMENT ON COLUMN rejected_concerts.admin_area IS 'Administrative area extracted for the rejected concert. NULL when not extracted.';
 COMMENT ON COLUMN rejected_concerts.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
@@ -644,26 +657,30 @@ COMMENT ON INDEX idx_identity_verifications_user_id IS 'Optimizes lookup of a us
 -- names the events it sells in ticket_sale_events; it sells every ticket stock
 -- of those events. A discovered sale (find_time IS NOT NULL) belongs to a
 -- Series without an Organizer, names no event and is only reported to fans.
--- Every sale has a name and an end time. Re-discovery converges on (series_id,
--- method, sale start date in Japan time).
+-- Every sale has a name, a time zone and an end time. Re-discovery converges on
+-- (series_id, method, sale start date in the sale's time zone).
 CREATE TABLE IF NOT EXISTS ticket_sales (
     id                       UUID        PRIMARY KEY,
     series_id                UUID        NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     name                     TEXT        NOT NULL,
     method                   SMALLINT    NOT NULL,
-    sale_start_time            TIMESTAMPTZ NOT NULL,
-    sale_end_time              TIMESTAMPTZ NOT NULL,
+    sale_start_time            TIMESTAMPTZ,
+    sale_end_time              TIMESTAMPTZ,
+    time_zone                  TEXT        NOT NULL,
+    local_start_time           TIMESTAMP   NOT NULL,
+    local_end_time             TIMESTAMP   NOT NULL,
     verification_requirement SMALLINT    NOT NULL DEFAULT 0,
     find_time            TIMESTAMPTZ,
-    sale_start_date_jst      DATE GENERATED ALWAYS AS ((sale_start_time AT TIME ZONE 'Asia/Tokyo')::date) STORED,
+    sale_start_local_date    DATE GENERATED ALWAYS AS (local_start_time::date) STORED,
     result_date              DATE,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
-    CONSTRAINT chk_ticket_sales_window CHECK (sale_end_time > sale_start_time),
+    CONSTRAINT chk_ticket_sales_window CHECK (local_end_time > local_start_time),
+    CONSTRAINT chk_ticket_sales_whole_minutes CHECK (extract(second FROM local_start_time) = 0 AND extract(second FROM local_end_time) = 0),
     CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
     CONSTRAINT chk_ticket_sales_discovered CHECK (find_time IS NULL OR verification_requirement = 0),
-    CONSTRAINT chk_ticket_sales_result_date CHECK (result_date IS NULL OR (find_time IS NOT NULL AND method = 2 AND result_date >= (sale_end_time AT TIME ZONE 'Asia/Tokyo')::date))
+    CONSTRAINT chk_ticket_sales_result_date CHECK (result_date IS NULL OR (find_time IS NOT NULL AND method = 2 AND result_date >= local_end_time::date))
 );
 
 COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method and a window. An Organizer''s sale (find_time NULL) also has a verification requirement and names its events in ticket_sale_events; it sells every ticket stock of those events. A discovered sale (find_time set) belongs to a Series without an Organizer, names no event and is only reported to fans. A closed Organizer''s lottery is drawn once none of its lottery entries is Entered.';
@@ -671,19 +688,22 @@ COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, app
 COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
 COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and Organizers (1-100 characters), e.g. ファンクラブ先行 or 一般発売; a discovered sale takes the name its page gives it';
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
-COMMENT ON COLUMN ticket_sales.sale_start_time IS 'When the sale opens';
-COMMENT ON COLUMN ticket_sales.sale_end_time IS 'When the sale closes; after sale_start_time. On an Organizer''s sale 1 to 14 days after the start for a lottery, and no later than the start of every event the sale covers (checked by the application)';
+COMMENT ON COLUMN ticket_sales.sale_start_time IS 'Replaced by local_start_time and time_zone and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN ticket_sales.time_zone IS 'IANA time zone the sale''s window is read in: on an Organizer''s sale one of the time zones of its events'' venues, on a discovered sale the zone its page states or its series'' venues share';
+COMMENT ON COLUMN ticket_sales.local_start_time IS 'Wall-clock time the sale opens, in whole minutes, read in time_zone; the instant is computed by the application';
+COMMENT ON COLUMN ticket_sales.sale_end_time IS 'Replaced by local_end_time and time_zone and no longer written; dropped by the migration that follows release 2';
+COMMENT ON COLUMN ticket_sales.local_end_time IS 'Wall-clock time the sale closes, read in time_zone; after local_start_time. On an Organizer''s sale 1 to 14 days after the start for a lottery, and no later than the start of every event the sale covers (checked by the application)';
 COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required); always 0 on a discovered sale';
 COMMENT ON COLUMN ticket_sales.find_time IS 'When discovery first stored the sale; set on insert and never updated. NULL exactly on an Organizer''s sale. The reminder scan uses it as the first-sight guard: a stage whose anchor is before find_time is not sent.';
-COMMENT ON COLUMN ticket_sales.sale_start_date_jst IS 'Calendar date of sale_start_time in Asia/Tokyo; part of the discovered-sale convergence key';
-COMMENT ON COLUMN ticket_sales.result_date IS 'Calendar day in Japan time (Asia/Tokyo) on which a discovered lottery''s results are announced, as its pages state it; no earlier than the Japan-time day of sale_end_time. NULL when the pages do not state it, and always NULL on a first-come sale and on an Organizer''s sale. Anchors the RESULT_DAY reminder.';
+COMMENT ON COLUMN ticket_sales.sale_start_local_date IS 'Calendar date of local_start_time in the sale''s time zone; part of the discovered-sale convergence key';
+COMMENT ON COLUMN ticket_sales.result_date IS 'Calendar day (a date without a zone) on which a discovered lottery''s results are announced, as its pages state it; no earlier than the local date of local_end_time. NULL when the pages do not state it, and always NULL on a first-come sale and on an Organizer''s sale. Anchors the RESULT_DAY reminder.';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
 COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_sales_discovered_convergence
-    ON ticket_sales(series_id, method, sale_start_date_jst) WHERE find_time IS NOT NULL;
-COMMENT ON INDEX uq_ticket_sales_discovered_convergence IS 'One discovered sale per (series, method, start date in Japan time): re-discovery updates it in place. Partial, so an Organizer may open two sales of one Series on the same day for different events. Upserts infer it with ON CONFLICT (series_id, method, sale_start_date_jst) WHERE find_time IS NOT NULL.';
+    ON ticket_sales(series_id, method, sale_start_local_date) WHERE find_time IS NOT NULL;
+COMMENT ON INDEX uq_ticket_sales_discovered_convergence IS 'One discovered sale per (series, method, start date in the sale''s time zone): re-discovery updates it in place. Partial, so an Organizer may open two sales of one Series on the same day for different events. Upserts infer it with ON CONFLICT (series_id, method, sale_start_local_date) WHERE find_time IS NOT NULL.';
 
 -- Ticket sale events: the events an Organizer's sale sells. The sale sells
 -- every ticket stock of these events, including a stock created while it runs.
@@ -1442,3 +1462,4 @@ COMMENT ON COLUMN user_home_areas.area_first_level IS 'Always true; with area_co
 -- the reference tables they refer to.
 ALTER TABLE venues ADD CONSTRAINT fk_venues_admin_area FOREIGN KEY (admin_area, admin_area_first_level) REFERENCES areas (code, is_first_level);
 ALTER TABLE venues ADD CONSTRAINT fk_venues_time_zone FOREIGN KEY (country_code, time_zone) REFERENCES country_time_zones (country_code, time_zone);
+ALTER TABLE ticket_sales ADD CONSTRAINT fk_ticket_sales_time_zone FOREIGN KEY (time_zone) REFERENCES time_zones (name);

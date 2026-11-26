@@ -163,7 +163,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 	// day returns the date offset from today, so "upcoming" and "past" hold
 	// whenever the test runs.
 	day := func(offset int) string {
-		return entity.CurrentDateAtVenue(time.Now()).AddDate(0, 0, offset).Format(time.DateOnly)
+		return todayInTokyo().AddDate(0, 0, offset).Format(time.DateOnly)
 	}
 	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 		t.Helper()
@@ -358,7 +358,7 @@ func TestTicketJourneyRepository_ListUserIDsTrackingEvents(t *testing.T) {
 	ctx := context.Background()
 
 	day := func(offset int) string {
-		return entity.CurrentDateAtVenue(time.Now()).AddDate(0, 0, offset).Format(time.DateOnly)
+		return todayInTokyo().AddDate(0, 0, offset).Format(time.DateOnly)
 	}
 	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
 		t.Helper()

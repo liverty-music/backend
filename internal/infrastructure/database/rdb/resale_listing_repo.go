@@ -43,10 +43,12 @@ const (
 	`
 	resaleListingTicketStockQuery = `SELECT ticket_stock_id FROM resale_listings WHERE id = $1`
 	// resaleListingLockedQuery reads the listing under its row lock, with its
-	// event's start time for the deadline.
+	// event's local date and start time and its Venue's time zone for the
+	// deadline.
 	resaleListingLockedQuery = `
-		SELECT ` + resaleListingColumns + `, e.start_time` + resaleListingFrom + `
+		SELECT ` + resaleListingColumns + `, e.local_event_date, e.local_start_time::text, v.time_zone` + resaleListingFrom + `
 		JOIN events e ON e.id = t.event_id
+		JOIN venues v ON v.id = e.venue_id
 		WHERE rl.id = $1
 		FOR UPDATE OF rl
 	`
@@ -133,15 +135,19 @@ func (r *ResaleListingRepository) Withdraw(ctx context.Context, id entity.Resale
 	if _, err := tx.Exec(ctx, ticketStockLockQuery, stockID); err != nil {
 		return toAppErr(err, "failed to lock ticket stock", attrs)
 	}
-	var startAt sql.NullTime
-	l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingLockedQuery, string(id)), &startAt)
+	var (
+		eventDate time.Time
+		startAt   *string
+		zone      string
+	)
+	l, err := scanResaleListing(tx.QueryRow(ctx, resaleListingLockedQuery, string(id)), &eventDate, &startAt, &zone)
 	if err != nil {
 		return toAppErr(err, "failed to lock resale listing", attrs)
 	}
 	if l.Status == entity.ResaleListingStatusWithdrawn {
 		return nil
 	}
-	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{StartTime: optionalTime(startAt)})
+	deadline, ok := entity.ResaleDeadlineOf(&entity.Event{LocalDate: eventDate, StartTime: timeOfDayFromText(startAt), Venue: &entity.Venue{TimeZone: &zone}})
 	if !ok || !l.IsWithdrawableAt(now, deadline) {
 		return apperr.New(codes.FailedPrecondition, "the listing is sold, cancelled, expired or allocated to a resale entry being charged", attrs)
 	}

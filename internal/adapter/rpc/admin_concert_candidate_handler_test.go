@@ -294,7 +294,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/concert-candidate "Approve without a resolution"
 		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
-		startTime := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
+		startTime := entity.TimeOfDay{Hour: 18, Minute: 30}
 		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified, (*string)(nil), (*string)(nil), "admin-sub-123").
 			Return(&usecase.ApproveResult{Conflict: &usecase.DuplicateConflict{
 				Existing: &usecase.ExistingEventDisplay{
@@ -313,6 +313,8 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.GetConflict())
 		assert.Equal(t, "event-1", resp.GetConflict().GetExisting().GetEventId().GetValue())
+		assert.Equal(t, int32(18), resp.GetConflict().GetExisting().GetStartTime().GetValue().GetHours())
+		assert.Equal(t, int32(30), resp.GetConflict().GetExisting().GetStartTime().GetValue().GetMinutes())
 		assert.Equal(t, concertCandidateID, resp.GetConflict().GetConcertCandidate().GetId().GetValue())
 	})
 
