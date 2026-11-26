@@ -37,16 +37,20 @@ const ticketSaleColumns = `
 	ts.verification_requirement, ts.find_time, ts.result_date
 `
 
+// saleStartInstant and saleEndInstant are the instants of a sale's window as
+// PostgreSQL computes them. A wall-clock time that occurs twice, because the
+// clocks go back, means the earlier instant, as in
+// [entity.LocalDateTimeInstant]; AT TIME ZONE alone takes the later one. The
+// earlier reading uses the offset of the day before, and counts only when it
+// shows the same wall-clock time in the zone, whatever size the clock change
+// has.
 const (
-	// saleStartInstant and saleEndInstant are the instants of a sale's window
-	// as PostgreSQL computes them. A wall-clock time that occurs twice,
-	// because the clocks go back, means the earlier instant, as in
-	// [entity.LocalDateTimeInstant]; AT TIME ZONE alone takes the later one,
-	// so each is the smaller of it and the reading made one hour before.
-	saleStartInstant = `LEAST(ts.local_start_time AT TIME ZONE ts.time_zone,
-		((ts.local_start_time - interval '1 hour') AT TIME ZONE ts.time_zone) + interval '1 hour')`
-	saleEndInstant = `LEAST(ts.local_end_time AT TIME ZONE ts.time_zone,
-		((ts.local_end_time - interval '1 hour') AT TIME ZONE ts.time_zone) + interval '1 hour')`
+	saleStartInstant = `(CASE WHEN (((ts.local_start_time - interval '24 hours') AT TIME ZONE ts.time_zone) + interval '24 hours') AT TIME ZONE ts.time_zone = ts.local_start_time
+		THEN LEAST((((ts.local_start_time - interval '24 hours') AT TIME ZONE ts.time_zone) + interval '24 hours'), (ts.local_start_time AT TIME ZONE ts.time_zone))
+		ELSE (ts.local_start_time AT TIME ZONE ts.time_zone) END)`
+	saleEndInstant = `(CASE WHEN (((ts.local_end_time - interval '24 hours') AT TIME ZONE ts.time_zone) + interval '24 hours') AT TIME ZONE ts.time_zone = ts.local_end_time
+		THEN LEAST((((ts.local_end_time - interval '24 hours') AT TIME ZONE ts.time_zone) + interval '24 hours'), (ts.local_end_time AT TIME ZONE ts.time_zone))
+		ELSE (ts.local_end_time AT TIME ZONE ts.time_zone) END)`
 )
 
 const (

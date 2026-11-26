@@ -24,3 +24,6 @@ const (
 	CatalogEventCondition    = catalogEventCondition
 	SeriesPublishStateColumn = seriesPublishStateColumn
 )
+
+// SaleEndInstantSQL is the SQL for the instant a sale ends.
+const SaleEndInstantSQL = saleEndInstant
