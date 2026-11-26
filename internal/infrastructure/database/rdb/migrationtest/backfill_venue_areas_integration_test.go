@@ -29,6 +29,12 @@ const (
 	taipeiArena       = "019e3432-7d64-76ee-8b4b-89a41e5b4652" // reviewed area
 	singaporeIndoor   = "01a15364-9f67-70a7-a514-5b8582020c94" // renamed
 	unusedUnannounced = "019e782c-766f-76b5-a996-276bc8ee579e" // deleted: no Event
+	// taipeiArenaAgain is a row discovery stored for Taipei Arena after the
+	// review; no migration names it.
+	taipeiArenaAgain = "01a21600-0000-7000-8000-000000000001"
+	taipeiEvent      = "01a21600-0000-7000-8000-000000000002"
+	taipeiSeries     = "01a21600-0000-7000-8000-000000000003"
+	candidateID      = "01a21600-0000-7000-8000-000000000004"
 )
 
 // TestMigration_BackfillVenueAreas applies
@@ -77,6 +83,12 @@ func TestMigration_BackfillVenueAreas(t *testing.T) {
 	}
 	show(privateEvent, privateSeries, privateVenue, "2026-10-23")
 	show(milkBoyEvent, milkBoySeries, milkBoyDuplicate, "2026-09-22")
+	taipei, taipeiZone := "TW-TPE", "Asia/Taipei"
+	venue(taipeiArenaAgain, "Taipei Arena", &taipei, &taipeiZone, "p-taipei-again")
+	show(taipeiEvent, taipeiSeries, taipeiArena, "2026-08-29")
+	mustExec(`INSERT INTO artists (id, name, mbid) VALUES ($1, 'Artist', '00000000-0000-0000-0000-000000000001')`, id(900))
+	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, listed_venue_name, resolved_place_id)
+		VALUES ($1, $2, $3, 'Tour', '2026-12-01', 'Capitol Theatre', 'p-capitol-sydney')`, candidateID, id(900), taipeiSeries)
 
 	apply(backfillVenueAreasVersion)
 
@@ -97,11 +109,14 @@ func TestMigration_BackfillVenueAreas(t *testing.T) {
 	assert.Zero(t, count(`SELECT count(*) FROM events WHERE id = $1`, privateEvent))
 	assert.Zero(t, count(`SELECT count(*) FROM series WHERE id = $1`, privateSeries))
 	assert.Equal(t, 1, count(`SELECT count(*) FROM events WHERE id = $1 AND venue_id = $2`, milkBoyEvent, milkBoy))
+	assert.Equal(t, 1, count(`SELECT count(*) FROM events WHERE id = $1 AND venue_id = $2`, taipeiEvent, taipeiArenaAgain))
+	assert.Zero(t, count(`SELECT count(*) FROM venues WHERE id = $1`, taipeiArena))
+	assert.Equal(t, 1, count(`SELECT count(*) FROM concert_candidates WHERE id = $1 AND resolved_place_id IS NULL`, candidateID))
 	_, area, zone, place := read(capitolTheatre)
 	assert.Equal(t, "SG-01", *area)
 	assert.Equal(t, "Asia/Singapore", *zone)
 	assert.Nil(t, place, "the place elsewhere is dropped")
-	_, area, _, place = read(taipeiArena)
+	_, area, _, place = read(taipeiArenaAgain)
 	assert.Equal(t, "TW-TPE", *area)
 	assert.NotNil(t, place, "a right place is kept")
 	listed, area, _, _ := read(singaporeIndoor)

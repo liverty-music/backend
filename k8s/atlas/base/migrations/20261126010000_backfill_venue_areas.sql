@@ -184,6 +184,43 @@ DELETE FROM venues v WHERE v.id IN (
     '01a126c0-409b-7609-ba95-cd0995e3146c'
 ) AND NOT EXISTS (SELECT 1 FROM events e WHERE e.venue_id = v.id);
 
+-- A candidate that resolved to one of those places loses it too, so approving
+-- it cannot give the place back.
+UPDATE concert_candidates SET resolved_place_id = NULL WHERE resolved_place_id IN (
+  SELECT google_place_id FROM venues WHERE google_place_id IS NOT NULL AND id IN (
+    '019e3939-1296-7e42-8b05-0e7856b20248',
+    '019e4633-0d88-7d5b-9479-7ea13cd56582',
+    '01a05c58-44f7-7b48-b295-f9647a40ba34',
+    '01a05c58-46c0-70e4-81c2-fd1d607d1f83',
+    '01a05c58-4ea9-7d51-9aed-ffba0daf3428',
+    '01a05c58-5059-7258-8e1a-59160b92f541',
+    '01a05c5c-5d5d-780e-a4da-1337f3197192',
+    '01a05c5c-669b-7c22-8695-9cc4cde5ae6f',
+    '01a05c5c-69f9-7c02-82ce-6c422a914e97',
+    '01a05c5c-6e60-764d-b1a2-8fa0cc3c7252',
+    '01a05c5c-6fd8-7fea-b069-05efd25741db',
+    '01a05c5c-7110-766f-a678-d68ab202749a',
+    '01a05c5c-740d-71ef-95e2-d5f537957366',
+    '01a05c5e-d627-7cdc-b572-8ebf334cf73e',
+    '01a05c5e-dafc-7ea8-aa5e-6d7397ac8d9f',
+    '01a05c64-3bfa-7ca6-800c-ab48275e248f',
+    '01a05c64-3d9f-7e96-839c-8d58b9dd1aae',
+    '01a05c6c-9942-782f-b355-0fa8cf5126f6',
+    '01a05c6c-9be4-753e-812b-7f69d8ed39e5',
+    '01a05c7e-e9c5-7dc8-abbb-92d27e647918',
+    '01a05c80-b567-78cf-933a-23c6c8a5d787',
+    '01a0610f-d79e-701d-af64-fda58f1c92e6',
+    '01a10f24-dd38-775a-add4-125aef8206cc',
+    '01a11b3d-1f8d-7423-bcce-15bf5679b1e6',
+    '01a11b3d-2077-747b-99f6-2c99fbe90fa6',
+    '01a11b3d-2257-71e5-a9f4-5b7dd44fef64',
+    '01a1251d-e9ed-7bad-8782-0eaca65e2807',
+    '01a1347e-fdca-7704-b916-478a9a312f9d',
+    '01a14e3d-dc4f-7e81-9532-ad829ff6d39f',
+    '01a1de80-d750-758d-a120-142047446825'
+  )
+);
+
 -- The map search had picked a same-named place elsewhere: drop that place so
 -- the Venue keeps only its area.
 UPDATE venues SET google_place_id = NULL, latitude = NULL, longitude = NULL, coordinates_fetch_time = NULL WHERE id IN (
@@ -222,9 +259,10 @@ UPDATE venues SET google_place_id = NULL, latitude = NULL, longitude = NULL, coo
 -- A listed name cut short.
 UPDATE venues SET name = 'SINGAPORE INDOOR STADIUM', listed_venue_name = 'SINGAPORE INDOOR STADIUM' WHERE id = '01a15364-9f67-70a7-a514-5b8582020c94';
 
--- The reviewed area and time zone.
-UPDATE venues AS v SET admin_area = u.admin_area, time_zone = u.time_zone
-FROM (VALUES
+-- The reviewed area and time zone of each Venue.
+CREATE TEMPORARY TABLE venue_review (id UUID PRIMARY KEY, admin_area TEXT NOT NULL, time_zone TEXT NOT NULL);
+
+INSERT INTO venue_review (id, admin_area, time_zone) VALUES
     ('019e3432-7d64-76ee-8b4b-89a41e5b4652', 'TW-TPE', 'Asia/Taipei'),
     ('019e3432-7ef5-7dfb-8387-e55cc90ed81a', 'KR-11', 'Asia/Seoul'),
     ('019e3432-881a-73e9-a1b2-e8e8ee3c0598', 'KR-41', 'Asia/Seoul'),
@@ -523,6 +561,25 @@ FROM (VALUES
     ('01a1de79-6336-759f-994e-ba9912717b2a', 'CA-ON', 'America/Toronto'),
     ('01a1de79-64f1-7e1b-b18d-486c65766e94', 'US-FL', 'America/New_York'),
     ('01a1de79-66fb-73d8-b2e8-a80267d09ee5', 'US-TX', 'America/Chicago'),
-    ('01a1e2f1-28c1-7d24-ab2b-838d21427f18', 'US-TN', 'America/New_York')
-) AS u (id, admin_area, time_zone)
-WHERE v.id = u.id::uuid;
+    ('01a1e2f1-28c1-7d24-ab2b-838d21427f18', 'US-TN', 'America/New_York');
+
+-- Discovery may have stored a Venue under the same listed name and the
+-- reviewed area since the review: it is the same Venue, so the Events move to
+-- it and the old row goes. A slot both rows hold leaves the old row, and the
+-- update below then fails on the listed name and area index.
+UPDATE events AS e SET venue_id = d.id
+FROM venue_review AS r
+JOIN venues AS v ON v.id = r.id
+JOIN venues AS d ON d.listed_venue_name = v.listed_venue_name AND d.admin_area = r.admin_area AND d.id <> v.id
+WHERE e.venue_id = v.id
+  AND NOT EXISTS (SELECT 1 FROM events f WHERE f.venue_id = d.id AND f.local_event_date = e.local_event_date AND f.start_time IS NOT DISTINCT FROM e.start_time);
+
+DELETE FROM venues AS v USING venue_review AS r, venues AS d
+WHERE v.id = r.id AND d.listed_venue_name = v.listed_venue_name AND d.admin_area = r.admin_area AND d.id <> v.id
+  AND NOT EXISTS (SELECT 1 FROM events e WHERE e.venue_id = v.id);
+
+UPDATE venues AS v SET admin_area = r.admin_area, time_zone = r.time_zone
+FROM venue_review AS r
+WHERE v.id = r.id;
+
+DROP TABLE venue_review;

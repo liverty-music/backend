@@ -98,6 +98,9 @@ COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
 -- Venues table
+-- Venues stored before release 1 got their admin_area and time_zone in
+-- 20261126010000_backfill_venue_areas.sql; both stay nullable until the
+-- following migration makes them required.
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
