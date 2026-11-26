@@ -238,6 +238,7 @@ func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 	//    releases the settlement issuance created above. --
 	sweeper := newSettlementFixture(t, 7*24*time.Hour, fixedClock(now))
 	sweeper.held(storedSettlement, storedOrder)
+	sweeper.publishedEvent(storedSettlement.EventID)
 	sweeper.startsAt(storedSettlement.EventID, new(now.Add(-8*24*time.Hour)))
 	sweeper.account(&entity.PayoutAccount{OrganizerID: "organizer-1", Status: entity.PayoutOnboardingStatusActive}, entity.PayoutOnboardingStatusActive)
 	sweeper.paysOut(storedOrder.Payment.ProviderPaymentID, "ch_test", "tr_test")
@@ -292,6 +293,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	//    progress): the sweeper withholds the payout instead of failing. --
 	sweeper := newSettlementFixture(t, 7*24*time.Hour, fixedClock(now))
 	sweeper.held(storedSettlement, storedOrder)
+	sweeper.publishedEvent(storedSettlement.EventID)
 	sweeper.startsAt(storedSettlement.EventID, new(now.Add(-8*24*time.Hour)))
 	sweeper.account(&entity.PayoutAccount{OrganizerID: "organizer-pending", Status: entity.PayoutOnboardingStatusPending}, entity.PayoutOnboardingStatusPending)
 

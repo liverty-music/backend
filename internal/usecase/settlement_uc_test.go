@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"slices"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,6 +25,7 @@ type settlementFixture struct {
 	settlements *entitymocks.MockSettlementRepository
 	orders      *entitymocks.MockOrderRepository
 	accounts    *entitymocks.MockPayoutAccountRepository
+	events      *entitymocks.MockEventRepository
 	starts      *ucmocks.MockEventStartTimeRepository
 	uc          usecase.SettlementUseCase
 }
@@ -33,9 +36,10 @@ func newSettlementFixture(t *testing.T, disputeBuffer time.Duration, now func() 
 		settlements: entitymocks.NewMockSettlementRepository(t),
 		orders:      entitymocks.NewMockOrderRepository(t),
 		accounts:    entitymocks.NewMockPayoutAccountRepository(t),
+		events:      entitymocks.NewMockEventRepository(t),
 		starts:      ucmocks.NewMockEventStartTimeRepository(t),
 	}
-	f.uc = usecase.NewSettlementUseCase(f.settlements, f.orders, f.accounts, f.starts, disputeBuffer, now, newTestLogger(t))
+	f.uc = usecase.NewSettlementUseCase(f.settlements, f.orders, f.accounts, f.events, f.starts, disputeBuffer, now, newTestLogger(t))
 	return f
 }
 
@@ -44,6 +48,16 @@ func newSettlementFixture(t *testing.T, disputeBuffer time.Duration, now func() 
 func (f *settlementFixture) held(s *entity.Settlement, order *entity.Order) {
 	f.settlements.EXPECT().ListHeld(mock.Anything).Return([]*entity.Settlement{s}, nil)
 	f.orders.EXPECT().Get(mock.Anything, s.OrderID).Return(order, nil)
+}
+
+// publishedEvent makes eventID a PUBLISHED event on every run.
+func (f *settlementFixture) publishedEvent(eventID string) {
+	f.events.EXPECT().Get(mock.Anything, eventID).Return(eventInState(eventID, entity.PublishStatePublished), nil)
+}
+
+// eventInState returns the event eventID in the publish state.
+func eventInState(eventID string, state entity.PublishState) *entity.Event {
+	return &entity.Event{ID: eventID, PublishState: &state}
 }
 
 // startsAt makes the start time of eventID start on every run.
@@ -74,63 +88,6 @@ func (f *settlementFixture) assertNotPaidOut(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IsReleaseEligible — pure function tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestIsReleaseEligible(t *testing.T) {
-	t.Parallel()
-
-	const buffer = 7 * 24 * time.Hour
-	eventStart := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
-
-	tests := []struct {
-		name      string
-		now       time.Time
-		startTime time.Time // zero value = not published
-		want      bool
-	}{
-		{
-			name:      "return false when event has not yet started",
-			now:       eventStart.Add(-1 * time.Hour),
-			startTime: eventStart,
-			want:      false,
-		},
-		{
-			name:      "return false when event just started (buffer not elapsed)",
-			now:       eventStart.Add(1 * time.Hour),
-			startTime: eventStart,
-			want:      false,
-		},
-		{
-			name:      "return false when event started but buffer not fully elapsed",
-			now:       eventStart.Add(buffer - time.Second),
-			startTime: eventStart,
-			want:      false,
-		},
-		{
-			name:      "return true when event started and full buffer has elapsed",
-			now:       eventStart.Add(buffer + time.Second),
-			startTime: eventStart,
-			want:      true,
-		},
-		{
-			name:      "return false when start_time is zero (event time not yet published)",
-			now:       time.Now().Add(30 * 24 * time.Hour),
-			startTime: time.Time{},
-			want:      false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := entity.IsReleaseEligible(tc.now, tc.startTime, buffer)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Invalid splits: the entity refuses the release, the sweep skips it
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -149,6 +106,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_InvalidSplitsAreSkipped(t *test
 
 	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
 	f.held(settlement, order)
+	f.publishedEvent(eventID)
 	f.startsAt(eventID, &pastStartVal)
 	f.account(&entity.PayoutAccount{OrganizerID: orgID, ProviderAccountID: providerAccountID, Status: entity.PayoutOnboardingStatusActive}, entity.PayoutOnboardingStatusActive)
 
@@ -193,6 +151,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 		ID: orderID, Amount: 10000, Currency: "JPY",
 		Payment: entity.Payment{ProviderPaymentID: providerPaymentID},
 	})
+	f.publishedEvent(eventID)
 	f.startsAt(eventID, pastStart)
 	f.account(&entity.PayoutAccount{
 		OrganizerID: orgID, ProviderAccountID: providerAccountID,
@@ -239,6 +198,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_OrganizerNotActive_PayoutWithhe
 	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
 	f.held(settlement, &entity.Order{ID: "order-pending", Amount: 10000, Currency: "JPY",
 		Payment: entity.Payment{ProviderPaymentID: "pi_pending"}})
+	f.publishedEvent("event-pending")
 	f.startsAt("event-pending", pastStart)
 	f.account(&entity.PayoutAccount{
 		OrganizerID: "org-pending", ProviderAccountID: "acct_pending",
@@ -272,6 +232,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_GateNotPassed_NoTransfer(t *tes
 	f := newSettlementFixture(t, 7*24*time.Hour, time.Now)
 	f.held(settlement, &entity.Order{ID: "order-future", Amount: 10000, Currency: "JPY",
 		Payment: entity.Payment{ProviderPaymentID: "pi_future"}})
+	f.publishedEvent("event-future")
 	f.startsAt("event-future", futureStart)
 
 	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
@@ -333,6 +294,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_ReleaseGate(t *testing.T) {
 			f := newSettlementFixture(t, buffer, func() time.Time { return now })
 			f.held(settlement, &entity.Order{ID: "order-gate", Amount: 10000, Currency: "JPY",
 				Payment: entity.Payment{ProviderPaymentID: "pi_gate"}})
+			f.publishedEvent("event-gate")
 			// Each run reads the start time again, in order.
 			for _, start := range tc.startTimes {
 				f.starts.EXPECT().GetEventStartTime(mock.Anything, "event-gate").Return(tokyoEventStart(start), nil).Once()
@@ -382,6 +344,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_IdempotentRerun_NoDoubleTransfe
 	f := newSettlementFixture(t, 30*24*time.Hour, time.Now)
 	f.held(settlement, &entity.Order{ID: "order-idem", Amount: 10000, Currency: "JPY",
 		Payment: entity.Payment{ProviderPaymentID: "pi_idem"}})
+	f.publishedEvent("event-idem")
 	f.startsAt("event-idem", pastStart)
 	f.account(&entity.PayoutAccount{
 		OrganizerID: "org-idem", ProviderAccountID: "acct_idem",
@@ -396,4 +359,116 @@ func TestSettlementUseCase_ReleaseDueSettlements_IdempotentRerun_NoDoubleTransfe
 
 	// Must not return an error even though MarkReleased signalled FailedPrecondition.
 	require.NoError(t, f.uc.ReleaseDueSettlements(ctx))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cancelled event: the publish state is read on every run, before any payment
+// provider call
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestSettlementUseCase_ReleaseDueSettlements_CancelledEvent(t *testing.T) {
+	t.Parallel()
+
+	const buffer = 7 * 24 * time.Hour
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	started := now.Add(-8 * 24 * time.Hour)
+	account := &entity.PayoutAccount{
+		OrganizerID: "org-cancel", ProviderAccountID: "acct_cancel",
+		Status: entity.PayoutOnboardingStatusActive,
+	}
+	// due returns a fixture whose one Held Settlement is of an event that
+	// started 8 days ago.
+	due := func(t *testing.T) (*settlementFixture, *entity.Settlement) {
+		t.Helper()
+		settlement := &entity.Settlement{
+			ID: "settle-cancel", OrderID: "order-cancel",
+			OrganizerID: "org-cancel", EventID: "event-cancel",
+			Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-cancel", Amount: 9000}},
+			Status: entity.SettlementStatusHeld,
+		}
+		f := newSettlementFixture(t, buffer, func() time.Time { return now })
+		f.held(settlement, &entity.Order{ID: "order-cancel", Amount: 10000, Currency: "JPY",
+			Payment: entity.Payment{ProviderPaymentID: "pi_cancel"}})
+		f.startsAt("event-cancel", &started)
+		return f, settlement
+	}
+
+	t.Run("pay nothing for a cancelled event past the buffer", func(t *testing.T) {
+		// @spec components/usecase/settlement/release-due-settlements "Cancelled event past the buffer"
+		t.Parallel()
+		f, settlement := due(t)
+		f.events.EXPECT().Get(mock.Anything, "event-cancel").
+			Return(eventInState("event-cancel", entity.PublishStateCancelled), nil).Once()
+		// The Organizer's payout account is Active, and the run never reads it:
+		// the strict mocks fail on any payment provider call.
+		var logs bytes.Buffer
+		logger, err := logging.New(logging.WithWriter(&logs))
+		require.NoError(t, err)
+		uc := usecase.NewSettlementUseCase(f.settlements, f.orders, f.accounts, f.events, f.starts, buffer,
+			func() time.Time { return now }, logger)
+
+		require.NoError(t, uc.ReleaseDueSettlements(context.Background()))
+
+		f.assertNotPaidOut(t)
+		assert.Equal(t, entity.SettlementStatusHeld, settlement.Status)
+		assert.Contains(t, logs.String(), "payout sweep: event cancelled; payout withheld")
+		assert.NotContains(t, logs.String(), "failed to release settlement", "no error is raised for the Settlement")
+	})
+
+	t.Run("pay the split when the event is cancelled after the run read it", func(t *testing.T) {
+		// @spec components/usecase/settlement/release-due-settlements "Cancelled after the run read the event"
+		t.Parallel()
+		f, settlement := due(t)
+		state := entity.PublishStatePublished
+		f.events.EXPECT().Get(mock.Anything, "event-cancel").
+			RunAndReturn(func(context.Context, string) (*entity.Event, error) {
+				return eventInState("event-cancel", state), nil
+			}).Once()
+		// The cancellation is stored once the run is past the read.
+		f.accounts.EXPECT().GetByOrganizerID(mock.Anything, account.OrganizerID).
+			RunAndReturn(func(context.Context, string) (*entity.PayoutAccount, error) {
+				state = entity.PublishStateCancelled
+				return account, nil
+			}).Once()
+		f.accounts.EXPECT().GetStatus(mock.Anything, account.ProviderAccountID).Return(entity.PayoutOnboardingStatusActive, nil).Once()
+		f.paysOut("pi_cancel", "ch_cancel", "tr_cancel")
+		f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, "ch_cancel", now, []entity.SettlementSplit{
+			{PayeeOrganizerID: "org-cancel", Amount: 9000, ProviderPayoutID: "tr_cancel"},
+		}).Return(nil).Once()
+
+		require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
+		assert.Equal(t, entity.PublishStateCancelled, state, "the event was cancelled during the run")
+	})
+
+	t.Run("leave an unrecorded payout alone once the event is cancelled", func(t *testing.T) {
+		// @spec components/usecase/settlement/release-due-settlements "Cancelled before a failed release is recorded"
+		t.Parallel()
+		f, settlement := due(t)
+		f.events.EXPECT().Get(mock.Anything, "event-cancel").
+			Return(eventInState("event-cancel", entity.PublishStatePublished), nil).Once()
+		f.account(account, entity.PayoutOnboardingStatusActive)
+		f.paysOut("pi_cancel", "ch_cancel", "tr_cancel")
+		f.settlements.EXPECT().MarkReleased(mock.Anything, settlement.ID, "ch_cancel", now, mock.Anything).
+			Return(apperr.New(codes.Unavailable, "database unavailable")).Once()
+		require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
+
+		f.events.EXPECT().Get(mock.Anything, "event-cancel").
+			Return(eventInState("event-cancel", entity.PublishStateCancelled), nil).Once()
+		require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
+
+		f.settlements.AssertNumberOfCalls(t, "CreatePayout", 1)
+		f.settlements.AssertNumberOfCalls(t, "MarkReleased", 1)
+		assert.Equal(t, entity.SettlementStatusHeld, settlement.Status)
+	})
+
+	t.Run("skip a settlement whose event does not exist", func(t *testing.T) {
+		t.Parallel()
+		f := newSettlementFixture(t, buffer, func() time.Time { return now })
+		f.held(&entity.Settlement{ID: "settle-gone", OrderID: "order-gone", EventID: "event-gone", Status: entity.SettlementStatusHeld},
+			&entity.Order{ID: "order-gone"})
+		f.events.EXPECT().Get(mock.Anything, "event-gone").Return(nil, apperr.New(codes.NotFound, "event not found")).Once()
+
+		require.NoError(t, f.uc.ReleaseDueSettlements(context.Background()))
+		f.assertNotPaidOut(t)
+	})
 }

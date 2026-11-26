@@ -206,3 +206,68 @@ func TestSettlement_Status(t *testing.T) {
 		assert.Equal(t, want[1], s.HasPaidOut(), status.String())
 	}
 }
+
+// TestIsReleaseEligible verifies the release gate: the event is not CANCELLED
+// and the instant is after its start time plus the dispute buffer.
+func TestIsReleaseEligible(t *testing.T) {
+	t.Parallel()
+
+	const buffer = 7 * 24 * time.Hour
+	eventStart := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
+	published := entity.PublishStatePublished
+	cancelled := entity.PublishStateCancelled
+
+	tests := []struct {
+		name      string
+		now       time.Time
+		state     *entity.PublishState
+		startTime time.Time // zero value = not published
+		want      bool
+	}{
+		{
+			// @spec components/entity/settlement "Start time unknown"
+			name:  "return false when the event has no start time",
+			now:   eventStart.Add(30 * 24 * time.Hour),
+			state: &published,
+			want:  false,
+		},
+		{
+			// @spec components/entity/settlement "Buffer not yet elapsed"
+			name:      "return false when the buffer has not fully elapsed",
+			now:       eventStart.Add(buffer - time.Second),
+			state:     &published,
+			startTime: eventStart,
+			want:      false,
+		},
+		{
+			name:      "return false when the event has not yet started",
+			now:       eventStart.Add(-time.Hour),
+			state:     &published,
+			startTime: eventStart,
+			want:      false,
+		},
+		{
+			// @spec components/entity/settlement "Buffer elapsed"
+			name:      "return true when a published event started and the buffer has elapsed",
+			now:       eventStart.Add(buffer + time.Second),
+			state:     &published,
+			startTime: eventStart,
+			want:      true,
+		},
+		{
+			// @spec components/entity/settlement "Cancelled event"
+			name:      "return false for a cancelled event after the buffer",
+			now:       eventStart.Add(buffer + time.Second),
+			state:     &cancelled,
+			startTime: eventStart,
+			want:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, entity.IsReleaseEligible(tc.now, tc.state, tc.startTime, buffer))
+		})
+	}
+}

@@ -347,17 +347,22 @@ func PlatformFee(amountJPY int64, rateBps int) int64 {
 
 // IsReleaseEligible reports whether a settlement may be released.
 //
-// The release gate requires both:
-//  1. The event's current start_time has passed (counter-performance gate).
-//  2. A dispute-safety buffer has elapsed since the event started.
+// The release gate requires all of:
+//  1. The event is not CANCELLED.
+//  2. The event's current start_time has passed (counter-performance gate).
+//  3. A dispute-safety buffer has elapsed since the event started.
 //
-// The caller reads the event's current start_time from the database on every
-// sweep, so a start_time filled in after the purchase takes effect on the next
-// run. A nil start_time means the event time is not yet published; the
-// settlement is withheld (not failed).
+// The caller reads the event's current publish state and start_time from the
+// database on every sweep, so a cancellation or a start_time filled in after the
+// purchase takes effect on a later read. A nil publishState is the state of a
+// discovered event, which has none. A zero eventStartTime means the event time
+// is not yet published; the settlement is withheld (not failed).
 //
 // This is a pure function so it can be unit-tested without a database.
-func IsReleaseEligible(now time.Time, eventStartTime time.Time, disputeBuffer time.Duration) bool {
+func IsReleaseEligible(now time.Time, publishState *PublishState, eventStartTime time.Time, disputeBuffer time.Duration) bool {
+	if publishState != nil && *publishState == PublishStateCancelled {
+		return false
+	}
 	if eventStartTime.IsZero() {
 		// start_time not yet published; hold until known.
 		return false

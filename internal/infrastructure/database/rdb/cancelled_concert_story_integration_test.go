@@ -16,21 +16,21 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"github.com/liverty-music/backend/internal/infrastructure/workflow"
 	"github.com/liverty-music/backend/internal/usecase"
 )
 
-// The story tests of stories/remove-a-cancelled-concert run the cancellation
-// and the refund notices against a real local Postgres and the real workflow
+// The story tests of stories/remove-a-cancelled-concert run the cancellation,
+// the payout sweep and the refund notices against a real local Postgres and the real workflow
 // runtime: a member of the Event's Organizer cancels it with
 // SeriesUseCase.Cancel, the EVENT.cancelled announcements are handed to
 // their consumer, which starts a notice workflow per Order that the worker
 // runs; the admin's `Refund all`, which calls OrderService.Refund once per
 // Paid Order, refunds each Order with OrderUseCase.Refund, and the
 // ORDER.refunded announcements start the refund notices the same way. The payment provider is an in-memory refunder
-// and the mail service an in-memory mailer (storyMailer); the fans register
+// and payout provider (storyPayouts), the Organizer's payout account is
+// Active, and the mail service an in-memory mailer (storyMailer); the fans register
 // no browser, so each push is recorded as a Notification without a send.
 
 // storyRefunder refunds a charge in memory once per Order, as the payment
@@ -52,6 +52,33 @@ func (r *storyRefunder) CreateRefund(_ context.Context, params entity.RefundPara
 		r.refunds[params.OrderID] = params.Amount
 	}
 	return "re_" + string(params.OrderID), nil
+}
+
+// storyPayouts is the payment provider's payout side in memory: it records
+// every payout and reversal, and reports every payout account as Active.
+type storyPayouts struct {
+	repository.PayoutAccountProvider
+	mu        sync.Mutex
+	payouts   []entity.PayoutParams
+	reversals []entity.ReversePayoutParams
+}
+
+func (p *storyPayouts) CreatePayout(_ context.Context, params entity.PayoutParams) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.payouts = append(p.payouts, params)
+	return "tr_" + string(params.SettlementID), nil
+}
+
+func (p *storyPayouts) ReversePayout(_ context.Context, params entity.ReversePayoutParams) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reversals = append(p.reversals, params)
+	return "trr_" + params.ProviderPayoutID, nil
+}
+
+func (p *storyPayouts) GetStatus(context.Context, string) (entity.PayoutOnboardingStatus, error) {
+	return entity.PayoutOnboardingStatusActive, nil
 }
 
 // noStoryMetrics records nothing.
@@ -78,6 +105,7 @@ type cancelledConcertStory struct {
 
 	mailer   *storyMailer
 	refunder *storyRefunder
+	payouts  *storyPayouts
 	refunds  usecase.OrderUseCase
 	consumer *event.CancellationNoticeConsumer
 	client   *workflow.Client
@@ -92,10 +120,11 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 	s := &cancelledConcertStory{db: db, t: t, ctx: context.Background()}
 	f := seedStock(t, db, entity.TicketSaleMethodLottery, 10, 4)
 	s.eventID = f.EventID
+	// The payout sweep needs a start time: 19:00 JST on 1 March 2027.
+	setEventStartInstant(t, db, s.eventID, time.Date(2027, 3, 1, 10, 0, 0, 0, time.UTC))
 	require.NoError(t, db.Pool.QueryRow(s.ctx,
 		`SELECT s.id, s.organizer_id FROM events e JOIN series s ON s.id = e.series_id WHERE e.id = $1`, s.eventID).
 		Scan(&s.seriesID, &s.organizerID))
-	organizerID := seedOrganizer(t, db)
 	for range 2 {
 		fan := seedFanUser(t, db)
 		tickets := seedIssuedTicketsOf(t, db, f, fan, 2)
@@ -107,9 +136,9 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 		settlementID := entity.NewID()
 		_, err = db.Pool.Exec(s.ctx, `
 			INSERT INTO settlements (id, order_id, organizer_id, event_id, status, create_time) VALUES ($1, $2, $3, $4, 1, $5)`,
-			settlementID, orderID, organizerID, s.eventID, issuedTicketsTime)
+			settlementID, orderID, s.organizerID, s.eventID, issuedTicketsTime)
 		require.NoError(t, err)
-		insertSettlementSplit(t, db, entity.SettlementID(settlementID), organizerID, 5400)
+		insertSettlementSplit(t, db, entity.SettlementID(settlementID), s.organizerID, 5400)
 		s.orders = append(s.orders, entity.OrderID(orderID))
 		s.fans = append(s.fans, fan)
 		s.emails = append(s.emails, email)
@@ -159,6 +188,12 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 
 	// The event consumer only starts the notices.
 	s.consumer = event.NewCancellationNoticeConsumer(notifications(s.client), logger)
+	s.payouts = &storyPayouts{}
+	require.NoError(t, rdb.NewPayoutAccountRepository(db).Upsert(s.ctx, &entity.PayoutAccount{
+		OrganizerID:       s.organizerID,
+		ProviderAccountID: "acct_story",
+		Status:            entity.PayoutOnboardingStatusActive,
+	}))
 	// The admin API refunds through the in-memory refunder.
 	s.refunds = usecase.NewOrderUseCase(usecase.OrderDeps{
 		OrderRepo:  s.refunder,
@@ -166,7 +201,7 @@ func newCancelledConcertStory(t *testing.T, db *rdb.Database) *cancelledConcertS
 		EventRepo:  rdb.NewEventRepository(db),
 		RefundRepo: rdb.NewRefundRepository(db, testOutbox),
 		// Held Settlements are reversed without a payout to claw back.
-		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payment.NewNoopSettlementPayouts(logger)),
+		SettlementRepo: repository.NewSettlementRepository(rdb.NewSettlementRepository(db), s.payouts),
 		Clock:          time.Now,
 		Logger:         logger,
 	})
@@ -223,6 +258,40 @@ func (s *cancelledConcertStory) refundAll() {
 		require.NoError(s.t, err)
 	}
 	s.deliver(entity.SubjectOrderRefunded, s.consumer.HandleOrderRefunded, usecase.WorkflowNotifyOrderRefunded+":", entity.NotificationTypeOrderRefunded)
+}
+
+// releaseDue runs the payout sweep, wired as the worker wires it, 8 days after
+// the event's start.
+func (s *cancelledConcertStory) releaseDue() {
+	s.t.Helper()
+	logger, err := logging.New()
+	require.NoError(s.t, err)
+	starts := rdb.NewEventStartTimeRepository(s.db)
+	start, err := starts.GetEventStartTime(s.ctx, s.eventID)
+	require.NoError(s.t, err)
+	instant, ok := start.Instant()
+	require.True(s.t, ok, "the event has a start time")
+	sweep := usecase.NewSettlementUseCase(
+		repository.NewSettlementRepository(rdb.NewSettlementRepository(s.db), s.payouts),
+		s.refunder,
+		repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(s.db), s.payouts),
+		rdb.NewEventRepository(s.db),
+		starts,
+		7*24*time.Hour,
+		func() time.Time { return instant.Add(8 * 24 * time.Hour) },
+		logger,
+	)
+	require.NoError(s.t, sweep.ReleaseDueSettlements(s.ctx))
+}
+
+// settlementStatuses returns the status of each Order's Settlement.
+func (s *cancelledConcertStory) settlementStatuses() []entity.SettlementStatus {
+	s.t.Helper()
+	statuses := make([]entity.SettlementStatus, len(s.orders))
+	for i, o := range s.orders {
+		require.NoError(s.t, s.db.Pool.QueryRow(s.ctx, `SELECT status FROM settlements WHERE order_id = $1`, string(o)).Scan(&statuses[i]))
+	}
+	return statuses
 }
 
 // emailsTo returns the subjects and bodies of the emails sent to the fan i.
@@ -332,4 +401,37 @@ func TestCancelledConcertStory_DeletedDuringTheWindow(t *testing.T) {
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM series WHERE id = $1`, s.seriesID), "the Series no longer exists")
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM lottery_entries WHERE id = $1`, string(entry.ID)), "the entry no longer exists")
 	assert.False(t, rowExists(t, db, `SELECT 1 FROM orders WHERE id = $1`, string(entry.OrderID)), "its Void Order no longer exists")
+}
+
+func TestCancelledConcertStory_ReleaseDatePassesBeforeTheRefunds(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	// @spec stories/remove-a-cancelled-concert "Release date passes before the refunds"
+	s := newCancelledConcertStory(t, db)
+	s.cancel()
+
+	s.releaseDue()
+
+	assert.Empty(t, s.payouts.payouts, "nothing is paid to the Organizer")
+	assert.Equal(t, []entity.SettlementStatus{entity.SettlementStatusHeld, entity.SettlementStatusHeld}, s.settlementStatuses())
+}
+
+func TestCancelledConcertStory_RefundedAfterTheReleaseDate(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	// @spec stories/remove-a-cancelled-concert "Refunded after the release date"
+	s := newCancelledConcertStory(t, db)
+	s.cancel()
+	s.releaseDue()
+
+	s.refundAll()
+
+	for _, o := range s.orders {
+		got, err := s.refunder.Get(s.ctx, o)
+		require.NoError(t, err)
+		assert.Equal(t, entity.OrderStatusRefunded, got.Status)
+	}
+	assert.Equal(t, []entity.SettlementStatus{entity.SettlementStatusReversed, entity.SettlementStatusReversed}, s.settlementStatuses())
+	assert.Empty(t, s.payouts.payouts, "no payout was made")
+	assert.Empty(t, s.payouts.reversals, "no payout was reversed")
 }
