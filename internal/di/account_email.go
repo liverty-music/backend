@@ -33,6 +33,16 @@ func newEmailVerifier(cfg *config.AccountEmailConfig, logger *logging.Logger) (e
 		cfg.Postmark.ServerToken, cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
+// newIdentityRemover returns the identity service's client that removes a
+// fan's sign-in identity. Without the identity service (local development) it
+// is nil, and a removal fails.
+func newIdentityRemover(cfg *config.AccountEmailConfig) entity.IdentityRemover {
+	if cfg.IdentityServiceURL == "" {
+		return nil
+	}
+	return identity.NewUserClient(cfg.IdentityServiceURL)
+}
+
 // newPasskeyRegistrationLinkSender returns the sender of passkey recovery
 // links, whose link the identity service issues, or nil without
 // IDENTITY_SERVICE_URL (local development). Without a Postmark token (local

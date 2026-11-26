@@ -329,29 +329,38 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 	}
 
 	// @spec components/infrastructure/backend/process/identity-provider-credentials "Admin deletes a fan"
-	t.Run("the admin console API's fan deletion asks the identity service to delete the identity", func(t *testing.T) {
+	t.Run("the workflow worker's removal of a fan asks the identity service to delete the identity", func(t *testing.T) {
 		t.Parallel()
 		f := &fakeIdentityService{}
 		users := mocks.NewMockUserRepository(t)
 		users.EXPECT().Get(mock.Anything, fan.ID).Return(fan, nil)
 		users.EXPECT().SerializeDeletion(mock.Anything, fan.ID, mock.Anything).
-			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Once()
+			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Twice()
 		users.EXPECT().Delete(mock.Anything, fan.ID).Return(nil).Once()
 		tickets := mocks.NewMockTicketRepository(t)
-		tickets.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		tickets.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
 		listings := mocks.NewMockResaleListingRepository(t)
-		listings.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		listings.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
 		entries := mocks.NewMockLotteryEntryRepository(t)
-		entries.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		entries.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
 		checkouts := mocks.NewMockCheckoutRepository(t)
-		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Once()
+		checkouts.EXPECT().ListByUser(mock.Anything, entity.UserID(fan.ID)).Return(nil, nil).Twice()
 		client := identity.NewUserClient(startIdentityService(t, f))
 		uc := usecase.NewUserUseCase(users, nil, usecase.DeletionBlockerReads{
 			Tickets: tickets, ResaleListings: listings, LotteryEntries: entries, Checkouts: checkouts, Now: time.Now,
 		}, nil, nil, nil, client, usecase.PasskeyMailers{}, time.Now, logger)
 
-		require.NoError(t, uc.Delete(ctx, fan.ID))
+		_, err := uc.RunDeleteUser(ctx, inlineSteps{}, usecase.UserRequest{UserID: fan.ID})
+		require.NoError(t, err)
 
 		assert.Equal(t, []string{"DeleteIdentity zitadel-fan-1"}, f.recorded())
 	})
+}
+
+// inlineSteps runs a workflow's steps at once, as a first run does; the
+// removal uses no other part of a Flow.
+type inlineSteps struct{ usecase.Flow }
+
+func (inlineSteps) Step(ctx context.Context, _ string, fn func(context.Context) ([]byte, error)) ([]byte, error) {
+	return fn(ctx)
 }

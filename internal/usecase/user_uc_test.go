@@ -24,6 +24,7 @@ import (
 var userTestNow = time.Date(2026, 10, 27, 12, 0, 0, 0, time.FixedZone("Asia/Tokyo", 9*60*60))
 
 type userTestDeps struct {
+	workflows       *ucmocks.MockWorkflows
 	repo            *mocks.MockUserRepository
 	ticketRepo      *mocks.MockTicketRepository
 	eventRepo       *mocks.MockEventRepository
@@ -69,6 +70,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		emailVerifier:   mocks.NewMockEmailVerifier(t),
 		emailCodes:      mocks.NewMockEmailCodeVerifier(t),
 		identityRemover: mocks.NewMockIdentityRemover(t),
+		workflows:       ucmocks.NewMockWorkflows(t),
 		areas:           mocks.NewMockAreaRepository(t),
 	}
 	d.areas.EXPECT().Resolve(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(resolveArea).Maybe()
@@ -80,7 +82,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 		Checkouts:      d.checkoutRepo,
 		Orders:         d.orderRepo,
 		Now:            func() time.Time { return userTestNow },
-	}, ucmocks.NewMockWorkflows(t), d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
+	}, d.workflows, d.emailVerifier, d.emailCodes, d.identityRemover, usecase.PasskeyMailers{}, time.Now, newTestLogger(t))
 	return d
 }
 
@@ -1176,25 +1178,25 @@ type deletionReads struct {
 }
 
 // expect makes the read mocks return r for the deletion test user.
-func (r deletionReads) expect(ctx context.Context, d *userTestDeps) {
+func (r deletionReads) expect(ctx context.Context, d *userTestDeps, times int) {
 	uid := entity.UserID(deletionTestUser.ID)
-	d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(r.tickets, nil).Once()
+	d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(r.tickets, nil).Times(times)
 	for _, e := range r.events {
-		d.eventRepo.EXPECT().Get(ctx, e.ID).Return(e, nil).Once()
+		d.eventRepo.EXPECT().Get(ctx, e.ID).Return(e, nil).Times(times)
 	}
-	d.listingRepo.EXPECT().ListByUser(ctx, uid).Return(r.listings, nil).Once()
-	d.entryRepo.EXPECT().ListByUser(ctx, uid).Return(r.entries, nil).Once()
+	d.listingRepo.EXPECT().ListByUser(ctx, uid).Return(r.listings, nil).Times(times)
+	d.entryRepo.EXPECT().ListByUser(ctx, uid).Return(r.entries, nil).Times(times)
 	for _, e := range r.entries {
 		if e.State != entity.LotteryEntryStateWon {
 			continue
 		}
 		if slices.Contains(r.issued, e.ID) {
-			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(&entity.Order{ID: entity.OrderID("o-" + string(e.ID)), LotteryEntryID: e.ID}, nil).Once()
+			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(&entity.Order{ID: entity.OrderID("o-" + string(e.ID)), LotteryEntryID: e.ID}, nil).Times(times)
 		} else {
-			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(nil, apperr.New(codes.NotFound, "no order")).Once()
+			d.orderRepo.EXPECT().GetByLotteryEntryID(ctx, e.ID).Return(nil, apperr.New(codes.NotFound, "no order")).Times(times)
 		}
 	}
-	d.checkoutRepo.EXPECT().ListByUser(ctx, uid).Return(r.checkouts, nil).Once()
+	d.checkoutRepo.EXPECT().ListByUser(ctx, uid).Return(r.checkouts, nil).Times(times)
 }
 
 // issuedTicketFor returns an Issued ticket of the deletion test user for the
@@ -1361,7 +1363,7 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 			t.Parallel()
 			d := newUserTestDeps(t)
 			d.repo.EXPECT().Get(ctx, userID).Return(deletionTestUser, nil).Once()
-			tt.reads.expect(ctx, d)
+			tt.reads.expect(ctx, d, 1)
 
 			got, err := d.uc.ListDeletionBlockers(ctx, userID)
 
@@ -1390,168 +1392,6 @@ func TestUserUseCase_ListDeletionBlockers(t *testing.T) {
 		_, err := d.uc.ListDeletionBlockers(ctx, userID)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-	})
-}
-
-func TestUserUseCase_Delete(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	userID := deletionTestUser.ID
-	// serialized runs the deletion under the mocked lock, so the checks and
-	// removals inside it are what the test sees.
-	serialized := func(d *userTestDeps) {
-		d.repo.EXPECT().SerializeDeletion(ctx, userID, mock.Anything).
-			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Once()
-	}
-	// getUser expects the User to be read before the lock and inside
-	// ListDeletionBlockers.
-	getUser := func(d *userTestDeps) {
-		d.repo.EXPECT().Get(ctx, userID).Return(deletionTestUser, nil).Twice()
-	}
-	// removed expects the identity and then the record to be removed.
-	removed := func(d *userTestDeps) {
-		identity := d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Once()
-		d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once().NotBefore(identity)
-	}
-
-	tests := []struct {
-		name    string
-		reads   *deletionReads
-		setup   func(d *userTestDeps)
-		wantErr error
-	}{
-		{
-			// @spec components/usecase/user/delete "Existing user"
-			name:  "removes the identity and then the user",
-			reads: &deletionReads{},
-			setup: removed,
-		},
-		{
-			// @spec components/usecase/user/delete "User holding a ticket"
-			name: "refuses a user holding an issued ticket for an upcoming event and removes nothing",
-			reads: &deletionReads{
-				tickets: []*entity.Ticket{issuedTicketFor("t1", "e1")},
-				events:  []*entity.Event{eventOn("e1", 0)},
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/user/delete "User whose concerts are over"
-			name: "removes a user whose only ticket is for a past event",
-			reads: &deletionReads{
-				tickets: []*entity.Ticket{issuedTicketFor("t1", "e1")},
-				events:  []*entity.Event{eventOn("e1", -1)},
-			},
-			setup: removed,
-		},
-		{
-			// @spec components/usecase/user/delete "User with a listed resale"
-			name: "refuses a user with a listed resale",
-			reads: &deletionReads{
-				events:   []*entity.Event{eventStartingIn("e1", 7*24*time.Hour)},
-				listings: []*entity.ResaleListing{listedFor("l1", "e1")},
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/user/delete "User with an entry awaiting its draw"
-			name:    "refuses a user with an entered lottery entry",
-			reads:   &deletionReads{entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateEntered}}},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/user/delete "User paying for tickets"
-			name:    "refuses a user with a committed checkout",
-			reads:   &deletionReads{checkouts: []*entity.Checkout{{ID: "c1", Status: entity.CheckoutStatusCommitted}}},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/user/delete "User whose win is being charged"
-			name:    "refuses a user with a won entry that has no order yet",
-			reads:   &deletionReads{entries: []*entity.LotteryEntry{{ID: "le1", State: entity.LotteryEntryStateWon}}},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/user/delete "User with a resold listing awaiting its refund"
-			// The listing is Sold and has no refund time: the user is removed.
-			// That the refund runs without the user is covered where it runs:
-			// ResaleListingUseCase.RefundSold reads no User (TestResaleListingUseCase_RefundSold),
-			// and SendResaleSold skips the email of a deleted user (the "listing's user deleted" test).
-			name: "removes a user whose only resale listing is sold and not refunded yet",
-			reads: &deletionReads{
-				listings: []*entity.ResaleListing{{ID: "l1", EventID: "e1", Status: entity.ResaleListingStatusSold}},
-			},
-			setup: removed,
-		},
-		{
-			// @spec components/usecase/user/delete "User with only refunded purchases"
-			name: "removes a user whose only ticket is voided",
-			reads: &deletionReads{
-				tickets: []*entity.Ticket{{ID: "t1", EventID: "e1", Status: entity.TicketStatusVoided}},
-			},
-			setup: removed,
-		},
-		{
-			name:  "keeps the user record when the identity cannot be removed",
-			reads: &deletionReads{},
-			setup: func(d *userTestDeps) {
-				d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").
-					Return(apperr.New(codes.Internal, "delete zitadel user")).Once()
-			},
-			wantErr: apperr.ErrInternal,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := newUserTestDeps(t)
-			getUser(d)
-			serialized(d)
-			tt.reads.expect(ctx, d)
-			if tt.setup != nil {
-				tt.setup(d)
-			}
-
-			err := d.uc.Delete(ctx, userID)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
-
-	// @spec components/usecase/user/delete "Unknown user"
-	t.Run("returns NotFound for an unknown user", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-		d.repo.EXPECT().Get(ctx, userID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
-
-		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrNotFound)
-	})
-
-	// @spec components/usecase/user/delete "Retry after the record failed"
-	t.Run("a second call removes the user after the record removal failed", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-		d.repo.EXPECT().Get(ctx, userID).Return(deletionTestUser, nil).Times(4)
-		d.repo.EXPECT().SerializeDeletion(ctx, userID, mock.Anything).
-			RunAndReturn(func(ctx context.Context, _ string, fn func(context.Context) error) error { return fn(ctx) }).Twice()
-		uid := entity.UserID(userID)
-		d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
-		d.listingRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
-		d.entryRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
-		d.checkoutRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
-		// The identity is already gone on the retry, which DeleteIdentity
-		// reports as success.
-		d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Twice()
-		d.repo.EXPECT().Delete(ctx, userID).Return(apperr.New(codes.Unavailable, "db down")).Once()
-		d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once()
-
-		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrUnavailable)
-		assert.NoError(t, d.uc.Delete(ctx, userID))
 	})
 }
 

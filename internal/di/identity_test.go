@@ -54,7 +54,7 @@ func TestInitializeIdentityApp_StartsWithoutDatabaseWhileIdentityProviderIsUnrea
 	assert.Equal(t, grpchealth.StatusNotServing, readiness(t, app.Health, ""), "not ready before the listeners are bound")
 	app.Health.SetReady()
 
-	srv := httptest.NewServer(app.EventConsumerServer.Handler())
+	srv := httptest.NewServer(app.WorkflowWorkerServer.Handler())
 	t.Cleanup(srv.Close)
 	client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL)))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -93,20 +93,22 @@ func TestIdentityListeners(t *testing.T) {
 	userID := &entityv1.User_ProviderUserId{Value: "zitadel-user-1"}
 
 	// @spec components/infrastructure/backend/process/identity-provider-credentials "Operation outside the caller's set"
-	t.Run("the event consumer listener refuses DeleteIdentity and removes nothing", func(t *testing.T) {
+	t.Run("the fan API and admin console API listeners refuse DeleteIdentity and remove nothing", func(t *testing.T) {
 		t.Parallel()
-		ir := mocks.NewMockIdentityRemover(t) // no expectation: a call fails the test
-		ts := identityListener(t, di.EventConsumerProcedures, ucmocks.NewMockEmailVerificationCodes(t), ir, ucmocks.NewMockIdentityOrganizations(t))
-		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+		for _, allowed := range [][]string{di.FanAPIProcedures, di.AdminConsoleAPIProcedures} {
+			ir := mocks.NewMockIdentityRemover(t) // no expectation: a call fails the test
+			ts := identityListener(t, allowed, ucmocks.NewMockEmailVerificationCodes(t), ir, ucmocks.NewMockIdentityOrganizations(t))
+			client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
-		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
+			_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
 
-		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+		}
 	})
 
-	t.Run("the event consumer listener refuses every Organization procedure", func(t *testing.T) {
+	t.Run("the workflow worker listener refuses every Organization procedure", func(t *testing.T) {
 		t.Parallel()
-		ts := identityListener(t, di.EventConsumerProcedures, ucmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
+		ts := identityListener(t, di.WorkflowWorkerProcedures, ucmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
 		client := backendorganizationv1connect.NewOrganizationServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.Delete(context.Background(), &backendorganizationv1.DeleteRequest{
@@ -116,11 +118,11 @@ func TestIdentityListeners(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 
-	t.Run("the event consumer listener serves ResendEmailVerification", func(t *testing.T) {
+	t.Run("the workflow worker listener serves ResendEmailVerification", func(t *testing.T) {
 		t.Parallel()
 		ev := ucmocks.NewMockEmailVerificationCodes(t)
 		ev.EXPECT().IssueEmailVerificationCode(mock.Anything, "zitadel-user-1").Return("fan@example.com", "ABC123", nil).Once()
-		ts := identityListener(t, di.EventConsumerProcedures, ev, mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
+		ts := identityListener(t, di.WorkflowWorkerProcedures, ev, mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		resp, err := client.ResendEmailVerification(context.Background(), &backenduserv1.ResendEmailVerificationRequest{ProviderUserId: userID})
@@ -149,19 +151,6 @@ func TestIdentityListeners(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 
-	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan deletes their account"
-	t.Run("the fan API listener serves DeleteIdentity", func(t *testing.T) {
-		t.Parallel()
-		ir := mocks.NewMockIdentityRemover(t)
-		ir.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
-		ts := identityListener(t, di.FanAPIProcedures, ucmocks.NewMockEmailVerificationCodes(t), ir, ucmocks.NewMockIdentityOrganizations(t))
-		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
-
-		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
-
-		assert.NoError(t, err)
-	})
-
 	t.Run("the fan API listener serves VerifyEmail", func(t *testing.T) {
 		t.Parallel()
 		ev := ucmocks.NewMockEmailVerificationCodes(t)
@@ -177,9 +166,9 @@ func TestIdentityListeners(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("the event consumer listener refuses VerifyEmail", func(t *testing.T) {
+	t.Run("the workflow worker listener refuses VerifyEmail", func(t *testing.T) {
 		t.Parallel()
-		ts := identityListener(t, di.EventConsumerProcedures, ucmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
+		ts := identityListener(t, di.WorkflowWorkerProcedures, ucmocks.NewMockEmailVerificationCodes(t), mocks.NewMockIdentityRemover(t), ucmocks.NewMockIdentityOrganizations(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.VerifyEmail(context.Background(), &backenduserv1.VerifyEmailRequest{
@@ -200,11 +189,13 @@ func TestIdentityListeners(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 
-	t.Run("the admin console API listener serves DeleteIdentity", func(t *testing.T) {
+	// @spec components/infrastructure/backend/process/identity-provider-credentials "Fan deletes their account"
+	// @spec components/infrastructure/backend/process/identity-provider-credentials "Admin deletes a fan"
+	t.Run("the workflow worker listener serves DeleteIdentity", func(t *testing.T) {
 		t.Parallel()
 		ir := mocks.NewMockIdentityRemover(t)
 		ir.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
-		ts := identityListener(t, di.AdminConsoleAPIProcedures, ucmocks.NewMockEmailVerificationCodes(t), ir, ucmocks.NewMockIdentityOrganizations(t))
+		ts := identityListener(t, di.WorkflowWorkerProcedures, ucmocks.NewMockEmailVerificationCodes(t), ir, ucmocks.NewMockIdentityOrganizations(t))
 		client := backenduserv1connect.NewUserServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
 
 		_, err := client.DeleteIdentity(context.Background(), &backenduserv1.DeleteIdentityRequest{ProviderUserId: userID})
