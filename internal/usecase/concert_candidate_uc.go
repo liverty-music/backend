@@ -213,6 +213,38 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 	return insertedIDs, nil
 }
 
+// dropSkippedTimes returns the candidate without a start or open time that
+// does not exist on its date at the Venue it is approved at, because the
+// clocks skip it there: such a discovered time is unknown. The zone the
+// candidate was discovered with may be missing or another one, so this is
+// checked once the Venue is decided.
+func (uc *concertCandidateUseCase) dropSkippedTimes(ctx context.Context, sc *entity.ConcertCandidate, venueID string) (*entity.ConcertCandidate, error) {
+	if sc.StartTime == nil && sc.OpenTime == nil {
+		return sc, nil
+	}
+	venue, err := uc.venueRepo.Get(ctx, venueID)
+	if err != nil {
+		return nil, fmt.Errorf("get venue %s: %w", venueID, err)
+	}
+	loc := venue.Location()
+	if loc == nil {
+		return sc, nil
+	}
+	kept := *sc
+	for _, t := range []**entity.TimeOfDay{&kept.StartTime, &kept.OpenTime} {
+		if *t == nil {
+			continue
+		}
+		if _, err := entity.LocalInstant(kept.LocalDate, **t, loc); err != nil {
+			uc.logger.Warn(ctx, "approve: a time does not exist at the venue, publishing it as unknown",
+				slog.String("concert_candidate_id", kept.ID), slog.String("time", (*t).String()),
+				slog.String("time_zone", loc.String()))
+			*t = nil
+		}
+	}
+	return &kept, nil
+}
+
 // Approve promotes a pending concert candidate to a published event, reconciling a
 // duplicate existing event per the resolution when one is detected.
 func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, area, timeZone *string, reviewerID string) (*ApproveResult, error) {
@@ -237,6 +269,11 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 	venueID, err := findOrCreateVenue(ctx, spec, uc.venueRepo, uc.logger)
 	if err != nil {
 		return nil, fmt.Errorf("resolve or create venue for concert candidate %q: %w", concertCandidateID, err)
+	}
+
+	sc, err = uc.dropSkippedTimes(ctx, sc, venueID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for

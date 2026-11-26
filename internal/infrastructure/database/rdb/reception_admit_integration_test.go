@@ -86,9 +86,9 @@ func connectAsReceptionRole(t *testing.T, db *rdb.Database) *rdb.Database {
 	// read of venues; the rest of that migration changes the schema.
 	wallClock, err := os.ReadFile(wallClockMigration)
 	require.NoError(t, err)
-	_, grantBlock, found := strings.Cut(string(wallClock), "\nDO $$")
-	require.True(t, found, "the wall-clock migration ends with its grant block")
-	_, err = db.Pool.Exec(ctx, "DO $$"+grantBlock)
+	last := strings.LastIndex(string(wallClock), "\nDO $$")
+	require.GreaterOrEqual(t, last, 0, "the wall-clock migration ends with its grant block")
+	_, err = db.Pool.Exec(ctx, string(wallClock)[last:])
 	require.NoError(t, err)
 	outboxGrant, err := os.ReadFile(outboxGrantMigration)
 	require.NoError(t, err)

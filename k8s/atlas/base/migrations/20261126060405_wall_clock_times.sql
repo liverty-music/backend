@@ -28,6 +28,20 @@ ALTER TABLE ticket_sales
   ADD COLUMN local_start_time timestamp NULL,
   ADD COLUMN local_end_time timestamp NULL;
 
+-- An Event's times are read on its local date, so an instant that falls on
+-- another date at its Venue cannot be carried over: stop rather than move it.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM events AS e JOIN venues AS v ON v.id = e.venue_id
+    WHERE (e.start_time AT TIME ZONE v.time_zone)::date <> e.local_event_date
+       OR (e.open_time AT TIME ZONE v.time_zone)::date <> e.local_event_date
+  ) THEN
+    RAISE EXCEPTION 'an event starts or opens on another date than its local_event_date';
+  END IF;
+END
+$$;
+
 -- An Event is read in its Venue's time zone.
 UPDATE events AS e SET
   local_start_time = date_trunc('minute', e.start_time AT TIME ZONE v.time_zone)::time,
@@ -35,14 +49,37 @@ UPDATE events AS e SET
 FROM venues AS v
 WHERE v.id = e.venue_id;
 
--- A candidate and a rejected concert are read in their own zone, Japan time
--- where they have none (every instant stored before this was read in it).
+-- A candidate and a rejected concert are read in their own zone, or in Japan
+-- time when they have none and are in Japan or in no known area. Elsewhere
+-- without a zone the clock the source stated cannot be told from the instant,
+-- and neither can a time that falls on another date than local_date: those
+-- times stay unknown.
 UPDATE concert_candidates AS c SET
-  local_start_time = date_trunc('minute', c.start_time AT TIME ZONE COALESCE((SELECT z.name FROM time_zones AS z WHERE z.name = c.time_zone), 'Asia/Tokyo'))::time,
-  local_open_time = date_trunc('minute', c.open_time AT TIME ZONE COALESCE((SELECT z.name FROM time_zones AS z WHERE z.name = c.time_zone), 'Asia/Tokyo'))::time;
+  local_start_time = CASE WHEN (c.start_time AT TIME ZONE z.zone)::date = c.local_date
+    THEN date_trunc('minute', c.start_time AT TIME ZONE z.zone)::time END,
+  local_open_time = CASE WHEN (c.open_time AT TIME ZONE z.zone)::date = c.local_date
+    THEN date_trunc('minute', c.open_time AT TIME ZONE z.zone)::time END
+FROM (
+  SELECT x.id, COALESCE(
+    (SELECT t.name FROM time_zones AS t WHERE t.name = x.time_zone),
+    CASE WHEN x.admin_area IS NULL OR x.admin_area LIKE 'JP-%' THEN 'Asia/Tokyo' END
+  ) AS zone
+  FROM concert_candidates AS x
+) AS z
+WHERE z.id = c.id AND z.zone IS NOT NULL;
 UPDATE rejected_concerts AS c SET
-  local_start_time = date_trunc('minute', c.start_time AT TIME ZONE COALESCE((SELECT z.name FROM time_zones AS z WHERE z.name = c.time_zone), 'Asia/Tokyo'))::time,
-  local_open_time = date_trunc('minute', c.open_time AT TIME ZONE COALESCE((SELECT z.name FROM time_zones AS z WHERE z.name = c.time_zone), 'Asia/Tokyo'))::time;
+  local_start_time = CASE WHEN (c.start_time AT TIME ZONE z.zone)::date = c.local_date
+    THEN date_trunc('minute', c.start_time AT TIME ZONE z.zone)::time END,
+  local_open_time = CASE WHEN (c.open_time AT TIME ZONE z.zone)::date = c.local_date
+    THEN date_trunc('minute', c.open_time AT TIME ZONE z.zone)::time END
+FROM (
+  SELECT x.id, COALESCE(
+    (SELECT t.name FROM time_zones AS t WHERE t.name = x.time_zone),
+    CASE WHEN x.admin_area IS NULL OR x.admin_area LIKE 'JP-%' THEN 'Asia/Tokyo' END
+  ) AS zone
+  FROM rejected_concerts AS x
+) AS z
+WHERE z.id = c.id AND z.zone IS NOT NULL;
 
 -- A sale's zone is the zone its events' Venues share (the Events its series
 -- has, for a discovered sale), Japan time when they differ or there are none.

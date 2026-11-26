@@ -32,6 +32,10 @@ func TestSaleInstantSQL(t *testing.T) {
 		{"Antarctica/Troll", "2026-10-25 01:30"},
 		{"Antarctica/Troll", "2026-10-25 02:30"},
 		{"Antarctica/Troll", "2026-10-25 03:30"},
+		// Times the clocks skip, which only a later change of a zone's rules
+		// can leave stored.
+		{"America/New_York", "2027-03-14 02:30"},
+		{"Australia/Lord_Howe", "2026-10-04 02:15"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.zone+" "+tt.civil, func(t *testing.T) {
@@ -39,8 +43,7 @@ func TestSaleInstantSQL(t *testing.T) {
 			require.NoError(t, err)
 			loc, err := entity.LoadZone(tt.zone)
 			require.NoError(t, err)
-			want, err := entity.LocalDateTimeInstant(civil, loc)
-			require.NoError(t, err)
+			want := rdb.SaleInstant(civil, loc)
 
 			var got time.Time
 			query := `SELECT ` + rdb.SaleEndInstantSQL + ` FROM (SELECT $1::text::timestamp AS local_end_time, $2::text AS time_zone) AS ts`

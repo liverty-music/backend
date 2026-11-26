@@ -32,17 +32,15 @@ func NewTimeOfDay(hour, minute int) (TimeOfDay, error) {
 // JSON input carries.
 func (t TimeOfDay) MarshalText() ([]byte, error) { return []byte(t.String()), nil }
 
-// UnmarshalText implements encoding.TextUnmarshaler for HH:MM.
+// UnmarshalText implements encoding.TextUnmarshaler for HH:MM on a 24-hour
+// clock. Anything else, such as "7:00 PM" or a time with seconds, fails with
+// InvalidArgument.
 func (t *TimeOfDay) UnmarshalText(text []byte) error {
-	var h, m int
-	if _, err := fmt.Sscanf(string(text), "%d:%d", &h, &m); err != nil {
+	parsed, err := time.Parse("15:04", string(text))
+	if err != nil {
 		return apperr.New(codes.InvalidArgument, fmt.Sprintf("%q is not a time of day", text))
 	}
-	got, err := NewTimeOfDay(h, m)
-	if err != nil {
-		return err
-	}
-	*t = got
+	*t = TimeOfDayOf(parsed)
 	return nil
 }
 

@@ -76,7 +76,12 @@ func SaleTimeFromProto(p *datetime.DateTime) (instant time.Time, zone string, er
 	if p.GetSeconds() != 0 || p.GetNanos() != 0 {
 		return time.Time{}, "", apperr.New(codes.InvalidArgument, "a sale time must be in whole minutes")
 	}
-	civil := time.Date(int(p.GetYear()), time.Month(p.GetMonth()), int(p.GetDay()), int(p.GetHours()), int(p.GetMinutes()), 0, 0, time.UTC)
+	// time.Date would carry an hour or minute out of range into another time.
+	tod, err := entity.NewTimeOfDay(int(p.GetHours()), int(p.GetMinutes()))
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	civil := time.Date(int(p.GetYear()), time.Month(p.GetMonth()), int(p.GetDay()), tod.Hour, tod.Minute, 0, 0, time.UTC)
 	if civil.Year() != int(p.GetYear()) || civil.Month() != time.Month(p.GetMonth()) || civil.Day() != int(p.GetDay()) {
 		return time.Time{}, "", apperr.New(codes.InvalidArgument, "a sale time must be a date that exists")
 	}

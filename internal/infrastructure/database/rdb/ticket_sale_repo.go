@@ -465,15 +465,8 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The window is announced as wall-clock times, so a time the clocks skip
-	// cannot be stored; if the zone's rules changed since, the instant moves
-	// to the first minute the clocks show after the gap.
-	if s.SaleStartTime, err = saleInstant(localStart, loc); err != nil {
-		return nil, err
-	}
-	if s.SaleEndTime, err = saleInstant(localEnd, loc); err != nil {
-		return nil, err
-	}
+	s.SaleStartTime = saleInstant(localStart, loc)
+	s.SaleEndTime = saleInstant(localEnd, loc)
 	s.ID = entity.TicketSaleID(id)
 	s.Method = entity.TicketSaleMethod(method)
 	s.VerificationRequirement = entity.VerificationRequirement(verifReq)

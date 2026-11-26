@@ -69,13 +69,12 @@ func eventStartInstant(localDate time.Time, startText *string, zone string) (*ti
 
 // saleInstant returns the instant of a stored wall-clock sale time in loc. A
 // time the zone's rules have since made nonexistent (its clocks now skip it)
-// moves forward to the first minute that exists.
-func saleInstant(civil time.Time, loc *time.Location) (time.Time, error) {
-	for i := range 6 {
-		instant, err := entity.LocalDateTimeInstant(civil.Add(time.Duration(i)*30*time.Minute), loc)
-		if err == nil {
-			return instant, nil
-		}
+// is read with the offset in force before the change, so it lands as far after
+// the gap as it was written into it, which is also how PostgreSQL reads it.
+func saleInstant(civil time.Time, loc *time.Location) time.Time {
+	if instant, err := entity.LocalDateTimeInstant(civil, loc); err == nil {
+		return instant
 	}
-	return time.Time{}, fmt.Errorf("sale time %s does not exist in %s", civil.Format("2006-01-02 15:04"), loc)
+	_, offset := civil.Add(-24 * time.Hour).In(loc).Zone()
+	return civil.Add(-time.Duration(offset) * time.Second)
 }

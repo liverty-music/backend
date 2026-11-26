@@ -70,10 +70,17 @@ func TestMigration_WallClockTimes(t *testing.T) {
 	candidateArtist := id(740)
 	mustExec(`INSERT INTO artists (id, name, mbid) VALUES ($1, 'Artist', '00000000-0000-0000-0000-000000000009')`, candidateArtist)
 	candidateSeoul, candidateNoZone := id(741), id(742)
+	candidateAbroad, candidateNextDay := id(744), id(745)
 	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, start_time, open_time, listed_venue_name, time_zone)
 		VALUES ($1, $2, $3, 'T', '2027-01-20', '2027-01-20T10:00:00Z', NULL, 'KSPO Dome', 'Asia/Seoul')`, candidateSeoul, candidateArtist, series)
 	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, start_time, open_time, listed_venue_name)
 		VALUES ($1, $2, $3, 'T', '2027-01-21', '2027-01-21T09:00:00Z', NULL, 'Hall')`, candidateNoZone, candidateArtist, series)
+	// A candidate abroad without a zone, and one in Japan whose instant falls
+	// on the day after its date: their times cannot be told.
+	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, start_time, listed_venue_name, admin_area)
+		VALUES ($1, $2, $3, 'T', '2027-01-22', '2027-01-22T09:00:00Z', 'Legacy Taipei', 'TW-TPE')`, candidateAbroad, candidateArtist, series)
+	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, start_time, listed_venue_name, admin_area)
+		VALUES ($1, $2, $3, 'T', '2027-01-23', '2027-01-23T18:00:00Z', 'Hall', 'JP-13')`, candidateNextDay, candidateArtist, series)
 	rejected := id(743)
 	mustExec(`INSERT INTO rejected_concerts (id, artist_id, artist_name, title, local_date, start_time, listed_venue_name, time_zone, reason)
 		VALUES ($1, $2, 'Artist', 'T', '2027-01-20', '2027-01-20T10:00:00Z', 'KSPO Dome', 'Asia/Seoul', 'no')`, rejected, candidateArtist)
@@ -132,6 +139,13 @@ func TestMigration_WallClockTimes(t *testing.T) {
 		var rejectedStart *string
 		require.NoError(t, conn.QueryRow(ctx, `SELECT local_start_time::text FROM rejected_concerts WHERE id = $1`, rejected).Scan(&rejectedStart))
 		assert.Equal(t, "19:00:00", *rejectedStart)
+	})
+	t.Run("a candidate time that cannot be told stays unknown", func(t *testing.T) {
+		for _, candidate := range []string{candidateAbroad, candidateNextDay} {
+			var start *string
+			require.NoError(t, conn.QueryRow(ctx, `SELECT local_start_time::text FROM concert_candidates WHERE id = $1`, candidate).Scan(&start))
+			assert.Nil(t, start)
+		}
 	})
 	t.Run("the natural key is the venue, date and local start time", func(t *testing.T) {
 		_, err := conn.Exec(ctx, `INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time) VALUES ($1, $2, $3, '2026-12-01', '18:00')`,

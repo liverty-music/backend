@@ -92,6 +92,14 @@ func TestNewTimeOfDay(t *testing.T) {
 	}
 }
 
+func TestTimeOfDayUnmarshalTextStrict(t *testing.T) {
+	t.Parallel()
+	for _, text := range []string{"7:00 PM", "19:00:30", "19:00junk", "24:00", "19", ""} {
+		var got entity.TimeOfDay
+		assert.ErrorIs(t, got.UnmarshalText([]byte(text)), apperr.ErrInvalidArgument, text)
+	}
+}
+
 func TestLoadZone(t *testing.T) {
 	t.Parallel()
 
