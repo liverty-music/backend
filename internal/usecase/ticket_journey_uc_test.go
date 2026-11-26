@@ -6,6 +6,7 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -19,6 +20,8 @@ type ticketJourneyTestDeps struct {
 	concerts *mocks.MockConcertRepository
 	follows  *mocks.MockFollowRepository
 	entries  *mocks.MockLotteryEntryRepository
+	orders   *mocks.MockOrderRepository
+	stocks   *mocks.MockTicketStockRepository
 	uc       usecase.TicketJourneyUseCase
 }
 
@@ -30,8 +33,10 @@ func newTicketJourneyTestDeps(t *testing.T) *ticketJourneyTestDeps {
 		concerts: mocks.NewMockConcertRepository(t),
 		follows:  mocks.NewMockFollowRepository(t),
 		entries:  mocks.NewMockLotteryEntryRepository(t),
+		orders:   mocks.NewMockOrderRepository(t),
+		stocks:   mocks.NewMockTicketStockRepository(t),
 	}
-	d.uc = usecase.NewTicketJourneyUseCase(d.repo, d.users, d.concerts, d.follows, d.entries, newTestLogger(t))
+	d.uc = usecase.NewTicketJourneyUseCase(d.repo, d.users, d.concerts, d.follows, d.entries, d.orders, d.stocks, newTestLogger(t))
 	return d
 }
 
@@ -405,6 +410,208 @@ func TestTicketJourneyUseCase_MarkApplied(t *testing.T) {
 				return
 			}
 			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestTicketJourneyUseCase_MarkLost(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	lostEntry := func(id entity.LotteryEntryID, reason entity.LotteryEntryLostReason) *entity.LotteryEntry {
+		return &entity.LotteryEntry{ID: id, OrderID: entity.OrderID("order-" + string(id)), State: entity.LotteryEntryStateLost, LostReason: reason}
+	}
+	// listed is an entry as ListByUser returns it, with its Order.
+	listed := func(id entity.LotteryEntryID, state entity.LotteryEntryState, stockID entity.TicketStockID) *entity.LotteryEntry {
+		return &entity.LotteryEntry{ID: id, State: state, Order: &entity.Order{TicketStockID: stockID}}
+	}
+	notDrawn := lostEntry("entry-1", entity.LotteryEntryLostReasonNotDrawn)
+	lost := &entity.TicketJourney{
+		UserID: "user-1", EventID: "event-1", Status: entity.TicketJourneyStatusLost, StatusSetBy: entity.TicketJourneySetByPlatform,
+	}
+	// expectReads expects the reads of the lost entry's Order, its stock of
+	// event-1 and the fan's entries.
+	expectReads := func(d *ticketJourneyTestDeps, e *entity.LotteryEntry, others ...*entity.LotteryEntry) {
+		d.orders.EXPECT().Get(ctx, e.OrderID).Return(&entity.Order{UserID: "user-1", TicketStockID: "stock-1"}, nil).Once()
+		d.stocks.EXPECT().Get(ctx, entity.TicketStockID("stock-1"), mock.Anything).Return(&entity.TicketStock{EventID: "event-1"}, nil).Once()
+		all := append([]*entity.LotteryEntry{listed(e.ID, entity.LotteryEntryStateLost, "stock-1")}, others...)
+		d.entries.EXPECT().ListByUser(ctx, entity.UserID("user-1")).Return(all, nil).Once()
+	}
+	expectStock := func(d *ticketJourneyTestDeps, id entity.TicketStockID, eventID string) {
+		d.stocks.EXPECT().Get(ctx, id, mock.Anything).Return(&entity.TicketStock{EventID: eventID}, nil).Once()
+	}
+	// storeOver answers the guarded upsert as the repository does for a fan
+	// whose journey is current, and keeps the result in current.
+	storeOver := func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+		d.repo.EXPECT().UpsertIfReplaceable(ctx, lost).RunAndReturn(func(_ context.Context, j *entity.TicketJourney) (bool, error) {
+			if !(*current).ReplaceableBy(j.Status, j.StatusSetBy) {
+				return false, nil
+			}
+			*current = j
+			return true, nil
+		}).Once()
+	}
+	journey := func(s entity.TicketJourneyStatus) *entity.TicketJourney {
+		return &entity.TicketJourney{UserID: "user-1", EventID: "event-1", Status: s, StatusSetBy: entity.TicketJourneySetByPlatform}
+	}
+
+	tests := []struct {
+		name   string
+		before *entity.TicketJourney
+		entry  *entity.LotteryEntry
+		setup  func(d *ticketJourneyTestDeps, current **entity.TicketJourney)
+		want   *entity.TicketJourney
+	}{
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Not drawn"
+			name: "not drawn", before: journey(entity.TicketJourneyStatusApplied), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn)
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Card could not be charged"
+			name: "card could not be charged", before: journey(entity.TicketJourneyStatusApplied),
+			entry: lostEntry("entry-1", entity.LotteryEntryLostReasonCardNotCharged),
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn)
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Concert cancelled"
+			name: "concert cancelled", before: journey(entity.TicketJourneyStatusApplied),
+			entry: lostEntry("entry-1", entity.LotteryEntryLostReasonConcertCancelled),
+			setup: func(*ticketJourneyTestDeps, **entity.TicketJourney) {},
+			want:  journey(entity.TicketJourneyStatusApplied),
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Another entry still open"
+			name: "another entry still open", before: journey(entity.TicketJourneyStatusApplied), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, _ **entity.TicketJourney) {
+				expectReads(d, notDrawn, listed("entry-2", entity.LotteryEntryStateEntered, "stock-2"))
+				expectStock(d, "stock-2", "event-1")
+			},
+			want: journey(entity.TicketJourneyStatusApplied),
+		},
+		{
+			name: "another entry of the event is won", before: journey(entity.TicketJourneyStatusApplied), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, _ **entity.TicketJourney) {
+				expectReads(d, notDrawn, listed("entry-2", entity.LotteryEntryStateWon, "stock-2"))
+				expectStock(d, "stock-2", "event-1")
+			},
+			want: journey(entity.TicketJourneyStatusApplied),
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "The other entry is lost too"
+			name: "the other entry is lost too", before: journey(entity.TicketJourneyStatusApplied),
+			entry: lostEntry("entry-2", entity.LotteryEntryLostReasonNotDrawn),
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, lostEntry("entry-2", entity.LotteryEntryLostReasonNotDrawn),
+					listed("entry-1", entity.LotteryEntryStateLost, "stock-2"))
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+		{
+			name: "an open entry for another event does not hold it back", before: journey(entity.TicketJourneyStatusApplied), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn, listed("entry-2", entity.LotteryEntryStateEntered, "stock-9"))
+				expectStock(d, "stock-9", "event-9")
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Open checkout"
+			// A checkout is no lottery entry, so MarkLost reads nothing of it.
+			name: "open checkout", before: journey(entity.TicketJourneyStatusApplied), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn)
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "Fan already has a ticket"
+			name: "fan already has a ticket", before: journey(entity.TicketJourneyStatusPaid), entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn)
+				storeOver(d, current)
+			},
+			want: journey(entity.TicketJourneyStatusPaid),
+		},
+		{
+			// @spec components/usecase/ticket-journey/mark-lost "No journey"
+			name: "no journey", before: nil, entry: notDrawn,
+			setup: func(d *ticketJourneyTestDeps, current **entity.TicketJourney) {
+				expectReads(d, notDrawn)
+				storeOver(d, current)
+			},
+			want: lost,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newTicketJourneyTestDeps(t)
+			current := tt.before
+			tt.setup(d, &current)
+
+			require.NoError(t, d.uc.MarkLost(ctx, tt.entry))
+
+			assert.Equal(t, tt.want, current)
+		})
+	}
+
+	t.Run("recording fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-journey/mark-lost "Recording fails"
+		d := newTicketJourneyTestDeps(t)
+		current := journey(entity.TicketJourneyStatusApplied)
+		expectReads(d, notDrawn)
+		d.repo.EXPECT().UpsertIfReplaceable(ctx, lost).Return(false, apperr.ErrUnavailable).Once()
+
+		require.ErrorIs(t, d.uc.MarkLost(ctx, notDrawn), apperr.ErrUnavailable)
+
+		// The run again records Lost.
+		expectReads(d, notDrawn)
+		storeOver(d, &current)
+		require.NoError(t, d.uc.MarkLost(ctx, notDrawn))
+		assert.Equal(t, lost, current)
+	})
+
+	failures := []struct {
+		name  string
+		setup func(d *ticketJourneyTestDeps)
+	}{
+		{"reading the Order fails", func(d *ticketJourneyTestDeps) {
+			d.orders.EXPECT().Get(ctx, notDrawn.OrderID).Return(nil, apperr.ErrUnavailable).Once()
+		}},
+		{"reading the TicketStock fails", func(d *ticketJourneyTestDeps) {
+			d.orders.EXPECT().Get(ctx, notDrawn.OrderID).Return(&entity.Order{UserID: "user-1", TicketStockID: "stock-1"}, nil).Once()
+			d.stocks.EXPECT().Get(ctx, entity.TicketStockID("stock-1"), mock.Anything).Return(nil, apperr.ErrUnavailable).Once()
+		}},
+		{"listing the entries fails", func(d *ticketJourneyTestDeps) {
+			d.orders.EXPECT().Get(ctx, notDrawn.OrderID).Return(&entity.Order{UserID: "user-1", TicketStockID: "stock-1"}, nil).Once()
+			expectStock(d, "stock-1", "event-1")
+			d.entries.EXPECT().ListByUser(ctx, entity.UserID("user-1")).Return(nil, apperr.ErrUnavailable).Once()
+		}},
+		{"reading another entry's TicketStock fails", func(d *ticketJourneyTestDeps) {
+			expectReads(d, notDrawn, listed("entry-2", entity.LotteryEntryStateEntered, "stock-2"))
+			d.stocks.EXPECT().Get(ctx, entity.TicketStockID("stock-2"), mock.Anything).Return(nil, apperr.ErrUnavailable).Once()
+		}},
+	}
+	for _, tt := range failures {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newTicketJourneyTestDeps(t)
+			tt.setup(d)
+
+			assert.ErrorIs(t, d.uc.MarkLost(ctx, notDrawn), apperr.ErrUnavailable)
 		})
 	}
 }

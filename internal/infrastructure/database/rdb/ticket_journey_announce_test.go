@@ -307,7 +307,7 @@ func TestTicketJourneyUseCase_InferTrackingAfterUndo(t *testing.T) {
 	require.NoError(t, err)
 	repo := rdb.NewTicketJourneyRepository(db, testOutbox)
 	uc := usecase.NewTicketJourneyUseCase(repo, rdb.NewUserRepository(db, testOutbox), rdb.NewConcertRepository(db, testOutbox),
-		rdb.NewFollowRepository(db, testOutbox), rdb.NewLotteryEntryRepository(db, testOutbox), logger)
+		rdb.NewFollowRepository(db, testOutbox), rdb.NewLotteryEntryRepository(db, testOutbox), nil, nil, logger)
 	userID, eventID := newJourneyFan(t, db)
 	started, err := uc.InferTracking(ctx, userID, eventID)
 	require.NoError(t, err)

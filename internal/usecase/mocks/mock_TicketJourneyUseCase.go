@@ -307,6 +307,63 @@ func (_c *MockTicketJourneyUseCase_MarkApplied_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
+// MarkLost provides a mock function for the type MockTicketJourneyUseCase
+func (_mock *MockTicketJourneyUseCase) MarkLost(ctx context.Context, lost *entity.LotteryEntry) error {
+	ret := _mock.Called(ctx, lost)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkLost")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.LotteryEntry) error); ok {
+		r0 = returnFunc(ctx, lost)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockTicketJourneyUseCase_MarkLost_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkLost'
+type MockTicketJourneyUseCase_MarkLost_Call struct {
+	*mock.Call
+}
+
+// MarkLost is a helper method to define mock.On call
+//   - ctx context.Context
+//   - lost *entity.LotteryEntry
+func (_e *MockTicketJourneyUseCase_Expecter) MarkLost(ctx any, lost any) *MockTicketJourneyUseCase_MarkLost_Call {
+	return &MockTicketJourneyUseCase_MarkLost_Call{Call: _e.mock.On("MarkLost", ctx, lost)}
+}
+
+func (_c *MockTicketJourneyUseCase_MarkLost_Call) Run(run func(ctx context.Context, lost *entity.LotteryEntry)) *MockTicketJourneyUseCase_MarkLost_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *entity.LotteryEntry
+		if args[1] != nil {
+			arg1 = args[1].(*entity.LotteryEntry)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTicketJourneyUseCase_MarkLost_Call) Return(err error) *MockTicketJourneyUseCase_MarkLost_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockTicketJourneyUseCase_MarkLost_Call) RunAndReturn(run func(ctx context.Context, lost *entity.LotteryEntry) error) *MockTicketJourneyUseCase_MarkLost_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MarkPaid provides a mock function for the type MockTicketJourneyUseCase
 func (_mock *MockTicketJourneyUseCase) MarkPaid(ctx context.Context, paid entity.OrderPaidData) error {
 	ret := _mock.Called(ctx, paid)

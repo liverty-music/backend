@@ -18,19 +18,21 @@ import (
 
 // LotteryEntryResultConsumer handles LOTTERY_ENTRY.won and
 // LOTTERY_ENTRY.lost events, which LotteryEntry.PersistDrawOutcome,
-// LotteryEntry.RevertWin and LotteryEntry.EndEnteredByEvent record, with two
-// independent durables: the start of the workflow that charges a Won entry
-// or releases a Lost one (both subjects), and the loss email and push of a
-// Lost entry (LOTTERY_ENTRY.lost only). The subject tells the entry's state.
+// LotteryEntry.RevertWin and LotteryEntry.EndEnteredByEvent record, with
+// three independent durables: the start of the workflow that charges a Won
+// entry or releases a Lost one (both subjects), and, for LOTTERY_ENTRY.lost
+// only, the loss email and push of a Lost entry and the Lost on the fan's
+// ticket journey. The subject tells the entry's state.
 // The workflow starter is guarded by the workflow named after the entry's
 // Order, the loss notice by the entry's loss email send time and a Deliver
-// named after the entry, so a redelivery starts and sends nothing twice. A
-// mail outage never delays the start of a release: each durable has its own
-// cursor.
+// named after the entry, so a redelivery starts and sends nothing twice;
+// MarkLost stores nothing the second time. A mail outage never delays the
+// start of a release or the journey: each durable has its own cursor.
 type LotteryEntryResultConsumer struct {
-	orderUC        usecase.OrderUseCase
-	notificationUC usecase.NotificationUseCase
-	logger         *logging.Logger
+	orderUC         usecase.OrderUseCase
+	notificationUC  usecase.NotificationUseCase
+	ticketJourneyUC usecase.TicketJourneyUseCase
+	logger          *logging.Logger
 }
 
 // lossEmailRetryDelay is how long a loss notice waits for the mail service
@@ -38,8 +40,13 @@ type LotteryEntryResultConsumer struct {
 const lossEmailRetryDelay = time.Minute
 
 // NewLotteryEntryResultConsumer creates a new LotteryEntryResultConsumer.
-func NewLotteryEntryResultConsumer(orderUC usecase.OrderUseCase, notificationUC usecase.NotificationUseCase, logger *logging.Logger) *LotteryEntryResultConsumer {
-	return &LotteryEntryResultConsumer{orderUC: orderUC, notificationUC: notificationUC, logger: logger}
+func NewLotteryEntryResultConsumer(
+	orderUC usecase.OrderUseCase,
+	notificationUC usecase.NotificationUseCase,
+	ticketJourneyUC usecase.TicketJourneyUseCase,
+	logger *logging.Logger,
+) *LotteryEntryResultConsumer {
+	return &LotteryEntryResultConsumer{orderUC: orderUC, notificationUC: notificationUC, ticketJourneyUC: ticketJourneyUC, logger: logger}
 }
 
 // parse reads a LOTTERY_ENTRY.won or LOTTERY_ENTRY.lost announcement: the
@@ -104,6 +111,19 @@ func (h *LotteryEntryResultConsumer) HandleSendLotteryLoss(msg *message.Message)
 			return eventmsg.RedeliverLater(msg, err, lossEmailRetryDelay)
 		}
 		return fmt.Errorf("send the loss notice of lottery entry %s: %w", entry.ID, err)
+	}
+	return nil
+}
+
+// HandleMarkLost records Lost on the fan's ticket journey for the event of a
+// Lost entry; its durable receives LOTTERY_ENTRY.lost only.
+func (h *LotteryEntryResultConsumer) HandleMarkLost(msg *message.Message) error {
+	entry, err := h.parse(msg)
+	if err != nil {
+		return err
+	}
+	if err := h.ticketJourneyUC.MarkLost(msg.Context(), entry); err != nil {
+		return fmt.Errorf("mark ticket journey lost for lottery entry %s: %w", entry.ID, err)
 	}
 	return nil
 }

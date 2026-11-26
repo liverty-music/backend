@@ -332,7 +332,8 @@ func newOrderPaidWorld(t *testing.T, sc orderScenario) (*event.OrderPaidConsumer
 			Organizers: organizers, Mailer: mailer, TimeZone: time.UTC,
 		}, usecase.NewConcertsDeps{}, usecase.SubjectDeps{Now: time.Now})
 	journeyUC := usecase.NewTicketJourneyUseCase(journeys, users, entitymocks.NewMockConcertRepository(t),
-		entitymocks.NewMockFollowRepository(t), entitymocks.NewMockLotteryEntryRepository(t), logger)
+		entitymocks.NewMockFollowRepository(t), entitymocks.NewMockLotteryEntryRepository(t),
+		entitymocks.NewMockOrderRepository(t), entitymocks.NewMockTicketStockRepository(t), logger)
 	consumer := event.NewOrderPaidConsumer(notifications, journeyUC, stubStocks{}, logger)
 
 	return consumer, func() orderState {

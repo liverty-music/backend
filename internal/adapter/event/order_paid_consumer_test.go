@@ -159,7 +159,8 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	journeys.EXPECT().Upsert(mock.Anything, paid).Return(nil).Twice()
 	// fan-1 has no home (the users mock above), so MarkPaid raises no hype.
 	journeyUC := usecase.NewTicketJourneyUseCase(journeys, users, entitymocks.NewMockConcertRepository(t),
-		entitymocks.NewMockFollowRepository(t), entitymocks.NewMockLotteryEntryRepository(t), logger)
+		entitymocks.NewMockFollowRepository(t), entitymocks.NewMockLotteryEntryRepository(t),
+		entitymocks.NewMockOrderRepository(t), entitymocks.NewMockTicketStockRepository(t), logger)
 	consumer := event.NewOrderPaidConsumer(notificationUC, journeyUC, stubStocks{}, logger)
 
 	for range 2 {

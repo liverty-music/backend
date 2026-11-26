@@ -109,7 +109,7 @@ func (b *consumerBuilder) behaviors() ([]behaviorEntry, []io.Closer, error) {
 // useCases builds the usecases of the consumer.
 func (b *consumerBuilder) useCases(extHTTPClient *http.Client, identities entity.ArtistIdentityManager, fanart entity.ArtistImageResolver) (consumerUseCases, error) {
 	logger := b.logger
-	ticketJourneyUC := usecase.NewTicketJourneyUseCase(b.ticketJourneyRepo, b.userRepo, b.concertRepo, b.followRepo, b.lotteryEntryRepo, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(b.ticketJourneyRepo, b.userRepo, b.concertRepo, b.followRepo, b.lotteryEntryRepo, b.orderRepo, b.ticketStockRepo, logger)
 
 	// The consumer calls only ArtistUseCase.Refresh, which needs the
 	// repository, the catalog and the clock; the chart lookups and their cache
@@ -287,7 +287,7 @@ func (b *consumerBuilder) commerceRows(uc consumerUseCases, analytics *event.Ana
 		Workflows: workflows,
 		Clock:     time.Now,
 		Logger:    logger,
-	}), notificationUC, logger)
+	}), notificationUC, uc.ticketJourney, logger)
 	// The resale entry's workflow starter and ended notice, and the start of a
 	// sold listing's refund; the workflow worker runs the workflows.
 	resaleEntryConsumer := event.NewResaleEntryConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
@@ -320,6 +320,7 @@ func (b *consumerBuilder) commerceRows(uc consumerUseCases, analytics *event.Ana
 		{"start-lottery-entry-workflow", on(entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost), lotteryEntryResultConsumer.HandleStartWorkflow},
 		{"track-lottery-entry-result", on(entity.SubjectLotteryEntryWon, entity.SubjectLotteryEntryLost), analytics.HandleLotteryEntryResult},
 		{"send-lottery-loss", on(entity.SubjectLotteryEntryLost), lotteryEntryResultConsumer.HandleSendLotteryLoss},
+		{"mark-ticket-journey-lost", on(entity.SubjectLotteryEntryLost), lotteryEntryResultConsumer.HandleMarkLost},
 		{"start-resale-entry-workflow", on(entity.SubjectResaleEntryWon, entity.SubjectResaleEntryLapsed, entity.SubjectResaleEntryLost, entity.SubjectResaleEntryWithdrawn), resaleEntryConsumer.HandleStartWorkflow},
 		{"send-resale-entry-ended", on(entity.SubjectResaleEntryLapsed, entity.SubjectResaleEntryLost), resaleEntryConsumer.HandleSendResaleEntryEnded},
 		{"start-checkout-expiry", on(entity.SubjectCheckoutHeld), checkoutConsumer.HandleStartWorkflow},

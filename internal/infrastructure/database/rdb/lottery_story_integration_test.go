@@ -213,7 +213,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 		eventRepo, rdb.NewWalletPublicKeyRepository(db), rdb.NewAdmissionRepository(db),
 		rdb.NewRejectedScanRepository(db), logger)
 	s.journeys = usecase.NewTicketJourneyUseCase(s.journeyRepo, s.userRepo, rdb.NewConcertRepository(db, testOutbox),
-		rdb.NewFollowRepository(db, testOutbox), entryRepo, logger)
+		rdb.NewFollowRepository(db, testOutbox), entryRepo, s.orderRepo, stockRepo, logger)
 	// No refund flows in these stories, so the refund use case stays unset.
 	s.webhooks = usecase.NewStripeWebhookService(rdb.NewProcessedWebhookEventRepository(db), s.orderRepo, nil, cardAuthorizations, s.lottery, nil, logger)
 	japanTime, err := time.LoadLocation("Asia/Tokyo")
@@ -253,7 +253,7 @@ func newLotteryStory(t *testing.T, db *rdb.Database) *lotteryStory {
 	// The event consumer's OrderUseCase only starts workflows.
 	s.drawn = event.NewLotteryEntryResultConsumer(usecase.NewOrderUseCase(usecase.OrderDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
-	}), s.notifications, logger)
+	}), s.notifications, s.journeys, logger)
 	s.checkoutStarter = event.NewCheckoutConsumer(usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		Workflows: s.client, Clock: clock, Logger: logger,
 	}), logger)
@@ -504,6 +504,7 @@ func (s *lotteryStory) startFollowUps() int {
 			s.followUps = append(s.followUps, usecase.IssueWorkflowID(orderID))
 		case entity.SubjectLotteryEntryLost:
 			require.NoError(s.t, s.drawn.HandleSendLotteryLoss(msg))
+			require.NoError(s.t, s.drawn.HandleMarkLost(msg))
 			s.followUps = append(s.followUps, usecase.ReleaseWorkflowID(orderID))
 		}
 	}
@@ -576,7 +577,7 @@ func (s *lotteryStory) releaseEndedCheckouts() {
 
 // closeAndDraw draws the closed sale and runs the work that follows each
 // drawn entry: the charge and issuance of a winner, the release of a loser
-// and its loss email.
+// and its loss email and journey.
 func (s *lotteryStory) closeAndDraw(end time.Time) {
 	s.t.Helper()
 	s.draw(end)
@@ -813,6 +814,79 @@ func TestLotteryStory_EntryMarksJourneyApplied(t *testing.T) {
 		late, err := s.journeyRepo.Get(s.ctx, string(fan), s.eventID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.TicketJourneyStatusPaid, late.Status)
+	})
+}
+
+func TestLotteryStory_LostEntryMarksJourneyLost(t *testing.T) {
+	t.Parallel()
+
+	// journeyOf returns the fan's journey for the story's event as the
+	// Timetable reads it.
+	journeyOf := func(s *lotteryStory, fan entity.UserID) *entity.TicketJourney {
+		all, err := s.journeys.List(s.ctx, string(fan))
+		require.NoError(s.t, err)
+		for _, j := range all {
+			if j.EventID == s.eventID {
+				return j
+			}
+		}
+		s.t.Fatalf("fan %s has no journey for the event", fan)
+		return nil
+	}
+
+	t.Run("loss shown on the Timetable", func(t *testing.T) {
+		t.Parallel()
+		// @spec stories/win-tickets-in-a-lottery "Loss shown on the Timetable"
+		db := newTestDB(t)
+		s := newLotteryStory(t, db)
+		stock := s.stock("S席", 8000, 1)
+		end := storyWindowStart.Add(3 * 24 * time.Hour)
+		sale := s.createLottery("抽選", storyWindowStart, end)
+
+		s.now = storyWindowStart.Add(time.Hour)
+		fans := []entity.UserID{s.newFan(), s.newFan()}
+		entries := []*entity.LotteryEntry{s.enter(sale, stock.ID, fans[0], 1), s.enter(sale, stock.ID, fans[1], 1)}
+		s.markEnteredApplied()
+		for _, fan := range fans {
+			require.Equal(t, entity.TicketJourneyStatusApplied, journeyOf(s, fan).Status)
+		}
+
+		s.closeAndDraw(end)
+
+		lost := 0
+		for i, e := range entries {
+			if s.ownEntry(sale, fans[i], e.ID).State != entity.LotteryEntryStateLost {
+				continue
+			}
+			lost++
+			journey := journeyOf(s, fans[i])
+			assert.Equal(t, entity.TicketJourneyStatusLost, journey.Status)
+			assert.Equal(t, entity.TicketJourneySetByPlatform, journey.StatusSetBy)
+		}
+		assert.Equal(t, 1, lost, "one of the two entries is not drawn")
+	})
+
+	t.Run("cancelled concert", func(t *testing.T) {
+		t.Parallel()
+		// @spec stories/win-tickets-in-a-lottery "Cancelled concert"
+		db := newTestDB(t)
+		s := newLotteryStory(t, db)
+		stock := s.stock("S席", 8000, 100)
+		end := storyWindowStart.Add(3 * 24 * time.Hour)
+		sale := s.createLottery("抽選", storyWindowStart, end)
+
+		s.now = storyWindowStart.Add(time.Hour)
+		fan := s.newFan()
+		entry := s.enter(sale, stock.ID, fan, 1)
+		s.markEnteredApplied()
+		before := journeyOf(s, fan)
+
+		s.now = storyWindowStart.Add(2 * time.Hour)
+		s.cancel(s.eventID)
+		s.closeAndDraw(end)
+
+		require.Equal(t, entity.LotteryEntryLostReasonConcertCancelled, s.ownEntry(sale, fan, entry.ID).LostReason)
+		assert.Equal(t, before, journeyOf(s, fan))
 	})
 }
 

@@ -49,6 +49,15 @@ func TestTicketJourney_ReplaceableBy(t *testing.T) {
 		{"entry after a lost presale", journey(entity.TicketJourneyStatusLost, entity.TicketJourneySetByFan), entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform, true},
 		// @spec components/entity/ticket-journey "Entry announced after the purchase"
 		{"entry announced after the purchase", journey(entity.TicketJourneyStatusPaid, entity.TicketJourneySetByPlatform), entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform, false},
+		// @spec components/entity/ticket-journey "Loss of an applied journey"
+		{"loss of an applied journey", journey(entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform), entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, true},
+		// @spec components/entity/ticket-journey "Loss after the fan secured a ticket elsewhere"
+		{"loss after the fan secured a ticket elsewhere", journey(entity.TicketJourneyStatusPaid, entity.TicketJourneySetByFan), entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, false},
+		// @spec components/entity/ticket-journey "Loss the fan already recorded"
+		{"loss the fan already recorded", journey(entity.TicketJourneyStatusLost, entity.TicketJourneySetByFan), entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, false},
+		{"platform Lost over Tracking", journey(entity.TicketJourneyStatusTracking, entity.TicketJourneySetByInference), entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, true},
+		{"platform Lost over Unpaid", journey(entity.TicketJourneyStatusUnpaid, entity.TicketJourneySetByFan), entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, false},
+		{"no journey takes a platform Lost", nil, entity.TicketJourneyStatusLost, entity.TicketJourneySetByPlatform, true},
 		{"platform Applied over Tracking", journey(entity.TicketJourneyStatusTracking, entity.TicketJourneySetByInference), entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform, true},
 		{"platform Applied over Applied", journey(entity.TicketJourneyStatusApplied, entity.TicketJourneySetByFan), entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform, true},
 		{"platform Applied over Unpaid", journey(entity.TicketJourneyStatusUnpaid, entity.TicketJourneySetByFan), entity.TicketJourneyStatusApplied, entity.TicketJourneySetByPlatform, false},
