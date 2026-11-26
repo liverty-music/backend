@@ -110,9 +110,21 @@ const (
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
+	// deleteUserQuery removes the user and records its identity as removed, in
+	// one statement, so both happen or neither does. The identity may already
+	// be recorded, when a release without the refusal in Create (during a
+	// rollout or after a rollback) stored a user for it; the update on conflict
+	// keeps the removal working and counted as one row.
 	deleteUserQuery = `
-		DELETE FROM users WHERE id = $1
+		WITH removed AS (
+			DELETE FROM users WHERE id = $1 RETURNING provider_user_id
+		)
+		INSERT INTO deleted_user_identities (provider_user_id)
+		SELECT provider_user_id FROM removed
+		ON CONFLICT (provider_user_id) DO UPDATE SET provider_user_id = EXCLUDED.provider_user_id
 	`
+
+	identityRemovedQuery = `SELECT EXISTS (SELECT 1 FROM deleted_user_identities WHERE provider_user_id = $1)`
 
 	// userDeletionLockQuery and userCreateLockQuery take the user's
 	// transaction-scoped advisory lock, exclusive for a deletion and shared
@@ -225,7 +237,7 @@ func writeUserHome(ctx context.Context, tx pgx.Tx, userID, area string) (*entity
 // # Announces
 //
 // USER.created with the User without its full name, phone number and display
-// name, in the transaction of the insert. Nothing on AlreadyExists.
+// name, in the transaction of the insert. Nothing on AlreadyExists or FailedPrecondition.
 func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params == nil {
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
@@ -266,6 +278,18 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 			)
 		}
 		return nil, toAppErr(err, "failed to create user", slog.String("email", params.Email))
+	}
+
+	// Read after the insert: an insert that meets the uncommitted removal of
+	// the same identity waits for it on the unique index, so this read, a new
+	// statement of the transaction, sees its record.
+	var removed bool
+	if err := tx.QueryRow(ctx, identityRemovedQuery, params.ProviderUserID).Scan(&removed); err != nil {
+		return nil, toAppErr(err, "failed to check the identity was not removed")
+	}
+	if removed {
+		return nil, apperr.New(codes.FailedPrecondition, "the account of this identity was removed",
+			slog.String("provider_user_id", params.ProviderUserID))
 	}
 
 	var home *entity.Home

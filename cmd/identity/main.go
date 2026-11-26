@@ -71,7 +71,7 @@ func run(bootLogger *logging.Logger) error {
 
 	// Bind every listener before reporting ready, so readiness means the
 	// callers' requests are accepted.
-	servers := []*server.ConnectServer{app.HealthServer, app.EventConsumerServer, app.AdminConsoleAPIServer, app.FanAPIServer}
+	servers := []*server.ConnectServer{app.HealthServer, app.WorkflowWorkerServer, app.AdminConsoleAPIServer, app.FanAPIServer}
 	for _, srv := range servers {
 		ln, err := net.Listen("tcp", srv.Address())
 		if err != nil {

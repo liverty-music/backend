@@ -57,17 +57,16 @@ func TestProvideIdentityClients_None(t *testing.T) {
 	logger, err := di.ProvideLogger(config.LoggingConfig{Format: "json"}, logging.WithWriter(buf))
 	require.NoError(t, err)
 
-	identityRemover, emailCodes := di.ProvideIdentityClients(context.Background(),
+	emailCodes := di.ProvideIdentityClients(context.Background(),
 		&config.ServerConfig{Environment: "production", Workload: config.WorkloadOrganizer}, logger)
 
-	assert.Nil(t, identityRemover)
 	assert.Nil(t, emailCodes)
 	entries := parseJSONLines(t, buf)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "identity-provider clients built", entries[0]["msg"])
 	assert.Equal(t, "none", entries[0]["clients"])
 
-	userUC := usecase.NewUserUseCase(nil, nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
+	userUC := usecase.NewUserUseCase(nil, nil, usecase.DeletionBlockerReads{}, nil, nil, emailCodes, nil, usecase.PasskeyMailers{}, time.Now, logger)
 	server := connect.NewServer()
 	assert.NotPanics(t, func() {
 		userconnect.RegisterUserServiceHandler(server, rpc.NewUserHandler(userUC, nil, logger))
@@ -80,37 +79,31 @@ func TestProvideIdentityClients(t *testing.T) {
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	type want struct {
-		remover    bool
-		emailCodes bool
-	}
 	tests := []struct {
 		name string
 		cfg  *config.ServerConfig
-		want want
+		want bool
 	}{
 		{
-			name: "admin removes identities and verifies no email",
+			name: "admin verifies no email",
 			cfg:  &config.ServerConfig{Environment: "production", Workload: config.WorkloadAdmin, IdentityServiceURL: "http://identity:9101"},
-			want: want{remover: true},
 		},
 		{
-			// A fan removes their own identity when deleting their account.
-			name: "fan verifies emails and removes identities",
+			name: "fan verifies emails",
 			cfg:  &config.ServerConfig{Environment: "production", Workload: config.WorkloadFan, IdentityServiceURL: "http://identity:9102"},
-			want: want{remover: true, emailCodes: true},
+			want: true,
 		},
 		{
-			name: "local with the identity service does both",
+			name: "local with the identity service verifies emails",
 			cfg:  &config.ServerConfig{Environment: "local", IdentityServiceURL: "http://localhost:9101"},
-			want: want{remover: true, emailCodes: true},
+			want: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			remover, emailCodes := di.ProvideIdentityClients(context.Background(), tt.cfg, logger)
-			assert.Equal(t, tt.want, want{remover: remover != nil, emailCodes: emailCodes != nil})
+			emailCodes := di.ProvideIdentityClients(context.Background(), tt.cfg, logger)
+			assert.Equal(t, tt.want, emailCodes != nil)
 		})
 	}
 }

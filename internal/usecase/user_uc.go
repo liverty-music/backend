@@ -41,6 +41,7 @@ type UserUseCase interface {
 	//
 	//  - InvalidArgument: If email or name is invalid, or home is malformed.
 	//  - AlreadyExists: If the email is already claimed by a different identity.
+	//  - FailedPrecondition: If the account of this identity was removed.
 	Create(ctx context.Context, params *entity.NewUser) (*entity.User, error)
 
 	// Get retrieves a user by their unique ID.
@@ -85,22 +86,36 @@ type UserUseCase interface {
 	Update(ctx context.Context, providerUserID string, fullName, phoneNumber *string) (*entity.User, error)
 
 	// Delete permanently removes a fan user, at the fan's own request or an
-	// admin's: first the user's sign-in identity, then the user record with
-	// everything it owns. The user's Orders, Tickets, Checkouts, lottery
-	// entries and resale listings are kept. Nothing is removed while
-	// ListDeletionBlockers returns any blocker; the check and the removal run
-	// under the user's deletion lock (User.SerializeDeletion), so no blocker
-	// is created meanwhile. An identity that is already gone counts as
-	// removed, so calling Delete again completes a deletion whose record
-	// removal failed.
+	// admin's. It fails, removing nothing, while ListDeletionBlockers returns
+	// any blocker. Otherwise it starts the delete-user workflow and waits 5
+	// seconds for it. A removal still running then is a success, because it
+	// goes on to its end on its own, and so is one that failed after removing
+	// the User.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
 	//  - FailedPrecondition: If the user has a deletion blocker.
-	//  - Internal: If the identity could not be removed, or identity removal
-	//    is not configured.
+	//  - Unavailable: If the removal could not be started, or the wait for it
+	//    could not be read; a started removal goes on.
+	//  - Any failure the removal ends with within the wait, with its own code.
 	Delete(ctx context.Context, id string) error
+
+	// RunDeleteUser is the delete-user workflow Delete starts: it removes the
+	// User (User.Delete) and then its sign-in identity (User.DeleteIdentity);
+	// the User's Orders, Tickets, Checkouts, lottery entries and resale
+	// listings are kept. The removal of the User runs under its deletion lock
+	// (User.SerializeDeletion), counts a User already gone as removed and fails
+	// while the User has a deletion blocker. A step that fails with Unavailable
+	// is tried again.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: the User has a deletion blocker.
+	//  - Internal: identity removal is not configured.
+	//  - Any other failure of the reads or the removals, with its own code.
+	//  - The error of the workflow runtime (Canceled, Aborted).
+	RunDeleteUser(ctx context.Context, f Flow, in UserDeletion) (struct{}, error)
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming
@@ -325,8 +340,8 @@ const (
 )
 
 // DeletionBlockerReads are the reads that tell whether a user can be deleted
-// (UserUseCase.ListDeletionBlockers). Only the API processes that delete users
-// set them; elsewhere they are empty.
+// (UserUseCase.ListDeletionBlockers). The API processes that delete users and
+// the workflow worker set them; elsewhere they are empty.
 type DeletionBlockerReads struct {
 	Tickets        entity.TicketRepository
 	Events         entity.EventRepository
@@ -575,43 +590,6 @@ func (uc *userUseCase) SetHome(ctx context.Context, id string, home *entity.Home
 	)
 
 	return user, nil
-}
-
-// Delete removes the user's identity and then the user under the user's
-// deletion lock, after checking that the user has no deletion blocker.
-func (uc *userUseCase) Delete(ctx context.Context, id string) error {
-	user, err := uc.userRepo.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	if uc.identityRemover == nil {
-		return apperr.New(codes.Internal, "identity removal is not configured")
-	}
-
-	err = uc.userRepo.SerializeDeletion(ctx, id, func(ctx context.Context) error {
-		blockers, err := uc.ListDeletionBlockers(ctx, id)
-		if err != nil {
-			return err
-		}
-		if len(blockers) > 0 {
-			return apperr.New(codes.FailedPrecondition, "user has activity in progress",
-				slog.String("user_id", id), slog.Int("blocker_kinds", len(blockers)))
-		}
-		if err := uc.identityRemover.DeleteIdentity(ctx, user.ProviderUserID); err != nil {
-			return err
-		}
-		return uc.userRepo.Delete(ctx, id)
-	})
-	if err != nil {
-		return err
-	}
-
-	uc.logger.Info(ctx, "User deleted successfully",
-		slog.String("user_id", id),
-		slog.String("provider_user_id", user.ProviderUserID),
-	)
-
-	return nil
 }
 
 // ListDeletionBlockers counts the user's activity in progress by kind.

@@ -52,7 +52,7 @@ func (f *flow) Step(ctx context.Context, name string, fn func(context.Context) (
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 		}
-		return out, err
+		return out, storable(err)
 	}, stepOptions(name)...)
 	return out, toAppErr(err, "workflow step "+name)
 }

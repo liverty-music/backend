@@ -35,6 +35,14 @@ COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes
 COMMENT ON COLUMN users.full_name IS '本人確認 full name (1-200 characters) shown on the face of the user''s tickets; NULL until the user first gives it';
 COMMENT ON COLUMN users.phone_number IS '本人確認 phone number in E.164 form shown on the face of the user''s tickets; NULL until the user first gives it';
 
+-- Identities of removed users
+CREATE TABLE IF NOT EXISTS deleted_user_identities (
+    provider_user_id TEXT PRIMARY KEY
+);
+
+COMMENT ON TABLE deleted_user_identities IS 'Identity-provider IDs of removed users. A recorded ID never gets a new user: its identity can still sign in until the identity provider removes it.';
+COMMENT ON COLUMN deleted_user_identities.provider_user_id IS 'The identity provider''s ID the removed user had';
+
 -- Homes table
 CREATE TABLE IF NOT EXISTS homes (
     id UUID PRIMARY KEY,

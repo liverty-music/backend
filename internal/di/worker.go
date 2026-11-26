@@ -193,9 +193,9 @@ func registerNotificationWorkflows(rt *workflow.Runtime, cfg *config.WorkerConfi
 
 // registerAccountWorkflows registers the workflows of a fan's account. The
 // worker's UserUseCase sends the verification codes and the passkey recovery
-// links the fan API requests, and the verification email of each new User and
-// the change email of each announced Passkey; it starts nothing and never
-// deletes users. The passkey use case records each passkey notice, whose
+// links the fan API requests, the verification email of each new User and the
+// change email of each announced Passkey, and removes the accounts whose
+// deletion the APIs accepted; it starts nothing. The passkey use case records each passkey notice, whose
 // removal waits for the run of the same passkey's addition.
 func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, japanTime *time.Location, logger *logging.Logger) error {
 	emailVerifier, err := newEmailVerifier(&cfg.AccountEmailConfig, logger)
@@ -206,7 +206,17 @@ func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	if err != nil {
 		return err
 	}
-	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), rdb.NewAreaRepository(db), usecase.DeletionBlockerReads{}, nil, emailVerifier, nil, nil,
+	deletionReads := usecase.DeletionBlockerReads{
+		Tickets:        rdb.NewTicketRepository(db, outbox),
+		Events:         rdb.NewEventRepository(db),
+		ResaleListings: rdb.NewResaleListingRepository(db, outbox),
+		LotteryEntries: rdb.NewLotteryEntryRepository(db, outbox),
+		Checkouts:      rdb.NewCheckoutRepository(db, outbox),
+		Orders:         repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger)),
+		Now:            time.Now,
+	}
+	users := usecase.NewUserUseCase(rdb.NewUserRepository(db, outbox), rdb.NewAreaRepository(db), deletionReads, nil, emailVerifier, nil,
+		newIdentityRemover(&cfg.AccountEmailConfig),
 		usecase.PasskeyMailers{
 			RegistrationLinks: newPasskeyRegistrationLinkSender(&cfg.AccountEmailConfig, logger),
 			ChangeEmails:      changeEmails,
@@ -215,6 +225,7 @@ func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.Register(rt, usecase.WorkflowSendPasskeyRecoveryLink, users.RunSendPasskeyRecoveryLink)
 	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
 	workflow.Register(rt, usecase.WorkflowSendVerification, users.RunSendVerification)
+	workflow.Register(rt, usecase.WorkflowDeleteUser, users.RunDeleteUser)
 
 	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {

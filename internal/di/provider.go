@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -70,31 +69,20 @@ func newSignInLinkSender(cfg *config.ServerConfig, logger *logging.Logger) (enti
 		cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, logger), nil
 }
 
-// provideIdentityClients builds the identity-service clients this workload
-// uses: the fan identity remover on the admin and fan workloads and the email
-// code verifier on the fan workload, each nil elsewhere. The organizer and
-// reception workloads reach no identity-provider operation. The API builds no
-// email sender: verification emails are sent by the event consumer. It logs
-// which clients were built so their absence is visible.
-func provideIdentityClients(ctx context.Context, cfg *config.ServerConfig, logger *logging.Logger) (entity.IdentityRemover, entity.EmailCodeVerifier) {
-	var (
-		remover    entity.IdentityRemover
-		emailCodes entity.EmailCodeVerifier
-		built      []string
-	)
-	if cfg.RemovesIdentities() {
-		remover = identity.NewUserClient(cfg.IdentityServiceURL)
-		built = append(built, "identity_remover")
-	}
+// provideIdentityClients builds the identity-service client this workload
+// uses: the email code verifier on the fan workload, nil elsewhere. No API
+// server removes identities (the workflow worker does), and the API builds no
+// email sender: the worker sends verification emails. It logs which clients
+// were built so their absence is visible.
+func provideIdentityClients(ctx context.Context, cfg *config.ServerConfig, logger *logging.Logger) entity.EmailCodeVerifier {
+	var emailCodes entity.EmailCodeVerifier
+	built := "none"
 	if cfg.VerifiesEmails() {
 		emailCodes = identity.NewUserClient(cfg.IdentityServiceURL)
-		built = append(built, "email_code_verifier")
+		built = "email_code_verifier"
 	}
-	if len(built) == 0 {
-		built = append(built, "none")
-	}
-	logger.Info(ctx, "identity-provider clients built", slog.String("clients", strings.Join(built, ",")))
-	return remover, emailCodes
+	logger.Info(ctx, "identity-provider clients built", slog.String("clients", built))
+	return emailCodes
 }
 
 // provideOrganizationRepository returns the Organization repository. On the

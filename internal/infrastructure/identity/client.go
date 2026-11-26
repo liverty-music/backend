@@ -1,7 +1,7 @@
 // Package identity calls the identity service, the backend workload that holds
 // the identity-provider credentials, over its cluster-internal Connect API. Its
 // clients implement the same interfaces as the Zitadel clients they replace on
-// the event consumer and the admin console API, and return the same error
+// the workflow worker and the admin console API, and return the same error
 // codes, so the usecases do not change.
 package identity
 
@@ -72,9 +72,9 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 }
 
 // UserClient changes a fan's identity through the identity service's
-// UserService. The event consumer uses it for verification codes and passkey
-// registration links, the fan API to verify an email address with a code, and
-// the admin console API for identity removal.
+// UserService. The workflow worker uses it for verification codes, passkey
+// registration links and identity removal, and the fan API to verify an email
+// address with a code.
 type UserClient struct {
 	client backenduserv1connect.UserServiceClient
 }

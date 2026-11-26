@@ -26,8 +26,8 @@ import (
 // calling workload has its own listener, which serves only the procedures
 // that workload uses, and another listener serves the health check.
 type IdentityApp struct {
-	// EventConsumerServer serves the event consumer's procedures.
-	EventConsumerServer *server.ConnectServer
+	// WorkflowWorkerServer serves the workflow worker's procedures.
+	WorkflowWorkerServer *server.ConnectServer
 	// AdminConsoleAPIServer serves the admin console API's procedures.
 	AdminConsoleAPIServer *server.ConnectServer
 	// FanAPIServer serves the fan API's procedures.
@@ -41,18 +41,19 @@ type IdentityApp struct {
 	ShutdownTimeout time.Duration
 }
 
-// EventConsumerProcedures are the identity-service procedures the event
-// consumer may call: verification codes and passkey registration links.
-var EventConsumerProcedures = []string{
+// WorkflowWorkerProcedures are the identity-service procedures the workflow
+// worker may call: verification codes, passkey registration links, and the
+// identity removal of a fan whose account is being removed.
+var WorkflowWorkerProcedures = []string{
 	backenduserv1connect.UserServiceSendEmailVerificationProcedure,
 	backenduserv1connect.UserServiceResendEmailVerificationProcedure,
 	backenduserv1connect.UserServiceIssuePasskeyRegistrationLinkProcedure,
+	backenduserv1connect.UserServiceDeleteIdentityProcedure,
 }
 
 // AdminConsoleAPIProcedures are the identity-service procedures the admin
-// console API may call: fan identity removal and Organizers' Organizations.
+// console API may call: Organizers' Organizations.
 var AdminConsoleAPIProcedures = []string{
-	backenduserv1connect.UserServiceDeleteIdentityProcedure,
 	backendorganizationv1connect.OrganizationServiceCreateProcedure,
 	backendorganizationv1connect.OrganizationServiceGetProcedure,
 	backendorganizationv1connect.OrganizationServiceProvisionProcedure,
@@ -61,13 +62,9 @@ var AdminConsoleAPIProcedures = []string{
 }
 
 // FanAPIProcedures are the identity-service procedures the fan API may call:
-// confirming an email address with the code from its verification email, and
-// removing the identity of a fan who deletes their own account. The fan API
-// checks that fan's fresh sign-in before it calls; the identity service does
-// not repeat the check, since only the fan API reaches this listener.
+// confirming an email address with the code from its verification email.
 var FanAPIProcedures = []string{
 	backenduserv1connect.UserServiceVerifyEmailProcedure,
-	backenduserv1connect.UserServiceDeleteIdentityProcedure,
 }
 
 // identityHandlers builds the identity-provider clients and returns the
@@ -134,7 +131,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	listener := func(port int) server.BackendServerSettings {
 		return server.BackendServerSettings{Host: cfg.Listeners.Host, Port: port, HandlerTimeout: cfg.Listeners.HandlerTimeout}
 	}
-	eventConsumerSrv := server.NewBackendServer(listener(cfg.Listeners.EventConsumerPort), logger, EventConsumerProcedures, handlers...)
+	workflowWorkerSrv := server.NewBackendServer(listener(cfg.Listeners.EventConsumerPort), logger, WorkflowWorkerProcedures, handlers...)
 	adminConsoleAPISrv := server.NewBackendServer(listener(cfg.Listeners.AdminConsoleAPIPort), logger, AdminConsoleAPIProcedures, handlers...)
 	fanAPISrv := server.NewBackendServer(listener(cfg.Listeners.FanAPIPort), logger, FanAPIProcedures, handlers...)
 
@@ -143,7 +140,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 		grpchealth.Register(s, health)
 	})
 
-	shutdown.AddDrainPhase(health, eventConsumerSrv, adminConsoleAPISrv, fanAPISrv, healthSrv)
+	shutdown.AddDrainPhase(health, workflowWorkerSrv, adminConsoleAPISrv, fanAPISrv, healthSrv)
 	shutdown.AddObservePhase(telemetryCloser)
 
 	logger.Info(ctx, "identity service initialized",
@@ -154,7 +151,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	)
 
 	return &IdentityApp{
-		EventConsumerServer:   eventConsumerSrv,
+		WorkflowWorkerServer:  workflowWorkerSrv,
 		AdminConsoleAPIServer: adminConsoleAPISrv,
 		FanAPIServer:          fanAPISrv,
 		HealthServer:          healthSrv,

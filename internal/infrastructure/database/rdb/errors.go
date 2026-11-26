@@ -1,9 +1,12 @@
 package rdb
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -13,7 +16,7 @@ import (
 
 // toAppErr converts a database error into a structured application error.
 // It maps specific PostgreSQL error codes to appropriate apperr codes
-// (pgErrorCodes).
+// (pgErrorCodes) and a failure to reach the database to Unavailable.
 func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	if err == nil {
 		return nil
@@ -31,11 +34,39 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		}
 	}
 
+	if isConnectionFailure(err) {
+		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+	}
+
 	// Unknown errors: preserve original error type for upstream inspection
 	// (e.g., context.Canceled). Error classification is the interceptor's responsibility.
 	// Note: attrs are intentionally not included here — structured logging attributes
 	// are only meaningful when creating an AppErr for known error types above.
 	return fmt.Errorf("%s: %w", msg, err)
+}
+
+// isConnectionFailure reports whether err comes from failing to reach the
+// database: the connection could not be made, or it broke while in use. A
+// call its caller cancelled is not one. A query the context ended is not one
+// either, although its error looks like a network timeout; a connection
+// attempt that timed out is.
+func isConnectionFailure(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// pgconn.ErrConnClosed is a pooled connection that already broke; the two
+	// EOFs are one that breaks during a call.
+	if errors.Is(err, pgconn.ErrConnClosed) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	_, ok := errors.AsType[net.Error](err)
+	return ok
 }
 
 // pgErrorCodes maps the PostgreSQL error codes toAppErr knows to apperr codes.

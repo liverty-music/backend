@@ -147,6 +147,9 @@ func (v *EmailVerifier) VerifyEmail(ctx context.Context, providerUserID, code st
 // wrapGRPC maps a Zitadel gRPC error: NotFound stays NotFound, an unreachable
 // Zitadel is Unavailable and anything else is Internal.
 func wrapGRPC(err error, msg string, attrs ...slog.Attr) error {
+	if tokenUnreachable(err) {
+		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+	}
 	switch status.Code(err) {
 	case grpccodes.NotFound:
 		return apperr.Wrap(err, codes.NotFound, "identity not found", attrs...)

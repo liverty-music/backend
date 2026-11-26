@@ -243,10 +243,9 @@ func (w *apiWiring) buildCatalogue() error {
 	// Cache - Artist discovery results (search, similar, top) for usecase.ArtistCacheTTL (6 h)
 	w.artistCache = cache.NewMemoryCache(usecase.ArtistCacheTTL)
 
-	// Infrastructure - fan identity removal (admin and fan workloads) and
-	// email verification (fan workload) through the identity service; nil
-	// elsewhere and in local dev without the identity service.
-	identityRemover, emailCodes := provideIdentityClients(ctx, cfg, logger)
+	// Infrastructure - email verification (fan workload) through the identity
+	// service; nil elsewhere and in local dev without the identity service.
+	emailCodes := provideIdentityClients(ctx, cfg, logger)
 
 	w.userUC = usecase.NewUserUseCase(w.userRepo, w.areaRepo, usecase.DeletionBlockerReads{
 		Tickets:        w.ticketRepo,
@@ -256,7 +255,7 @@ func (w *apiWiring) buildCatalogue() error {
 		Checkouts:      w.checkoutRepo,
 		Orders:         w.orderRepo,
 		Now:            time.Now,
-	}, w.workflows, nil, emailCodes, identityRemover, usecase.PasskeyMailers{}, time.Now, logger)
+	}, w.workflows, nil, emailCodes, nil, usecase.PasskeyMailers{}, time.Now, logger)
 	w.passkeyUC = usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), w.userRepo, w.workflows, time.Now, logger)
 
 	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)

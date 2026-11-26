@@ -329,7 +329,7 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 	}
 
 	// @spec components/infrastructure/backend/process/identity-provider-credentials "Admin deletes a fan"
-	t.Run("the admin console API's fan deletion asks the identity service to delete the identity", func(t *testing.T) {
+	t.Run("the workflow worker's removal of a fan asks the identity service to delete the identity", func(t *testing.T) {
 		t.Parallel()
 		f := &fakeIdentityService{}
 		users := mocks.NewMockUserRepository(t)
@@ -350,8 +350,17 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 			Tickets: tickets, ResaleListings: listings, LotteryEntries: entries, Checkouts: checkouts, Now: time.Now,
 		}, nil, nil, nil, client, usecase.PasskeyMailers{}, time.Now, logger)
 
-		require.NoError(t, uc.Delete(ctx, fan.ID))
+		_, err := uc.RunDeleteUser(ctx, inlineSteps{}, usecase.UserDeletion{UserID: fan.ID, ProviderUserID: fan.ProviderUserID})
+		require.NoError(t, err)
 
 		assert.Equal(t, []string{"DeleteIdentity zitadel-fan-1"}, f.recorded())
 	})
+}
+
+// inlineSteps runs a workflow's steps at once, as a first run does; the
+// removal uses no other part of a Flow.
+type inlineSteps struct{ usecase.Flow }
+
+func (inlineSteps) Step(ctx context.Context, _ string, fn func(context.Context) ([]byte, error)) ([]byte, error) {
+	return fn(ctx)
 }

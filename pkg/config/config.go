@@ -859,7 +859,8 @@ type IdentityListeners struct {
 	// HealthPort serves the gRPC health check for the kubelet probes.
 	HealthPort int `envconfig:"HEALTH_PORT" default:"8080"`
 
-	// EventConsumerPort serves the event consumer's procedures.
+	// EventConsumerPort serves the workflow worker's procedures; it keeps the
+	// name of the caller it first served.
 	EventConsumerPort int `envconfig:"IDENTITY_EVENT_CONSUMER_PORT" default:"9100"`
 
 	// AdminConsoleAPIPort serves the admin console API's procedures.
@@ -1227,18 +1228,6 @@ func (c *ServerConfig) StartsWorkflows() bool {
 		return true
 	}
 	return c.Workload == WorkloadFan || c.Workload == WorkloadAdmin
-}
-
-// RemovesIdentities reports whether this process removes fan identities
-// through the identity service: outside local the admin workload, for an
-// admin's removal of a fan, and the fan workload, for a fan's removal of
-// their own account, each through its own listener; local whenever the
-// identity service's URL is set.
-func (c *ServerConfig) RemovesIdentities() bool {
-	if c.IsLocal() {
-		return c.IdentityServiceURL != ""
-	}
-	return c.Workload == WorkloadAdmin || c.Workload == WorkloadFan
 }
 
 // VerifiesEmails reports whether this process confirms email addresses

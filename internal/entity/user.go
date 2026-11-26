@@ -231,13 +231,17 @@ type UserRepository interface {
 	//  - AlreadyExists: another User has the same provider user ID or the
 	//    same email; two emails are the same when they are equal with letter
 	//    case ignored. Nothing is stored.
+	//  - FailedPrecondition: a User with the same provider user ID was removed
+	//    (Delete), also when the removal completes while Create runs. Nothing
+	//    is stored.
 	//  - Unavailable: The announcement could not be recorded; nothing is
 	//    stored.
 	//
 	// # Announces
 	//
 	// USER.created with the User without its full name, phone number and display
-	// name, together with the insert. Nothing on AlreadyExists.
+	// name, together with the insert. Nothing on AlreadyExists or
+	// FailedPrecondition.
 	Create(ctx context.Context, params *NewUser) (*User, error)
 
 	// RecordLogin sets the user's last login time to at when it has none or
@@ -281,11 +285,14 @@ type UserRepository interface {
 	//    ignored.
 	GetByEmail(ctx context.Context, email string) (*User, error)
 
-	// Delete removes a user.
+	// Delete removes a user and records its provider user ID as removed,
+	// together: Create refuses that ID from then on.
 	//
 	// # Possible errors
 	//
+	//  - InvalidArgument: If the id is empty.
 	//  - NotFound: If the user does not exist.
+	//  - Unavailable: the store cannot be reached.
 	Delete(ctx context.Context, id string) error
 
 	// SerializeDeletion runs fn while holding an exclusive lock keyed on the
