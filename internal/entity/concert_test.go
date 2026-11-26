@@ -274,8 +274,8 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 	t.Parallel()
 
 	localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	startTime := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
-	openTime := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	startTime := tod(19, 0)
+	openTime := tod(18, 0)
 	adminArea := "JP-13"
 
 	tests := []struct {
@@ -319,8 +319,8 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 				assert.Equal(t, entity.SeriesTypeSingle, got.Series.Type)
 				assert.Equal(t, "Zepp Tokyo", *got.ListedVenueName)
 				assert.Equal(t, localDate, got.LocalDate)
-				assert.Equal(t, &startTime, got.StartTime)
-				assert.Equal(t, &openTime, got.OpenTime)
+				assert.Equal(t, startTime, got.StartTime)
+				assert.Equal(t, openTime, got.OpenTime)
 				assert.Equal(t, "https://example.com/live", got.Series.SourceURL)
 			},
 		},
@@ -334,7 +334,7 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Some Venue",
 				LocalDate:       localDate,
-				// StartTime and OpenTime are zero — NullableTime must return nil.
+				// StartTime and OpenTime are zero — nil times must stay nil.
 			},
 			artistID: "artist-2",
 			seriesID: "",
@@ -449,9 +449,12 @@ func makeEvent(date time.Time, venue string) *entity.DiscoveredEvent {
 }
 
 // startingAt returns an existing Concert at the venue with a known start time.
-func startingAt(date time.Time, venue string, start time.Time) *entity.Concert {
-	return &entity.Concert{LocalDate: date, ListedVenueName: &venue, StartTime: &start}
+func startingAt(date time.Time, venue string, start *entity.TimeOfDay) *entity.Concert {
+	return &entity.Concert{LocalDate: date, ListedVenueName: &venue, StartTime: start}
 }
+
+// tod returns the wall-clock time of day h:m as an optional value.
+func tod(h, m int) *entity.TimeOfDay { return &entity.TimeOfDay{Hour: h, Minute: m} }
 
 func TestFilterNewSeries(t *testing.T) {
 	t.Parallel()
@@ -634,16 +637,16 @@ func TestFilterNewSeries(t *testing.T) {
 		},
 		{
 			// @spec components/entity/discovered-series/filter-new-series "Same instant in another time zone"
-			name: "the same instant written in another time zone is deduped",
+			name: "the same wall-clock start is deduped however it is stored",
 			args: args{
 				series: []*entity.DiscoveredSeries{
 					makeSeries("Tour", &entity.DiscoveredEvent{
 						LocalDate:       date1,
 						ListedVenueName: "Zepp Tokyo",
-						StartTime:       time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("JST", 9*60*60)),
+						StartTime:       tod(18, 0),
 					}),
 				},
-				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC))},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, tod(18, 0))},
 			},
 			wantNil: true,
 		},
@@ -652,7 +655,7 @@ func TestFilterNewSeries(t *testing.T) {
 			name: "unknown-start event dropped next to an existing event with a known start",
 			args: args{
 				series:   []*entity.DiscoveredSeries{makeSeries("Tour", makeEvent(date1, zeppTokyo))},
-				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC))},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, tod(18, 0))},
 			},
 			wantNil: true,
 		},
@@ -664,10 +667,10 @@ func TestFilterNewSeries(t *testing.T) {
 					makeSeries("Tour", &entity.DiscoveredEvent{
 						LocalDate:       date1,
 						ListedVenueName: "Zepp Tokyo",
-						StartTime:       time.Date(2026, 3, 15, 13, 0, 0, 0, time.UTC),
+						StartTime:       tod(13, 0),
 					}),
 				},
-				existing: []*entity.Concert{startingAt(date1, zeppTokyo, time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC))},
+				existing: []*entity.Concert{startingAt(date1, zeppTokyo, tod(18, 0))},
 			},
 			wantEventVenues: []string{"Zepp Tokyo"},
 		},
@@ -756,7 +759,7 @@ func TestFilterNewSeries(t *testing.T) {
 					makeSeries("Tour", &entity.DiscoveredEvent{
 						LocalDate:       date1,
 						ListedVenueName: "Zepp Tokyo",
-						StartTime:       time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC),
+						StartTime:       tod(19, 0),
 					}),
 				},
 				// existing1 has nil StartTime → StartKey "" (unknown).
@@ -773,12 +776,12 @@ func TestFilterNewSeries(t *testing.T) {
 						&entity.DiscoveredEvent{
 							LocalDate:       date1,
 							ListedVenueName: "Zepp Tokyo",
-							StartTime:       time.Date(2026, 3, 15, 14, 0, 0, 0, time.UTC),
+							StartTime:       tod(14, 0),
 						},
 						&entity.DiscoveredEvent{
 							LocalDate:       date1,
 							ListedVenueName: "Zepp Tokyo",
-							StartTime:       time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC),
+							StartTime:       tod(19, 0),
 						},
 					),
 				},
@@ -816,7 +819,7 @@ func TestDiscoveredEvent_JSONSerialization(t *testing.T) {
 	t.Parallel()
 
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
-	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
+	startTime := tod(19, 0)
 	adminArea := "JP-13"
 
 	tests := []struct {
@@ -989,18 +992,20 @@ func TestDiscoveredEvent_RepeatKeyAndHasPassedAt(t *testing.T) {
 	t.Parallel()
 
 	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
-	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	start := tod(18, 0)
 	a := &entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: start}
 
 	assert.Equal(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "ZEPP  HANEDA", LocalDate: day, StartTime: start}).RepeatKey(), "the same show in another notation")
-	assert.NotEqual(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: start.Add(3 * time.Hour)}).RepeatKey(), "a 2nd stage is another event")
+	assert.NotEqual(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day, StartTime: tod(21, 0)}).RepeatKey(), "a 2nd stage is another event")
 	assert.Equal(t, (&entity.DiscoveredEvent{ListedVenueName: "A", LocalDate: day}).RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "A", LocalDate: day}).RepeatKey(), "two with no start time are one")
 	assert.NotEqual(t, a.RepeatKey(), (&entity.DiscoveredEvent{ListedVenueName: "Zepp Haneda", LocalDate: day}).RepeatKey(), "an unknown start time is no known one")
 
 	// 23:30 UTC on 11-30 is already 12-01 at the venue (Japan time).
 	at := time.Date(2026, 11, 30, 23, 30, 0, 0, time.UTC)
-	assert.False(t, a.HasPassedAt(at), "the event's day is the venue's current day")
-	assert.True(t, (&entity.DiscoveredEvent{LocalDate: time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)}).HasPassedAt(at), "the previous day has passed at the venue")
+	tokyo := "Asia/Tokyo"
+	onTheDay := &entity.DiscoveredEvent{LocalDate: day, TimeZone: &tokyo}
+	assert.False(t, onTheDay.HasPassedAt(at), "the event's day is the venue's current day")
+	assert.True(t, (&entity.DiscoveredEvent{LocalDate: time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC), TimeZone: &tokyo}).HasPassedAt(at), "the previous day has passed at the venue")
 }
 
 func TestDiscoveredSeries_ClassifyType(t *testing.T) {
@@ -1032,12 +1037,12 @@ func TestConcert_NaturalKeyAndDedup(t *testing.T) {
 	t.Parallel()
 
 	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
-	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
-	concert := func(id, venue string, start *time.Time) *entity.Concert {
+	start := tod(18, 0)
+	concert := func(id, venue string, start *entity.TimeOfDay) *entity.Concert {
 		return &entity.Concert{ID: id, VenueID: venue, LocalDate: day, StartTime: start}
 	}
-	a, dupOfA := concert("a", "v1", &start), concert("dup", "v1", &start)
-	otherVenue, otherStage := concert("b", "v2", &start), concert("c", "v1", new(start.Add(3*time.Hour)))
+	a, dupOfA := concert("a", "v1", start), concert("dup", "v1", start)
+	otherVenue, otherStage := concert("b", "v2", start), concert("c", "v1", tod(21, 0))
 	unknown, unknownAgain := concert("u", "v1", nil), concert("u2", "v1", nil)
 
 	kept, dropped := entity.DedupByNaturalKey([]*entity.Concert{a, nil, dupOfA, otherVenue, otherStage, unknown, unknownAgain})
@@ -1059,15 +1064,15 @@ func TestNotifiableEventIDs(t *testing.T) {
 func TestEvent_MergeDiscovered(t *testing.T) {
 	t.Parallel()
 
-	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
-	openA, openB := start.Add(-time.Hour), start.Add(-2*time.Hour)
+	start := tod(18, 0)
+	openA, openB := tod(17, 0), tod(16, 0)
 
-	gotStart, gotOpen := (&entity.Event{StartTime: &start, OpenTime: &openA}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
-	assert.Equal(t, &start, gotStart)
-	assert.Equal(t, &openA, gotOpen, "a known open time is never replaced")
+	gotStart, gotOpen := (&entity.Event{StartTime: start, OpenTime: openA}).MergeDiscovered(&entity.Event{StartTime: start, OpenTime: openB})
+	assert.Equal(t, start, gotStart)
+	assert.Equal(t, openA, gotOpen, "a known open time is never replaced")
 
-	_, gotOpen = (&entity.Event{StartTime: &start}).MergeDiscovered(&entity.Event{StartTime: &start, OpenTime: &openB})
-	assert.Equal(t, &openB, gotOpen, "an unknown open time is filled")
+	_, gotOpen = (&entity.Event{StartTime: start}).MergeDiscovered(&entity.Event{StartTime: start, OpenTime: openB})
+	assert.Equal(t, openB, gotOpen, "an unknown open time is filled")
 
 	gotStart, gotOpen = (&entity.Event{}).MergeDiscovered(&entity.Event{})
 	assert.Nil(t, gotStart)
@@ -1078,7 +1083,7 @@ func TestDropPending(t *testing.T) {
 	t.Parallel()
 
 	day := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
-	event := func(date time.Time, venue string, start time.Time) *entity.DiscoveredEvent {
+	event := func(date time.Time, venue string, start *entity.TimeOfDay) *entity.DiscoveredEvent {
 		return &entity.DiscoveredEvent{LocalDate: date, ListedVenueName: venue, StartTime: start}
 	}
 	pending := []entity.ConcertCandidateDedupKey{{LocalDate: day, ListedVenueName: "ZEPP HANEDA"}}
@@ -1087,8 +1092,8 @@ func TestDropPending(t *testing.T) {
 		t.Parallel()
 		series := []*entity.DiscoveredSeries{
 			{Title: "Tour", Events: []*entity.DiscoveredEvent{
-				event(day, "Zepp Haneda", day.Add(18*time.Hour)),
-				event(day, "Zepp Namba", day.Add(18*time.Hour)),
+				event(day, "Zepp Haneda", tod(18, 0)),
+				event(day, "Zepp Namba", tod(18, 0)),
 			}},
 		}
 
@@ -1102,8 +1107,8 @@ func TestDropPending(t *testing.T) {
 	t.Run("removes a series left with no events", func(t *testing.T) {
 		t.Parallel()
 		series := []*entity.DiscoveredSeries{
-			{Title: "Gone", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", day)}},
-			{Title: "Kept", Events: []*entity.DiscoveredEvent{event(day.AddDate(0, 0, 1), "Zepp Haneda", day)}},
+			{Title: "Gone", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", nil)}},
+			{Title: "Kept", Events: []*entity.DiscoveredEvent{event(day.AddDate(0, 0, 1), "Zepp Haneda", nil)}},
 		}
 
 		got := entity.DropPending(series, pending)
@@ -1114,7 +1119,7 @@ func TestDropPending(t *testing.T) {
 
 	t.Run("returns the series as they are when nothing is pending", func(t *testing.T) {
 		t.Parallel()
-		series := []*entity.DiscoveredSeries{{Title: "Tour", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", day)}}}
+		series := []*entity.DiscoveredSeries{{Title: "Tour", Events: []*entity.DiscoveredEvent{event(day, "Zepp Haneda", nil)}}}
 
 		assert.Equal(t, series, entity.DropPending(series, nil))
 	})

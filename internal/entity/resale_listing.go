@@ -57,15 +57,14 @@ const ResaleFeePercent = 10
 // resale is closed when admission opens.
 const ResaleDeadlineLead = admissionWindowLead
 
-// ResaleDeadlineAt returns the resale deadline of an event starting at start,
-// which is also its last resale draw: 12:00 on the event's day in the time
-// zone of the event's Venue ([VenueTimeZone]), or 3 hours before the start
-// time, when admission opens, if that is earlier.
+// ResaleDeadlineAt returns the resale deadline of an event starting at the
+// instant start at a Venue in venueZone, which is also its last resale draw:
+// 12:00 on the event's day in venueZone, or 3 hours before the start time,
+// when admission opens, if that is earlier.
 // It is on a whole minute, rounded down from a start time with seconds: the
 // draw schedule runs on whole minutes, and a deadline between two of them
 // would never be drawn.
-func ResaleDeadlineAt(start time.Time) time.Time {
-	venueZone := VenueTimeZone()
+func ResaleDeadlineAt(start time.Time, venueZone *time.Location) time.Time {
 	local := start.In(venueZone)
 	noon := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, venueZone)
 	if beforeAdmission := start.Add(-ResaleDeadlineLead).Truncate(time.Minute); beforeAdmission.Before(noon) {
@@ -75,13 +74,17 @@ func ResaleDeadlineAt(start time.Time) time.Time {
 }
 
 // ResaleDeadlineOf returns the resale deadline of the event
-// ([ResaleDeadlineAt] of its current start time). ok is false when the event
-// has no start time.
+// ([ResaleDeadlineAt] of its current start time in its Venue's zone). ok is
+// false when the event has no start time or its Venue's zone is not known.
 func ResaleDeadlineOf(event *Event) (deadline time.Time, ok bool) {
-	if event == nil || event.StartTime == nil {
+	if event == nil {
 		return time.Time{}, false
 	}
-	return ResaleDeadlineAt(*event.StartTime), true
+	start, ok := event.StartInstant()
+	if !ok {
+		return time.Time{}, false
+	}
+	return ResaleDeadlineAt(start, event.Location()), true
 }
 
 // ResaleFee returns the resale fee of a listing priced price in yen: 10% of

@@ -56,7 +56,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 	open := time.Date(2026, 11, 20, 18, 0, 0, 0, tsJST)
 	concert := &entity.Concert{
 		ID: "event-1", LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		StartTime: &start, OpenTime: &open, Venue: &entity.Venue{Name: "Zepp Shinjuku"},
+		StartTime: tod(start), OpenTime: tod(open), Venue: &entity.Venue{Name: "Zepp Shinjuku"},
 		Series: &entity.Series{Title: "Liverty Live 2026"},
 	}
 	f.uc = usecase.NewNotificationUseCase(f.notifs, f.pushSubs, f.sender, f.publisher, anyPushMetrics(t), newTestLogger(t),

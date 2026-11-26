@@ -20,16 +20,16 @@ func TestEventsUniqueKey(t *testing.T) {
 	db := newTestDB(t)
 	f := newVisibilityFixture(t, db)
 	date := time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC)
-	at13 := time.Date(2027, 1, 10, 4, 0, 0, 0, time.UTC)
-	at18 := time.Date(2027, 1, 10, 9, 0, 0, 0, time.UTC)
+	at13 := timeOfDayAt(13, 0)
+	at18 := timeOfDayAt(18, 0)
 	published := new(entity.PublishStatePublished)
 	draft := new(entity.PublishStateDraft)
 
 	tests := []struct {
 		name         string
-		firstStart   *time.Time
+		firstStart   *entity.TimeOfDay
 		firstState   *entity.PublishState
-		secondStart  *time.Time
+		secondStart  *entity.TimeOfDay
 		secondState  *entity.PublishState
 		wantSameSlot bool
 	}{
@@ -73,8 +73,8 @@ func insertSlotEvent(f *visibilityFixture, e *entity.Event) error {
 		state = &s
 	}
 	_, err := f.db.Pool.Exec(f.ctx,
-		`INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6::event_publish_state, CASE WHEN $6::event_publish_state IS NULL THEN NULL ELSE 4 END)`,
-		entity.NewID(), series, e.VenueID, e.LocalDate, e.StartTime, state)
+		`INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time, publish_state, per_account_limit)
+		 VALUES ($1, $2, $3, $4, $5::text::time, $6::event_publish_state, CASE WHEN $6::event_publish_state IS NULL THEN NULL ELSE 4 END)`,
+		entity.NewID(), series, e.VenueID, e.LocalDate, timeOfDayArg(e.StartTime), state)
 	return err
 }

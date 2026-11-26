@@ -536,7 +536,11 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 // artistRefreshSlot returns the rotation slot of the day of now in Japan time:
 // the whole days from 1970-01-01 to that day, modulo entity.ArtistRefreshSlots.
 func artistRefreshSlot(now time.Time) int {
-	days := entity.JapanDate(now).Unix() / (24 * 60 * 60)
+	japan, err := entity.LoadZone("Asia/Tokyo")
+	if err != nil {
+		panic(err) // the zone is embedded, so this cannot happen
+	}
+	days := entity.LocalDateIn(now, japan).Unix() / (24 * 60 * 60)
 	return int(days % entity.ArtistRefreshSlots)
 }
 

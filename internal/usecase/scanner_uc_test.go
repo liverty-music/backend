@@ -40,8 +40,9 @@ func newScannerFixture(t *testing.T) *scannerFixture {
 			ID:           entity.NewID(),
 			PublishState: new(entity.PublishStatePublished),
 			LocalDate:    time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-			OpenTime:     &open,
-			StartTime:    &start,
+			OpenTime:     tod(open),
+			StartTime:    tod(start),
+			Venue:        tokyoVenue(),
 		},
 	}
 	f.owner = ucmocks.NewMockEventOrganizerRepository(t)

@@ -11,6 +11,7 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 
+	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -304,6 +305,7 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 
 	jst := time.FixedZone("JST", 9*60*60)
 	searcher := &storySearcher{sales: []*entity.DiscoveredTicketSale{{
+		TimeZone:      "Asia/Tokyo",
 		SeriesID:      banquet,
 		Name:          "一般発売",
 		Method:        entity.TicketSaleMethodFirstCome,
@@ -330,11 +332,13 @@ func TestStory_HearAboutANewTicketSale(t *testing.T) {
 		func(s *entityv1.TicketSale) bool { return s.GetSeriesId().GetValue() == banquet })
 	require.Len(t, discovered, 1)
 	for _, sale := range discovered {
+		start, _, err := pb.SaleTimeFromProto(sale.GetSaleStartTime())
+		require.NoError(t, err)
 		require.NoError(t, announce.AnnounceDiscoveredSale(ctx, entity.TicketSaleDiscoveredData{
 			TicketSaleID:  sale.GetId().GetValue(),
 			SeriesID:      sale.GetSeriesId().GetValue(),
 			Method:        int16(sale.GetMethod()),
-			SaleStartTime: sale.GetSaleStartTime().AsTime(),
+			SaleStartTime: start,
 		}))
 	}
 	d.deliverRequested(t)
@@ -413,15 +417,17 @@ func TestStory_GetRemindedOfTicketSaleMilestones(t *testing.T) {
 	storyJourney(t, db, fan, kickoffEvent, entity.TicketJourneyStatusTracking)
 	storyJourney(t, db, appliedFan, kickoffEvent, entity.TicketJourneyStatusApplied)
 
-	now := time.Now()
+	now := time.Now().Truncate(time.Minute)
 	// A first-come sale opening in 10 minutes and a lottery that opened 10
 	// minutes ago, both known since yesterday.
 	_, _, err := sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: shadows, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome,
 		SaleStartTime: now.Add(10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
 	})
 	require.NoError(t, err)
 	_, _, err = sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: kickoff, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.Add(-10 * time.Minute), SaleEndTime: now.AddDate(0, 0, 10),
 	})
@@ -505,16 +511,18 @@ func TestStory_LotteryClosingSoon(t *testing.T) {
 	storyJourney(t, db, applied, kickoffEvent, entity.TicketJourneyStatusApplied)
 	storyJourney(t, db, applied, shadowsEvent, entity.TicketJourneyStatusApplied)
 
-	now := time.Now()
+	now := time.Now().Truncate(time.Minute)
 	kickoffEnd := now.Add(12 * time.Hour)
-	kickoffResult := entity.JapanDate(kickoffEnd).AddDate(0, 0, 10)
-	today := entity.JapanDate(now)
+	kickoffResult := japanDate(kickoffEnd).AddDate(0, 0, 10)
+	today := japanDate(now)
 	kickoffID, _, err := sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: kickoff, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.AddDate(0, 0, -10), SaleEndTime: kickoffEnd, ResultDate: &kickoffResult,
 	})
 	require.NoError(t, err)
 	_, _, err = sales.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: shadows, Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: now.AddDate(0, 0, -15), SaleEndTime: now.AddDate(0, 0, -3), ResultDate: &today,
 	})
@@ -588,7 +596,7 @@ func TestStory_OrganizerSalesAreReminded(t *testing.T) {
 	storyJourney(t, db, osakaFan, osaka, entity.TicketJourneyStatusTracking)
 	storyJourney(t, db, cancelledFan, cancelled, entity.TicketJourneyStatusTracking)
 
-	now := time.Now()
+	now := time.Now().Truncate(time.Minute)
 	// A lottery that opened 10 minutes ago and a first-come sale opening in
 	// 10 minutes, both offering the Tokyo event only, and a lottery of the
 	// cancelled tour opening tomorrow.

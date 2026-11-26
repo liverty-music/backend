@@ -59,7 +59,7 @@ func (h *OrganizerSeriesHandler) resolveCallerOrganizer(ctx context.Context) (*e
 
 // seriesDraftToInputs converts the proto SeriesDraft payload into the domain
 // types expected by the authoring use case.
-func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, []*usecase.DraftEventInput, []string) {
+func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, []*usecase.DraftEventInput, []string, error) {
 	seriesType := pb.ToSeriesType(draft.GetType())
 	visibility := pb.ToVisibility(draft.GetVisibility())
 
@@ -103,13 +103,12 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 			v := eid.GetValue()
 			inp.EventID = &v
 		}
-		if st := ev.GetStartTime(); st != nil && st.GetValue() != nil {
-			t := st.GetValue().AsTime()
-			inp.StartTime = &t
+		var err error
+		if inp.StartTime, err = pb.TimeOfDayFromProto(ev.GetStartTime().GetValue()); err != nil {
+			return nil, nil, nil, err
 		}
-		if ot := ev.GetOpenTime(); ot != nil && ot.GetValue() != nil {
-			t := ot.GetValue().AsTime()
-			inp.OpenTime = &t
+		if inp.OpenTime, err = pb.TimeOfDayFromProto(ev.GetOpenTime().GetValue()); err != nil {
+			return nil, nil, nil, err
 		}
 		if ev.HasPerAccountLimit() {
 			limit := int(ev.GetPerAccountLimit())
@@ -117,7 +116,7 @@ func seriesDraftToInputs(draft *organizerseriesv1.SeriesDraft) (*entity.Series, 
 		}
 		eventInputs = append(eventInputs, inp)
 	}
-	return s, eventInputs, artistIDs
+	return s, eventInputs, artistIDs, nil
 }
 
 // eventIDValues unwraps the event ids of a request; nil when none is named.
@@ -143,7 +142,10 @@ func (h *OrganizerSeriesHandler) Create(
 		return nil, err
 	}
 
-	s, eventInputs, artistIDs := seriesDraftToInputs(req.GetDraft())
+	s, eventInputs, artistIDs, err := seriesDraftToInputs(req.GetDraft())
+	if err != nil {
+		return nil, err
+	}
 	series, concerts, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
@@ -167,7 +169,10 @@ func (h *OrganizerSeriesHandler) Update(
 	}
 
 	seriesID := req.GetSeriesId().GetValue()
-	s, eventInputs, artistIDs := seriesDraftToInputs(req.GetDraft())
+	s, eventInputs, artistIDs, err := seriesDraftToInputs(req.GetDraft())
+	if err != nil {
+		return nil, err
+	}
 	series, concerts, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err

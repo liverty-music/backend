@@ -186,7 +186,7 @@ type ResaleCreateSnapshot struct {
 // An entry whose Order already holds the card authorization is returned by the
 // repository before this is asked.
 func (e *ResaleEntry) CheckCreate(s ResaleCreateSnapshot) error {
-	if s.Event.StartTime == nil {
+	if _, ok := s.Event.StartInstant(); !ok {
 		return apperr.New(codes.Internal, "the event of a resale stock has no start time")
 	}
 	if !s.Stock.IsResaleOpenAt(e.CreateTime, s.Event) {
@@ -234,13 +234,14 @@ func (e *ResaleEntry) AwaitsDraw() bool {
 }
 
 // NextDrawTime returns the next resale draw of the entry's event, which starts
-// at eventStart, after now: nil unless the entry awaits a draw, the event has
-// a start time and its last draw is still to come ([NextResaleDrawTime]).
-func (e *ResaleEntry) NextDrawTime(now time.Time, eventStart *time.Time) *time.Time {
-	if !e.AwaitsDraw() || eventStart == nil {
+// at the instant eventStart at a Venue in venueZone, after now: nil unless the
+// entry awaits a draw, the event has a start time and its last draw is still
+// to come ([NextResaleDrawTime]).
+func (e *ResaleEntry) NextDrawTime(now time.Time, eventStart *time.Time, venueZone *time.Location) *time.Time {
+	if !e.AwaitsDraw() || eventStart == nil || venueZone == nil {
 		return nil
 	}
-	next, ok := NextResaleDrawTime(now, *eventStart)
+	next, ok := NextResaleDrawTime(now, *eventStart, venueZone)
 	if !ok {
 		return nil
 	}
@@ -364,7 +365,8 @@ func (o ResaleChargeOutcome) LostReason() ResaleEntryLostReason {
 	return ResaleEntryLostReasonUnspecified
 }
 
-// ResaleDrawHour is the hour, Japan time, of the daily resale draw.
+// ResaleDrawHour is the hour, in the time zone of the event's Venue, of the
+// daily resale draw.
 const ResaleDrawHour = 12
 
 // ResaleLapseLead is how long after a draw a card authorization must still be
@@ -372,19 +374,20 @@ const ResaleDrawHour = 12
 // retries, within this time.
 const ResaleLapseLead = 24 * time.Hour
 
-// ResaleDrawAt reports whether a resale draw of the event starting at start
-// runs at t, and whether it is the event's last: 12:00 Japan time on every day
-// before the event's day, and the event's resale deadline on its day, which
-// is the last draw ([ResaleDeadlineAt]).
-func ResaleDrawAt(t, start time.Time) (draw, last bool) {
-	deadline := ResaleDeadlineAt(start)
+// ResaleDrawAt reports whether a resale draw of the event starting at the
+// instant start at a Venue in venueZone runs at t, and whether it is the
+// event's last: 12:00 in venueZone on every day before the event's day, and the
+// event's resale deadline on its day, which is the last draw
+// ([ResaleDeadlineAt]).
+func ResaleDrawAt(t, start time.Time, venueZone *time.Location) (draw, last bool) {
+	deadline := ResaleDeadlineAt(start, venueZone)
 	if t.Equal(deadline) {
 		return true, true
 	}
 	if !t.Before(deadline) {
 		return false, false
 	}
-	local := t.In(japanTime)
+	local := t.In(venueZone)
 	return local.Hour() == ResaleDrawHour && local.Minute() == 0 && local.Second() == 0 && local.Nanosecond() == 0, false
 }
 
@@ -394,8 +397,8 @@ func ResaleDrawAt(t, start time.Time) (draw, last bool) {
 // schedule does not backfill): the next run ends them as the last draw
 // would have, except that it allocates no listing, since every listing
 // expired at the deadline.
-func ResaleLastDrawMissed(t, start time.Time) bool {
-	return t.After(ResaleDeadlineAt(start))
+func ResaleLastDrawMissed(t, start time.Time, venueZone *time.Location) bool {
+	return t.After(ResaleDeadlineAt(start, venueZone))
 }
 
 // ResaleDrawDue decides whether a resale draw of the event starting at start
@@ -403,21 +406,21 @@ func ResaleLastDrawMissed(t, start time.Time) bool {
 // that draw is the event's last, and missed when t is past the deadline, so
 // the last draw was missed ([ResaleLastDrawMissed]). due is draw or missed:
 // a stock that still has Entered entries past its deadline is drawn now.
-func ResaleDrawDue(t, start time.Time) (due, last, missed bool) {
-	draw, last := ResaleDrawAt(t, start)
-	missed = ResaleLastDrawMissed(t, start)
+func ResaleDrawDue(t, start time.Time, venueZone *time.Location) (due, last, missed bool) {
+	draw, last := ResaleDrawAt(t, start, venueZone)
+	missed = ResaleLastDrawMissed(t, start, venueZone)
 	return draw || missed, last, missed
 }
 
 // NextResaleDrawTime returns the first resale draw of the event starting at
 // start that runs after now, and false when its last draw has passed.
-func NextResaleDrawTime(now, start time.Time) (time.Time, bool) {
-	deadline := ResaleDeadlineAt(start)
+func NextResaleDrawTime(now, start time.Time, venueZone *time.Location) (time.Time, bool) {
+	deadline := ResaleDeadlineAt(start, venueZone)
 	if !now.Before(deadline) {
 		return time.Time{}, false
 	}
-	local := now.In(japanTime)
-	next := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, japanTime)
+	local := now.In(venueZone)
+	next := time.Date(local.Year(), local.Month(), local.Day(), ResaleDrawHour, 0, 0, 0, venueZone)
 	if !next.After(now) {
 		next = next.AddDate(0, 0, 1)
 	}
@@ -494,8 +497,12 @@ type ResaleDrawStock struct {
 	StockID TicketStockID
 	// EventID is its event.
 	EventID string
-	// StartTime is the event's start time; nil when it has none.
+	// StartTime is the instant the event starts, computed from its local date,
+	// start time and Venue zone; nil when it has none or its zone is not known.
 	StartTime *time.Time
+	// VenueZone is the time zone of the event's Venue, in which the draws are
+	// scheduled.
+	VenueZone *time.Location
 }
 
 // ResaleEntryEndedEmail is the finished message telling a fan that their

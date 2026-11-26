@@ -54,9 +54,12 @@ const (
 	// resaleEntryCreateLockQuery serializes every Create for one card
 	// authorization: a transaction-scoped advisory lock keyed on its id.
 	resaleEntryCreateLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('resale-entry-card-authorization:' || $1, 0))`
-	// resaleEntryEventQuery reads the start time, publish state and
-	// per-account limit of the event.
-	resaleEntryEventQuery = `SELECT start_time, publish_state, per_account_limit FROM events WHERE id = $1`
+	// resaleEntryEventQuery reads the local date, start time, publish state and
+	// per-account limit of the event, with its Venue's time zone.
+	resaleEntryEventQuery = `
+		SELECT e.local_event_date, e.local_start_time::text, e.publish_state, e.per_account_limit, v.time_zone
+		FROM events e JOIN venues v ON v.id = e.venue_id WHERE e.id = $1
+	`
 	// resaleEntryEnteredForEventQuery reports whether the user ($1) has an
 	// Entered resale entry for a stock of the event ($2).
 	resaleEntryEnteredForEventQuery = `
@@ -122,11 +125,12 @@ const (
 	// resaleEntryStocksWithEnteredQuery lists the stocks with Entered
 	// entries, with their event and its start time.
 	resaleEntryStocksWithEnteredQuery = `
-		SELECT DISTINCT s.id, e.id, e.start_time
+		SELECT DISTINCT s.id, e.id, e.local_event_date, e.local_start_time::text, v.time_zone
 		FROM resale_entries re
 		JOIN orders o ON o.id = re.order_id
 		JOIN ticket_stocks s ON s.id = o.ticket_stock_id
 		JOIN events e ON e.id = s.event_id
+		JOIN venues v ON v.id = e.venue_id
 		WHERE re.state = 1
 	`
 	// resaleEntryMarkEndedEmailSentQuery sets the ended email send time once
@@ -237,14 +241,16 @@ func checkResaleEntryAllowed(ctx context.Context, tx pgx.Tx, entry *entity.Resal
 		return toAppErr(err, "failed to read the entry's stock", attrs...)
 	}
 	var (
-		startAt      sql.NullTime
+		eventDate    time.Time
+		startAt      *string
 		publishState sql.NullString
 		limit        sql.NullInt32
+		zone         string
 	)
-	if err := tx.QueryRow(ctx, resaleEntryEventQuery, stock.EventID).Scan(&startAt, &publishState, &limit); err != nil {
+	if err := tx.QueryRow(ctx, resaleEntryEventQuery, stock.EventID).Scan(&eventDate, &startAt, &publishState, &limit, &zone); err != nil {
 		return toAppErr(err, "failed to read the stock's event", attrs...)
 	}
-	event := &entity.Event{ID: stock.EventID, StartTime: optionalTime(startAt), PerAccountLimit: optionalInt(limit)}
+	event := &entity.Event{ID: stock.EventID, LocalDate: eventDate, StartTime: timeOfDayFromText(startAt), Venue: &entity.Venue{TimeZone: &zone}, PerAccountLimit: optionalInt(limit)}
 	if publishState.Valid {
 		state := entity.PublishState(publishState.String)
 		event.PublishState = &state
@@ -484,12 +490,15 @@ func (r *ResaleEntryRepository) ListDueStocks(ctx context.Context) ([]entity.Res
 	for rows.Next() {
 		var (
 			stockID, eventID string
-			startAt          sql.NullTime
+			eventDate        time.Time
+			startAt          *string
+			zone             string
 		)
-		if err := rows.Scan(&stockID, &eventID, &startAt); err != nil {
+		if err := rows.Scan(&stockID, &eventID, &eventDate, &startAt, &zone); err != nil {
 			return nil, toAppErr(err, "failed to scan a stock with resale entries")
 		}
-		out = append(out, entity.ResaleDrawStock{StockID: entity.TicketStockID(stockID), EventID: eventID, StartTime: optionalTime(startAt)})
+		start, loc := eventStartInstant(eventDate, startAt, zone)
+		out = append(out, entity.ResaleDrawStock{StockID: entity.TicketStockID(stockID), EventID: eventID, StartTime: start, VenueZone: loc})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "failed to list the stocks with resale entries")

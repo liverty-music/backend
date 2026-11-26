@@ -36,12 +36,12 @@ func lifecycleSeries(visibility entity.SeriesVisibility) *entity.Series {
 
 // lifecycleEvent returns a stored Event of the series in the given state,
 // at Zepp Haneda on date, as GetAuthored returns it.
-func lifecycleEvent(id string, state entity.PublishState, date time.Time, start *time.Time) *entity.Event {
+func lifecycleEvent(id string, state entity.PublishState, date time.Time, start *entity.TimeOfDay) *entity.Event {
 	return &entity.Event{
 		ID:              id,
 		SeriesID:        lifecycleSeriesID,
 		VenueID:         lifecycleVenueID,
-		Venue:           &entity.Venue{ID: lifecycleVenueID, Name: "Zepp Haneda (TOKYO)", GooglePlaceID: new(lifecyclePlaceID)},
+		Venue:           &entity.Venue{ID: lifecycleVenueID, Name: "Zepp Haneda (TOKYO)", GooglePlaceID: new(lifecyclePlaceID), TimeZone: new("Asia/Tokyo")},
 		ListedVenueName: new(lifecycleVenue),
 		LocalDate:       date,
 		StartTime:       start,
@@ -69,10 +69,8 @@ func editOf(s *entity.Series) *entity.Series {
 	return &entity.Series{Title: s.Title, Type: s.Type, SourceURL: s.SourceURL, Visibility: &v}
 }
 
-func at(date time.Time, hour int) *time.Time {
-	t := date.Add(time.Duration(hour-9) * time.Hour) // JST hour
-	return &t
-}
+// at returns the wall-clock time of day hour:00 at the Venue.
+func at(_ time.Time, hour int) *entity.TimeOfDay { return todAt(hour, 0) }
 
 func representsArtists(d *authoringDeps, ids ...string) {
 	artists := make([]*entity.Artist, len(ids))
@@ -138,6 +136,9 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 	invalid := []struct {
 		name   string
 		inputs []*usecase.DraftEventInput
+		// holdsVenue makes a Venue hold the place id: the date is refused at
+		// the Venue's own time zone, after the Venue is found.
+		holdsVenue bool
 	}{
 		{
 			// @spec components/usecase/series/create "No event"
@@ -145,8 +146,9 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/series/create "Date in the past"
-			name:   "fail with INVALID_ARGUMENT for a date before today",
-			inputs: []*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), LocalDate: authoringNow.AddDate(0, 0, -1).Truncate(24 * time.Hour)}},
+			name:       "fail with INVALID_ARGUMENT for a date before today at the Venue",
+			inputs:     []*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), LocalDate: authoringNow.AddDate(0, 0, -1).Truncate(24 * time.Hour)}},
+			holdsVenue: true,
 		},
 		{
 			// @spec components/usecase/series/create "Doors after start"
@@ -162,12 +164,73 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 			t.Parallel()
 			d := newAuthoringDeps(t)
 			representsArtists(d, authoringArtistID)
+			if tt.holdsVenue {
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+			}
 
 			_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)), tt.inputs, []string{authoringArtistID})
 
 			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		})
 	}
+
+	t.Run("accept today's date at a Venue behind UTC", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Today at a venue behind UTC"
+		// authoringNow is 2026-10-12 03:00 UTC, 2026-10-11 20:00 in Los Angeles.
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueZones[lifecycleVenueID] = "America/Los_Angeles"
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).Return(lifecycleSeries(entity.SeriesVisibilityPublic), nil, nil).Once()
+		dayAtVenue := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
+
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)),
+			[]*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), LocalDate: dayAtVenue}},
+			[]string{authoringArtistID})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("store the times of a show abroad as given at its Venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Show abroad"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueZones[lifecycleVenueID] = "Asia/Seoul"
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		var stored []*entity.Event
+		d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).Return(nil).Once()
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).Return(lifecycleSeries(entity.SeriesVisibilityPublic), nil, nil).Once()
+
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)),
+			[]*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), LocalDate: futureDate(), StartTime: todAt(18, 30)}},
+			[]string{authoringArtistID})
+
+		require.NoError(t, err)
+		require.Len(t, stored, 1)
+		assert.Equal(t, todAt(18, 30), stored[0].StartTime)
+		assert.True(t, stored[0].HasPublishState(entity.PublishStateDraft))
+	})
+
+	t.Run("fail with INVALID_ARGUMENT for a time the clocks skip at the Venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Time skipped by daylight saving"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueZones[lifecycleVenueID] = "America/New_York"
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		// No CreateDraft expectation: nothing is stored.
+
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)),
+			[]*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID),
+				LocalDate: time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC), StartTime: todAt(2, 30)}},
+			[]string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
 
 	t.Run("fail with PERMISSION_DENIED for an artist the organizer does not represent", func(t *testing.T) {
 		t.Parallel()
@@ -226,6 +289,23 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 		representsArtists(d, authoringArtistID)
 		inp := inputFor(draft)
 		inp.StartTime, inp.OpenTime = at(date, 18), at(date, 19)
+
+		_, _, err := d.uc.Update(ctx, authoringOrgID, lifecycleSeriesID, editOf(s), []*usecase.DraftEventInput{inp}, []string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("fail with INVALID_ARGUMENT when a PUBLISHED date is corrected to a skipped time", func(t *testing.T) {
+		t.Parallel()
+		d := newAuthoringDeps(t)
+		s := lifecycleSeries(entity.SeriesVisibilityPublic)
+		springForward := time.Date(2027, time.March, 14, 0, 0, 0, 0, time.UTC)
+		pub := lifecycleEvent(pubID, entity.PublishStatePublished, springForward, nil)
+		pub.Venue.TimeZone = new("America/New_York")
+		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, lifecycleSeriesID).Return(s, concertsOf([]*entity.Event{pub}, nil), nil).Once()
+		representsArtists(d, authoringArtistID)
+		inp := inputFor(pub)
+		inp.OpenTime = &entity.TimeOfDay{Hour: 2, Minute: 30}
 
 		_, _, err := d.uc.Update(ctx, authoringOrgID, lifecycleSeriesID, editOf(s), []*usecase.DraftEventInput{inp}, []string{authoringArtistID})
 
@@ -416,7 +496,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 
 		require.Len(t, given, 1)
 		assert.Equal(t, pubID, given[0].ID)
-		assert.True(t, given[0].StartTime.Equal(*at(date, 18)))
+		assert.Equal(t, at(date, 18), given[0].StartTime)
 		assert.Equal(t, lifecycleVenueID, given[0].VenueID)
 	})
 
@@ -450,7 +530,7 @@ func TestSeriesUseCase_Update_Lifecycle(t *testing.T) {
 			Run(func(_ context.Context, series *entity.Series, events []*entity.Event, _ []string) {
 				edit = series
 				require.Len(t, events, 1)
-				assert.True(t, events[0].OpenTime.Equal(*at(date, 17)))
+				assert.Equal(t, at(date, 17), events[0].OpenTime)
 				assert.True(t, events[0].HasPublishState(entity.PublishStatePublished))
 			}).Return(nil).Once()
 		next := editOf(s)

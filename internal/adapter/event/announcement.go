@@ -57,11 +57,15 @@ func parseTicketSaleDiscovered(msg *message.Message) (entity.TicketSaleDiscovere
 	if err := eventmsg.ParseProtobufData(msg, &sale); err != nil {
 		return entity.TicketSaleDiscoveredData{}, err
 	}
+	start, _, err := pb.SaleTimeFromProto(sale.GetSaleStartTime())
+	if err != nil {
+		return entity.TicketSaleDiscoveredData{}, err
+	}
 	data := entity.TicketSaleDiscoveredData{
 		TicketSaleID:  sale.GetId().GetValue(),
 		SeriesID:      sale.GetSeriesId().GetValue(),
 		Method:        int16(pb.ToTicketSaleMethod(sale.GetMethod())),
-		SaleStartTime: sale.GetSaleStartTime().AsTime(),
+		SaleStartTime: start,
 	}
 	if data.TicketSaleID == "" || data.SeriesID == "" {
 		return entity.TicketSaleDiscoveredData{}, errors.New("the TicketSale has no id or no Series")

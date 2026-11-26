@@ -52,6 +52,7 @@ A fact is announced by the entity operation that stores it, in the same transact
 
 - **Timestamps**: one name in every layer, the present-tense verb of the moment it records followed by `time`: DB column and proto `sign_time` (`TIMESTAMPTZ`), Go `SignTime` (`time.Time`), log key `sign_time`, never `_at` and never a past participle (`SignedTime`). Only the last word before `time` is the verb; words before it keep their own form (`sold_email_send_time` is the send time of the "sold" email). Where the present tense reads badly, use a verb that reads well and means the same (`find_time`, `sell_time`). `scripts/lint-schema.sh` rejects any `*_at` column.
     - **External names**: a key another system defines (Zitadel's `created_at`, Stripe's `expires_at`) stays on the wire; the Go field that holds it follows the rule (`CreateTime time.Time \`json:"created_at"\``).
+    - **Wall-clock times**: a time people announce as a clock time at a place, in the future when stored, is kept as that wall-clock time with its time zone (`TIME` or zone-less `TIMESTAMP` in a `local_*` column, `entity.TimeOfDay` in Go), and the instant is computed by `entity.LocalInstant` or in SQL with `AT TIME ZONE`. A moment that has happened stays `TIMESTAMPTZ`.
     - **When a timestamp exists**: only when an entity field in the spec needs it; no audit metadata (`update_time`, `delete_time` are rejected by `scripts/lint-schema.sh`). When the field means "when the record was created", name it `create_time` / `CreateTime` (AIP-148), not a synonym such as `configure_time` or `record_time`.
 
 ### Go conventions
@@ -66,7 +67,7 @@ General Go guidance comes from the `go` plugin skills (go-errors, go-doc-comment
 
 ### Database schema
 
-`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only, no `update_time` / `delete_time`, no `*_at` column, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. Functions are not in `schema.sql`: Atlas Community cannot read them, and one there makes `atlas migrate diff` refuse to run without `atlas login` (#765); a function is written by hand in a migration (`db-migration-workflow` skill). General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
+`schema.sql` (`internal/infrastructure/database/rdb/schema/schema.sql`) is the desired state, and `make lint-schema` (`scripts/lint-schema.sh`) enforces its policies: no `SERIAL`, `TIMESTAMPTZ` only (except a wall-clock `local_*` column), no `update_time` / `delete_time`, no `*_at` column, `TEXT` with a `CHECK` instead of `VARCHAR`, and a `COMMENT ON` for every table and column. Functions are not in `schema.sql`: Atlas Community cannot read them, and one there makes `atlas migrate diff` refuse to run without `atlas login` (#765); a function is written by hand in a migration (`db-migration-workflow` skill). General PostgreSQL guidance comes from the `postgres` plugin skills (postgres-schema, postgres-migration).
 
 ## Development Workflows
 

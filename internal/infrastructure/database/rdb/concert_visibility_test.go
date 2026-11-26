@@ -40,7 +40,7 @@ func newVisibilityFixture(t *testing.T, db *rdb.Database) *visibilityFixture {
 		ctx:   context.Background(),
 		repo:  rdb.NewConcertRepository(db, testOutbox),
 		orgID: seedOrganizer(t, db),
-		today: entity.CurrentDateAtVenue(time.Now()),
+		today: todayInTokyo(),
 	}
 }
 
@@ -293,7 +293,7 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 		a := g.artist()
 		draftOnly := g.event(g.firstPartySeries(entity.SeriesVisibilityPublic), v, 20, "DRAFT", a)
 		found := g.discoveredSeries()
-		start := g.today.AddDate(0, 0, 20).Add(9 * time.Hour)
+		start := timeOfDayAt(9, 0)
 
 		_, err := g.repo.Create(g.ctx, &entity.Concert{
 			ID: entity.NewID(), SeriesID: found, VenueID: v, LocalDate: g.today.AddDate(0, 0, 20), StartTime: &start,
@@ -305,8 +305,8 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, events, 1, "discovery adds its own event beside the draft")
 		assert.NotEqual(t, draftOnly, events[0].ID)
-		var draftStart *time.Time
-		require.NoError(t, db.Pool.QueryRow(g.ctx, `SELECT start_time FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
+		var draftStart *string
+		require.NoError(t, db.Pool.QueryRow(g.ctx, `SELECT local_start_time::text FROM events WHERE id = $1`, draftOnly).Scan(&draftStart))
 		assert.Nil(t, draftStart, "the draft is left unchanged")
 		assert.Equal(t, []string{a}, sorted(performersOf(t, db, g.ctx, draftOnly)))
 	})
@@ -476,6 +476,36 @@ func TestConcertRepository_ListUpcomingByArtist(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{next}, concertIDs(got))
+	})
+
+	t.Run("return today's concert at a venue where the date has not yet changed", func(t *testing.T) {
+		// @spec components/entity/concert/list-upcoming-by-artist "Today's concert in another time zone"
+		f := newVisibilityFixture(t, db)
+		a, v := f.artist(), f.venue("US-NY", nil, nil)
+		id := f.eventOn(f.discoveredSeries(), v, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), "", a)
+		// 2026-11-10 23:30 UTC is 2026-11-10 18:30 at the venue.
+		now := time.Date(2026, 11, 10, 23, 30, 0, 0, time.UTC)
+
+		got, err := f.repo.ListUpcomingByArtist(f.ctx, a, now)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{id}, concertIDs(got))
+	})
+
+	t.Run("return the venue with its name, admin area and time zone", func(t *testing.T) {
+		// @spec components/entity/concert/list-upcoming-by-artist "Venue's time zone returned"
+		f := newVisibilityFixture(t, db)
+		a, v := f.artist(), f.venue("TW-TPE", nil, nil)
+		f.event(f.discoveredSeries(), v, 3, "", a)
+
+		got, err := f.repo.ListUpcomingByArtist(f.ctx, a, time.Now())
+
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].Venue)
+		assert.NotEmpty(t, got[0].Venue.Name)
+		assert.Equal(t, new("TW-TPE"), got[0].Venue.AdminArea)
+		assert.Equal(t, new("Asia/Taipei"), got[0].Venue.TimeZone)
 	})
 
 	t.Run("leave out a future DRAFT organizer concert", func(t *testing.T) {
@@ -676,6 +706,54 @@ func TestConcertRepository_ListByLocation_Visibility(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{id}, concertIDs(got))
+	})
+
+	// kmEast returns the longitude km due east of lng along the parallel of
+	// lat, wrapped into [-180, 180].
+	kmEast := func(lat, lng, km float64) float64 {
+		east := lng + km/(111.32*math.Cos(lat*math.Pi/180))
+		if east > 180 {
+			east -= 360
+		}
+		return east
+	}
+	for _, tc := range []struct {
+		name     string
+		lat, lng float64
+		km       float64
+	}{
+		// @spec components/entity/concert/list-by-location "Nearby venue far north"
+		{name: "return a concert 190 km due east at 64 degrees north", lat: 64, lng: 20, km: 190},
+		// @spec components/entity/concert/list-by-location "Nearby venue across the 180° meridian"
+		{name: "return a concert across the 180th meridian", lat: 0, lng: 179.5, km: 111},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newVisibilityFixture(t, db)
+			venueLat, venueLng := tc.lat, kmEast(tc.lat, tc.lng, tc.km)
+			// The venue's admin area differs from the point's.
+			id := f.event(f.discoveredSeries(), f.venue("JP-01", &venueLat, &venueLng), 2, "", f.artist())
+			point := &entity.GeoLocation{AdminArea: "JP-13", Point: &entity.Coordinates{Latitude: tc.lat, Longitude: tc.lng}}
+
+			got, err := f.repo.ListByLocation(f.ctx, point, f.today, f.today.AddDate(0, 0, 7))
+
+			require.NoError(t, err)
+			assert.Equal(t, []string{id}, concertIDs(got))
+		})
+	}
+
+	t.Run("return only the admin area's concerts when there is no point", func(t *testing.T) {
+		// @spec components/entity/concert/list-by-location "No point"
+		f := newVisibilityFixture(t, db)
+		a, s := f.artist(), f.discoveredSeries()
+		inArea := f.event(s, f.venue("JP-13", nil, nil), 2, "", a)
+		// About 30 km from Tokyo Station, in Kanagawa.
+		lat, lng := 35.444, 139.638
+		f.event(s, f.venue("JP-14", &lat, &lng), 2, "", a)
+
+		got, err := f.repo.ListByLocation(f.ctx, &entity.GeoLocation{AdminArea: "JP-13"}, f.today, f.today.AddDate(0, 0, 7))
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{inArea}, concertIDs(got))
 	})
 
 	t.Run("leave out a nearby concert the day after the range", func(t *testing.T) {

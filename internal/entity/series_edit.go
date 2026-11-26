@@ -139,7 +139,7 @@ func PlanSeriesUpdate(stored map[string]*Event, given []*Event) (SeriesUpdatePla
 			edit.Kind = EventEditDraft
 		case current.HasPublishState(PublishStatePublished):
 			edit.Kind = EventEditPublishedTimes
-			edit.MovesSlot = !sameOptionalTime(current.StartTime, e.StartTime)
+			edit.MovesSlot = !SameTimeOfDay(current.StartTime, e.StartTime)
 		default:
 			edit.Kind = EventEditNone
 		}

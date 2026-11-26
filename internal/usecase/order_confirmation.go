@@ -145,11 +145,12 @@ func (c orderConfirmationContent) venueName() string {
 }
 
 // clock formats an optional time of day in the concert's time zone.
-func (c orderConfirmationContent) clock(t *time.Time, unknown string) string {
+func (c orderConfirmationContent) clock(t *entity.TimeOfDay, unknown string) string {
 	if t == nil {
 		return unknown
 	}
-	return t.In(c.tz).Format("15:04")
+	// An event's time is the wall-clock time at its Venue: it is shown as it is.
+	return t.String()
 }
 
 // email renders the confirmation email in lang ("ja" or "en").

@@ -81,12 +81,12 @@ const (
 	// whatever its publish state, with its Venue (id, name, admin area, place
 	// id), so the editor can show and resend the picked place.
 	getAuthoredSeriesEventsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_time, e.open_time, e.publish_state,
-		       e.per_account_limit, v.name, v.admin_area, v.google_place_id
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.local_start_time::text, e.local_open_time::text, e.publish_state,
+		       e.per_account_limit, v.name, v.admin_area, v.google_place_id, v.time_zone
 		FROM events e
 		JOIN venues v ON v.id = e.venue_id
 		WHERE e.series_id = $1
-		ORDER BY e.local_event_date, e.start_time NULLS LAST
+		ORDER BY e.local_event_date, e.local_start_time NULLS LAST
 	`
 
 	// getAuthoredSeriesPerformersQuery reads the performers of every event of
@@ -444,13 +444,19 @@ func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, q rowQuerier
 	for rows.Next() {
 		var ev entity.Event
 		var venue entity.Venue
-		var lvn, state, adminArea, placeID sql.NullString
+		var lvn, state, adminArea, placeID, zone sql.NullString
 		var limit sql.NullInt32
+		var startText, openText *string
 		if err := rows.Scan(
-			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime, &state,
-			&limit, &venue.Name, &adminArea, &placeID,
+			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &startText, &openText, &state,
+			&limit, &venue.Name, &adminArea, &placeID, &zone,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan authored event")
+		}
+		ev.StartTime = timeOfDayFromText(startText)
+		ev.OpenTime = timeOfDayFromText(openText)
+		if zone.Valid {
+			venue.TimeZone = &zone.String
 		}
 		if lvn.Valid {
 			v := lvn.String

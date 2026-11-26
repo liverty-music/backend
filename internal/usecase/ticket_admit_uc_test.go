@@ -65,8 +65,9 @@ func newAdmitFixture(t *testing.T) *admitFixture {
 	f.event = &entity.Event{
 		ID:        entity.NewID(),
 		LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		OpenTime:  &open,
-		StartTime: &start,
+		OpenTime:  tod(open),
+		StartTime: tod(start),
+		Venue:     tokyoVenue(),
 	}
 	f.scanner = &entity.Scanner{
 		ID:             entity.ScannerID(entity.NewID()),

@@ -10,7 +10,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/genproto/googleapis/type/datetime"
 )
 
 func TestTicketSaleAnnouncementConsumer_Handle(t *testing.T) {
@@ -21,7 +21,7 @@ func TestTicketSaleAnnouncementConsumer_Handle(t *testing.T) {
 		Id:            &entityv1.TicketSaleId{Value: "sale-001"},
 		SeriesId:      &entityv1.SeriesId{Value: "series-001"},
 		Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY,
-		SaleStartTime: timestamppb.New(start),
+		SaleStartTime: &datetime.DateTime{Year: 2026, Month: 10, Day: 5, Hours: 18, TimeOffset: &datetime.DateTime_TimeZone{TimeZone: &datetime.TimeZone{Id: "Asia/Tokyo"}}},
 	}
 
 	t.Run("returns error when use case fails", func(t *testing.T) {

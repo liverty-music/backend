@@ -38,8 +38,7 @@ func seedSoldOutType(t *testing.T, db *rdb.Database, quantity int) *soldOutType 
 	t.Helper()
 	ctx := context.Background()
 	f := seedStock(t, db, entity.TicketSaleMethodFirstCome, quantity, quantity)
-	_, err := db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, f.EventID, resaleEventStart)
-	require.NoError(t, err)
+	setEventStartInstant(t, db, f.EventID, resaleEventStart)
 
 	seller := entity.UserID(saleFan(t, db))
 	seedIssuedTicketsOf(t, db, f, string(seller), quantity)

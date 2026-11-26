@@ -662,7 +662,7 @@ func TestEventRepository_Get(t *testing.T) {
 		// @spec components/entity/event/get "Event with both times"
 		cleanTables(t, db)
 		eventID := seedAdmissionEvent(t, db)
-		_, err := db.Pool.Exec(ctx, `UPDATE events SET open_time = $2, start_time = $3 WHERE id = $1`, eventID, nov20(18, 0), nov20(19, 0))
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET local_open_time = '18:00', local_start_time = '19:00' WHERE id = $1`, eventID)
 		require.NoError(t, err)
 
 		got, err := repo.Get(ctx, eventID)
@@ -670,8 +670,10 @@ func TestEventRepository_Get(t *testing.T) {
 		assert.Equal(t, "2026-11-20", got.LocalDate.Format(time.DateOnly))
 		require.NotNil(t, got.OpenTime)
 		require.NotNil(t, got.StartTime)
-		assert.True(t, got.OpenTime.Equal(nov20(18, 0)))
-		assert.True(t, got.StartTime.Equal(nov20(19, 0)))
+		assert.Equal(t, timeOfDayAt(18, 0), *got.OpenTime)
+		assert.Equal(t, timeOfDayAt(19, 0), *got.StartTime)
+		require.NotNil(t, got.Venue)
+		assert.Equal(t, "Asia/Tokyo", *got.Venue.TimeZone, "the event carries its venue's time zone")
 	})
 
 	t.Run("start time filled in later", func(t *testing.T) {
@@ -683,12 +685,12 @@ func TestEventRepository_Get(t *testing.T) {
 		assert.Nil(t, before.StartTime)
 		assert.Nil(t, before.OpenTime)
 
-		_, err = db.Pool.Exec(ctx, `UPDATE events SET start_time = $2 WHERE id = $1`, eventID, nov20(19, 0))
+		_, err = db.Pool.Exec(ctx, `UPDATE events SET local_start_time = '19:00' WHERE id = $1`, eventID)
 		require.NoError(t, err)
 		after, err := repo.Get(ctx, eventID)
 		require.NoError(t, err)
 		require.NotNil(t, after.StartTime)
-		assert.True(t, after.StartTime.Equal(nov20(19, 0)))
+		assert.Equal(t, timeOfDayAt(19, 0), *after.StartTime)
 	})
 
 	t.Run("cancelled event", func(t *testing.T) {

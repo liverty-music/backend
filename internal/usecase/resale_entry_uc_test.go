@@ -83,7 +83,7 @@ func soldOutStock(id entity.TicketStockID, seat *entity.SeatType, soldOut bool) 
 
 func resaleEvent() *entity.Event {
 	limit, start := 4, reStart
-	return &entity.Event{ID: "event-1", PerAccountLimit: &limit, StartTime: &start}
+	return &entity.Event{ID: "event-1", LocalDate: entity.LocalDateIn(start, reJST), PerAccountLimit: &limit, StartTime: tod(start), Venue: tokyoVenue()}
 }
 
 func TestResaleEntryUseCase_AuthorizeCard(t *testing.T) {

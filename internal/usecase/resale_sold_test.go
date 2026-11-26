@@ -44,7 +44,7 @@ func newResaleSoldFixture(t *testing.T, lang string) *resaleSoldFixture {
 	start := time.Date(2026, 11, 20, 19, 0, 0, 0, tsJST)
 	concert := &entity.Concert{
 		ID: "event-1", LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		StartTime: &start, Venue: &entity.Venue{Name: "Zepp Shinjuku"},
+		StartTime: tod(start), Venue: &entity.Venue{Name: "Zepp Shinjuku"},
 		Series: &entity.Series{Title: "Liverty Live 2026"},
 	}
 	f.uc = usecase.NewNotificationUseCase(entitymocks.NewMockNotificationRepository(t), entitymocks.NewMockPushSubscriptionRepository(t),

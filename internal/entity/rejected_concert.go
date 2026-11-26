@@ -26,10 +26,12 @@ type RejectedConcert struct {
 	Title string
 	// LocalDate is the scheduled calendar date of the rejected concert.
 	LocalDate time.Time
-	// StartTime is the scheduled start time. Nil when unknown.
-	StartTime *time.Time
-	// OpenTime is the doors-open time. Nil when not announced.
-	OpenTime *time.Time
+	// StartTime is the wall-clock start time at the venue, read in TimeZone.
+	// Nil when unknown.
+	StartTime *TimeOfDay
+	// OpenTime is the wall-clock doors-open time, read like StartTime. Nil when
+	// not announced.
+	OpenTime *TimeOfDay
 	// ListedVenueName is the raw scraped venue name of the rejected concert.
 	ListedVenueName string
 	// AdminArea is the administrative area extracted for the rejected concert.

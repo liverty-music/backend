@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/authctx"
 	"github.com/pannpers/go-logging/logging"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Compile-time check that AdminConcertCandidateHandler implements the generated
@@ -130,10 +129,10 @@ func existingEventToProto(e *usecase.ExistingEventDisplay) *concertcandidatev1.E
 		LocalDate:       &entityv1.LocalDate{Value: pb.TimeToDate(e.LocalDate)},
 	}
 	if e.StartTime != nil {
-		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*e.StartTime)}
+		proto.StartTime = &entityv1.StartTime{Value: pb.TimeOfDayToProto(e.StartTime)}
 	}
 	if e.OpenTime != nil {
-		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*e.OpenTime)}
+		proto.OpenTime = &entityv1.OpenTime{Value: pb.TimeOfDayToProto(e.OpenTime)}
 	}
 	return proto
 }

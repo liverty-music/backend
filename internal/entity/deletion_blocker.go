@@ -8,7 +8,7 @@ const (
 	// DeletionBlockerKindUnspecified is the zero value and is never returned.
 	DeletionBlockerKindUnspecified DeletionBlockerKind = 0
 	// DeletionBlockerKindUpcomingTicket is an Issued Ticket for an Event whose
-	// local date is today or later in Japan time.
+	// local date is today or later at its Venue.
 	DeletionBlockerKindUpcomingTicket DeletionBlockerKind = 1
 	// DeletionBlockerKindListedResale is a ResaleListing in status Listed.
 	DeletionBlockerKindListedResale DeletionBlockerKind = 2

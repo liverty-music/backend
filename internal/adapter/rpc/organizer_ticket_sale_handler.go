@@ -60,7 +60,11 @@ func (h *OrganizerTicketSaleHandler) Create(
 		return nil, err
 	}
 
-	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, pb.CreateTicketSaleInputFromProto(req))
+	in, err := pb.CreateTicketSaleInputFromProto(req)
+	if err != nil {
+		return nil, err
+	}
+	sale, err := h.ticketSaleUC.Create(ctx, organizer.ID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +104,12 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 		return nil, err
 	}
 
+	zone, start, end, err := pb.SaleWindowFromProto(req.GetSaleStartTime(), req.GetSaleEndTime())
+	if err != nil {
+		return nil, err
+	}
 	sale, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
-		entity.TicketSaleID(req.GetTicketSaleId().GetValue()),
-		req.GetSaleStartTime().AsTime(), req.GetSaleEndTime().AsTime())
+		entity.TicketSaleID(req.GetTicketSaleId().GetValue()), zone, start, end)
 	if err != nil {
 		return nil, err
 	}

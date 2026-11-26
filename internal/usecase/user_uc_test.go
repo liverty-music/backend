@@ -1146,7 +1146,7 @@ var deletionTestUser = &entity.User{ID: "019a0000-0000-7000-8000-0000000000a1", 
 // in Japan time (negative: before).
 func eventOn(id string, days int) *entity.Event {
 	y, m, d := userTestNow.Date()
-	return &entity.Event{ID: id, LocalDate: time.Date(y, m, d+days, 0, 0, 0, 0, time.UTC)}
+	return &entity.Event{ID: id, LocalDate: time.Date(y, m, d+days, 0, 0, 0, 0, time.UTC), Venue: tokyoVenue()}
 }
 
 // eventStartingIn returns an event that starts the given duration after
@@ -1154,7 +1154,7 @@ func eventOn(id string, days int) *entity.Event {
 func eventStartingIn(id string, d time.Duration) *entity.Event {
 	start := userTestNow.Add(d)
 	y, m, day := start.In(time.FixedZone("Asia/Tokyo", 9*60*60)).Date()
-	return &entity.Event{ID: id, LocalDate: time.Date(y, m, day, 0, 0, 0, 0, time.UTC), StartTime: &start}
+	return &entity.Event{ID: id, LocalDate: time.Date(y, m, day, 0, 0, 0, 0, time.UTC), StartTime: tod(start.In(time.FixedZone("Asia/Tokyo", 9*60*60))), Venue: tokyoVenue()}
 }
 
 // listedFor returns a Listed resale listing of the deletion test user for a

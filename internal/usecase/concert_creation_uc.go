@@ -304,8 +304,8 @@ func (uc *concertCreationUseCase) rediscover(
 	claimedFill[match.ID] = true
 	if err := uc.concertRepo.FillEventStartTimes(ctx,
 		[]string{match.ID},
-		[]*time.Time{entity.NullableTime(ev.StartTime)},
-		[]*time.Time{entity.NullableTime(ev.OpenTime)},
+		[]*entity.TimeOfDay{ev.StartTime},
+		[]*entity.TimeOfDay{ev.OpenTime},
 	); err != nil {
 		return nil, fmt.Errorf("fill event start times: %w", err)
 	}
@@ -489,8 +489,8 @@ func buildConcertCandidate(id, artistID, seriesID string, series *entity.Discove
 		LocalDate:       ev.LocalDate,
 		ListedVenueName: ev.ListedVenueName,
 	}
-	candidate.StartTime = entity.NullableTime(ev.StartTime)
-	candidate.OpenTime = entity.NullableTime(ev.OpenTime)
+	candidate.StartTime = ev.StartTime
+	candidate.OpenTime = ev.OpenTime
 	if ev.AdminArea != nil {
 		a := *ev.AdminArea
 		candidate.AdminArea = &a
@@ -648,7 +648,7 @@ func insertEventUnderSeries(
 // approval duplicate check, and fill detection, so all agree on what "the same
 // physical show" means.
 func resolveExistingEvent(cands []*entity.Event, ev *entity.DiscoveredEvent, claimedFill map[string]bool) (*entity.Event, bool) {
-	incoming := entity.StartKey(entity.NullableTime(ev.StartTime))
+	incoming := entity.StartKey(ev.StartTime)
 	var nullRow *entity.Event
 	for _, cand := range cands {
 		evStart := entity.StartKey(cand.StartTime)

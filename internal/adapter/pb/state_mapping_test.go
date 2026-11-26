@@ -6,8 +6,10 @@ import (
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_sale/v1"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/type/datetime"
 
 	"github.com/liverty-music/backend/internal/adapter/pb"
 	"github.com/liverty-music/backend/internal/entity"
@@ -252,27 +254,38 @@ func TestCheckoutStatusMapping(t *testing.T) {
 	assert.Equal(t, entity.CheckoutStatusUnspecified, pb.CheckoutFromAnnouncement(&entityv1.Checkout{}).Status)
 }
 
+// saleDateTime is a wall-clock date-time in the IANA time zone zone.
+func saleDateTime(zone string, year, month, day, hour, minute int) *datetime.DateTime {
+	return &datetime.DateTime{
+		Year: int32(year), Month: int32(month), Day: int32(day), Hours: int32(hour), Minutes: int32(minute),
+		TimeOffset: &datetime.DateTime_TimeZone{TimeZone: &datetime.TimeZone{Id: zone}},
+	}
+}
+
 func TestCreateTicketSaleInputFromProto(t *testing.T) {
 	t.Parallel()
+	// 12:00 and 23:59 Japan time, the wall-clock times the organizer typed.
 	start := time.Date(2026, 12, 1, 3, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 12, 20, 14, 59, 0, 0, time.UTC)
 
 	t.Run("maps every field of the request", func(t *testing.T) {
 		t.Parallel()
-		got := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
+		got, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
 			SeriesId:                &entityv1.SeriesId{Value: "series-1"},
 			Name:                    &entityv1.TicketSaleName{Value: "先行抽選"},
 			Method:                  entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY,
-			SaleStartTime:           timestamppb.New(start),
-			SaleEndTime:             timestamppb.New(end),
+			SaleStartTime:           saleDateTime("Asia/Tokyo", 2026, 12, 1, 12, 0),
+			SaleEndTime:             saleDateTime("Asia/Tokyo", 2026, 12, 20, 23, 59),
 			VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			EventIds:                []*entityv1.EventId{{Value: "event-1"}, {Value: "event-2"}},
 		})
 
+		require.NoError(t, err)
 		assert.Equal(t, usecase.CreateTicketSaleInput{
 			SeriesID:                "series-1",
 			Name:                    "先行抽選",
 			Method:                  entity.TicketSaleMethodLottery,
+			TimeZone:                "Asia/Tokyo",
 			SaleStart:               start,
 			SaleEnd:                 end,
 			VerificationRequirement: entity.VerificationRequirementJPKIOnly,
@@ -282,17 +295,75 @@ func TestCreateTicketSaleInputFromProto(t *testing.T) {
 
 	t.Run("a request without a sale end leaves the end unset", func(t *testing.T) {
 		t.Parallel()
-		got := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
+		got, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
 			SeriesId:      &entityv1.SeriesId{Value: "series-1"},
 			Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME,
-			SaleStartTime: timestamppb.New(start),
+			SaleStartTime: saleDateTime("Asia/Tokyo", 2026, 12, 1, 12, 0),
 		})
 
+		require.NoError(t, err)
 		assert.True(t, got.SaleEnd.IsZero(), "no end, not the Unix epoch")
 		assert.Equal(t, entity.TicketSaleMethodFirstCome, got.Method)
 		assert.Equal(t, entity.VerificationRequirementNone, got.VerificationRequirement)
 		assert.Empty(t, got.EventIDs)
 	})
+
+	t.Run("a window in the time zone of a show abroad is read there", func(t *testing.T) {
+		t.Parallel()
+		got, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
+			SaleStartTime: saleDateTime("Asia/Seoul", 2026, 12, 1, 12, 0),
+			SaleEndTime:   saleDateTime("Asia/Seoul", 2026, 12, 20, 18, 0),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Seoul", got.TimeZone)
+		assert.True(t, got.SaleStart.Equal(time.Date(2026, 12, 1, 3, 0, 0, 0, time.UTC)))
+		assert.True(t, got.SaleEnd.Equal(time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)))
+	})
+
+	t.Run("a window without a time zone is refused", func(t *testing.T) {
+		t.Parallel()
+		unzoned := saleDateTime("Asia/Tokyo", 2026, 12, 1, 12, 0)
+		unzoned.TimeOffset = nil
+
+		_, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{SaleStartTime: unzoned})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("a start and an end in two time zones are refused", func(t *testing.T) {
+		t.Parallel()
+		_, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
+			SaleStartTime: saleDateTime("Asia/Tokyo", 2026, 12, 1, 12, 0),
+			SaleEndTime:   saleDateTime("Asia/Seoul", 2026, 12, 20, 18, 0),
+		})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("a time the clocks skip is refused", func(t *testing.T) {
+		t.Parallel()
+		_, err := pb.CreateTicketSaleInputFromProto(&organizerticketsalev1.CreateRequest{
+			SaleStartTime: saleDateTime("America/New_York", 2027, 3, 14, 2, 30),
+		})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestSaleTimeRoundTrip(t *testing.T) {
+	t.Parallel()
+	seoul, err := entity.LoadZone("Asia/Seoul")
+	require.NoError(t, err)
+	instant := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
+
+	got := pb.SaleTimeToProto(instant, seoul)
+
+	assert.Equal(t, saleDateTime("Asia/Seoul", 2026, 12, 20, 18, 0).String(), got.String())
+	back, zone, err := pb.SaleTimeFromProto(got)
+	require.NoError(t, err)
+	assert.Equal(t, "Asia/Seoul", zone)
+	assert.True(t, back.Equal(instant))
 }
 
 func TestBusinessDetailsFromSetRequest(t *testing.T) {

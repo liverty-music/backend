@@ -2,7 +2,8 @@ package usecase
 
 import (
 	"context"
-	"time"
+
+	"github.com/liverty-music/backend/internal/entity"
 )
 
 // ProcessedWebhookEventRepository stores the provider event ids that have
@@ -30,14 +31,14 @@ type ProcessedWebhookEventRepository interface {
 // minimal interface so the settlement use case does not depend on the full
 // concert repository. Interfaces are defined where consumed (AGENTS.md rule).
 type EventStartTimeRepository interface {
-	// GetEventStartTime returns the start_time timestamp for the event
-	// identified by eventID. A nil result means the event's start time is not
-	// yet published; the settlement sweeper withholds payout rather than
-	// erroring.
+	// GetEventStartTime returns the current local date and start time of the
+	// event identified by eventID with the time zone of its Venue. A nil
+	// StartTime means the event's start time is not yet published; the
+	// settlement sweeper withholds payout rather than erroring.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no event with the given id exists.
 	//  - Internal: database query failure.
-	GetEventStartTime(ctx context.Context, eventID string) (*time.Time, error)
+	GetEventStartTime(ctx context.Context, eventID string) (*entity.EventStart, error)
 }

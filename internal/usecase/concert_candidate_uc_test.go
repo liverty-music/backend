@@ -413,7 +413,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 			SeriesID:        "series-1",
 			VenueID:         "venue-1",
 			LocalDate:       day,
-			StartTime:       &start,
+			StartTime:       tod(start),
 			ListedVenueName: new("Old Listed Name"),
 		}}, nil).Once()
 	sc := &entity.ConcertCandidate{
@@ -422,7 +422,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 		Title:           "Candidate Title",
 		LocalDate:       day,
 		ListedVenueName: "Venue ABC",
-		StartTime:       &start,
+		StartTime:       tod(start),
 		AdminArea:       new("JP-13"),
 	}
 	d.pending(sc)

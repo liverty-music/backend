@@ -30,11 +30,11 @@ func FromConcertCandidate(sc *entity.ConcertCandidate, performer *entity.Artist)
 	}
 
 	if sc.StartTime != nil {
-		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*sc.StartTime)}
+		proto.StartTime = &entityv1.StartTime{Value: TimeOfDayToProto(sc.StartTime)}
 	}
 
 	if sc.OpenTime != nil {
-		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*sc.OpenTime)}
+		proto.OpenTime = &entityv1.OpenTime{Value: TimeOfDayToProto(sc.OpenTime)}
 	}
 
 	if sc.AdminArea != nil {

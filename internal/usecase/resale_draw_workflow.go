@@ -43,12 +43,12 @@ func (uc *resaleEntryUseCase) DrawResale(ctx context.Context, f Flow, at time.Ti
 		}
 		var ids []entity.TicketStockID
 		for _, s := range stocks {
-			if s.StartTime == nil {
+			if s.StartTime == nil || s.VenueZone == nil {
 				continue
 			}
 			// A stock listed here still has Entered entries, so one past its
 			// deadline missed its last draw and is drawn now.
-			if due, _, _ := entity.ResaleDrawDue(at, *s.StartTime); due {
+			if due, _, _ := entity.ResaleDrawDue(at, *s.StartTime, s.VenueZone); due {
 				ids = append(ids, s.StockID)
 			}
 		}
@@ -78,10 +78,11 @@ func (uc *resaleEntryUseCase) DrawStock(ctx context.Context, f Flow, in ResaleSt
 		if err != nil {
 			return resaleDrawCounts{}, err
 		}
-		if event.StartTime == nil {
+		start, ok := event.StartInstant()
+		if !ok {
 			return resaleDrawCounts{}, nil
 		}
-		due, last, missed := entity.ResaleDrawDue(in.At, *event.StartTime)
+		due, last, missed := entity.ResaleDrawDue(in.At, start, event.Location())
 		if !due {
 			return resaleDrawCounts{}, nil
 		}

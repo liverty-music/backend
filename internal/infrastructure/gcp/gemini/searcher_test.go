@@ -139,11 +139,11 @@ func flatten(t *testing.T, series []*entity.DiscoveredSeries) []flatEvent {
 			if ev.AdminArea != nil {
 				fe.AdminArea = *ev.AdminArea
 			}
-			if !ev.StartTime.IsZero() {
-				fe.StartTime = ev.StartTime.Format(time.RFC3339)
+			if ev.StartTime != nil {
+				fe.StartTime = ev.StartTime.String()
 			}
-			if !ev.OpenTime.IsZero() {
-				fe.OpenTime = ev.OpenTime.Format(time.RFC3339)
+			if ev.OpenTime != nil {
+				fe.OpenTime = ev.OpenTime.String()
 			}
 			out = append(out, fe)
 		}
@@ -172,26 +172,49 @@ func TestConcertSearcher_Search(t *testing.T) {
 		{
 			// @spec components/entity/concert/search "Yesterday's show early in the morning"
 			name: "Yesterday's show early in the morning",
-			// 2026-11-10 23:30 UTC is 2026-11-11 08:30 at the Venue.
+			// 2026-11-10 23:30 UTC is 2026-11-11 08:30 at the Venue (Asia/Tokyo).
 			at: time.Date(2026, 11, 10, 23, 30, 0, 0, time.UTC),
 			body: `{"series": [
-				{"title": "Yesterday", "source_url": "https://www.example.com/y", "events": [{"venue": "Hall A", "country": "JP", "admin_area": "", "local_date": "2026-11-10", "open_time": "", "start_time": ""}]},
-				{"title": "Today", "source_url": "https://www.example.com/t", "events": [{"venue": "Hall B", "country": "JP", "admin_area": "", "local_date": "2026-11-11", "open_time": "", "start_time": ""}]}
+				{"title": "Yesterday", "source_url": "https://www.example.com/y", "events": [{"venue": "Hall A", "country": "JP", "admin_area": "JP-13", "local_date": "2026-11-10", "open_time": "", "start_time": ""}]},
+				{"title": "Today", "source_url": "https://www.example.com/t", "events": [{"venue": "Hall B", "country": "JP", "admin_area": "JP-13", "local_date": "2026-11-11", "open_time": "", "start_time": ""}]}
 			]}`,
 			want: want{
-				events:     []flatEvent{{Title: "Today", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/t", Venue: "Hall B", LocalDate: "2026-11-11"}},
+				events:     []flatEvent{{Title: "Today", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/t", Venue: "Hall B", AdminArea: "JP-13", LocalDate: "2026-11-11"}},
 				seriesSize: []int{1},
 			},
+		},
+		{
+			// @spec components/entity/concert/search "Time zone unknown, date possibly still today"
+			name: "Time zone unknown, date possibly still today",
+			// 2026-11-11 08:00 UTC is 2026-11-10 at UTC-12.
+			at: time.Date(2026, 11, 11, 8, 0, 0, 0, time.UTC),
+			body: `{"series": [
+				{"title": "Maybe Today", "source_url": "https://www.example.com/m", "events": [{"venue": "Hall A", "country": "", "admin_area": "", "local_date": "2026-11-10", "open_time": "", "start_time": ""}]}
+			]}`,
+			want: want{
+				events:     []flatEvent{{Title: "Maybe Today", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/m", Venue: "Hall A", LocalDate: "2026-11-10"}},
+				seriesSize: []int{1},
+			},
+		},
+		{
+			// @spec components/entity/concert/search "Time zone unknown, date past everywhere"
+			name: "Time zone unknown, date past everywhere",
+			// 2026-11-11 13:00 UTC is 2026-11-11 at UTC-12.
+			at: time.Date(2026, 11, 11, 13, 0, 0, 0, time.UTC),
+			body: `{"series": [
+				{"title": "Past Everywhere", "source_url": "https://www.example.com/p", "events": [{"venue": "Hall A", "country": "", "admin_area": "", "local_date": "2026-11-10", "open_time": "", "start_time": ""}]}
+			]}`,
+			want: want{},
 		},
 		{
 			// @spec components/entity/concert/search "Same venue in another letter case"
 			name: "Same venue in another letter case",
 			body: `{"series": [{"title": "TOUR", "source_url": "https://www.example.com/tour", "events": [
-				{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"},
-				{"venue": "ZEPP HANEDA", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"}
+				{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "19:00"},
+				{"venue": "ZEPP HANEDA", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "19:00"}
 			]}]}`,
 			want: want{
-				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "Zepp Haneda", AdminArea: "JP-13", LocalDate: "2026-05-20", StartTime: "2026-05-20T19:00:00+09:00"}},
+				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "Zepp Haneda", AdminArea: "JP-13", LocalDate: "2026-05-20", StartTime: "19:00"}},
 				seriesSize: []int{1},
 			},
 		},
@@ -199,13 +222,13 @@ func TestConcertSearcher_Search(t *testing.T) {
 			// @spec components/entity/concert/search "Tour across venues"
 			name: "Tour across venues",
 			body: `{"series": [{"title": "TOUR 2026", "source_url": "https://www.example.com/tour", "events": [
-				{"venue": "Zepp Nagoya", "country": "JP", "admin_area": "愛知県", "local_date": "2026-03-15", "open_time": "2026-03-15T17:00:00+09:00", "start_time": "2026-03-15T18:00:00+09:00"},
-				{"venue": "Taipei Arena", "country": "TW", "admin_area": "tw-tpe", "local_date": "2026-04-01", "open_time": "", "start_time": "2026-04-01T19:00:00+08:00"}
+				{"venue": "Zepp Nagoya", "country": "JP", "admin_area": "愛知県", "local_date": "2026-03-15", "open_time": "17:00", "start_time": "18:00"},
+				{"venue": "Taipei Arena", "country": "TW", "admin_area": "tw-tpe", "local_date": "2026-04-01", "open_time": "", "start_time": "19:00"}
 			]}]}`,
 			want: want{
 				events: []flatEvent{
-					{Title: "TOUR 2026", Type: entity.SeriesTypeTour, SourceURL: "https://www.example.com/tour", Venue: "Zepp Nagoya", AdminArea: "JP-23", LocalDate: "2026-03-15", StartTime: "2026-03-15T18:00:00+09:00", OpenTime: "2026-03-15T17:00:00+09:00"},
-					{Title: "TOUR 2026", Type: entity.SeriesTypeTour, SourceURL: "https://www.example.com/tour", Venue: "Taipei Arena", AdminArea: "TW-TPE", LocalDate: "2026-04-01", StartTime: "2026-04-01T19:00:00+08:00"},
+					{Title: "TOUR 2026", Type: entity.SeriesTypeTour, SourceURL: "https://www.example.com/tour", Venue: "Zepp Nagoya", AdminArea: "JP-23", LocalDate: "2026-03-15", StartTime: "18:00", OpenTime: "17:00"},
+					{Title: "TOUR 2026", Type: entity.SeriesTypeTour, SourceURL: "https://www.example.com/tour", Venue: "Taipei Arena", AdminArea: "TW-TPE", LocalDate: "2026-04-01", StartTime: "19:00"},
 				},
 				seriesSize: []int{2},
 			},
@@ -214,11 +237,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 			// @spec components/entity/concert/search "Past event left out"
 			name: "Past event left out",
 			body: `{"series": [
-				{"title": "Old Show", "source_url": "https://www.example.com/old", "events": [{"venue": "Hall A", "country": "JP", "admin_area": "", "local_date": "2026-02-28", "open_time": "", "start_time": ""}]},
-				{"title": "New Show", "source_url": "https://www.example.com/new", "events": [{"venue": "Hall B", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}
+				{"title": "Old Show", "source_url": "https://www.example.com/old", "events": [{"venue": "Hall A", "country": "JP", "admin_area": "JP-13", "local_date": "2026-02-28", "open_time": "", "start_time": ""}]},
+				{"title": "New Show", "source_url": "https://www.example.com/new", "events": [{"venue": "Hall B", "country": "JP", "admin_area": "JP-13", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}
 			]}`,
 			want: want{
-				events:     []flatEvent{{Title: "New Show", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/new", Venue: "Hall B", LocalDate: "2026-03-01"}},
+				events:     []flatEvent{{Title: "New Show", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/new", Venue: "Hall B", AdminArea: "JP-13", LocalDate: "2026-03-01"}},
 				seriesSize: []int{1},
 			},
 		},
@@ -241,13 +264,13 @@ func TestConcertSearcher_Search(t *testing.T) {
 			// @spec components/entity/concert/search "First and second stage kept"
 			name: "First and second stage kept",
 			body: `{"series": [{"title": "Billboard Live", "source_url": "https://www.example.com/bb", "events": [
-				{"venue": "Billboard Live TOKYO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-08-07", "open_time": "", "start_time": "2026-08-07T18:00:00+09:00"},
-				{"venue": "Billboard Live TOKYO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-08-07", "open_time": "", "start_time": "2026-08-07T21:00:00+09:00"}
+				{"venue": "Billboard Live TOKYO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-08-07", "open_time": "", "start_time": "18:00"},
+				{"venue": "Billboard Live TOKYO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-08-07", "open_time": "", "start_time": "21:00"}
 			]}]}`,
 			want: want{
 				events: []flatEvent{
-					{Title: "Billboard Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/bb", Venue: "Billboard Live TOKYO", AdminArea: "JP-13", LocalDate: "2026-08-07", StartTime: "2026-08-07T18:00:00+09:00"},
-					{Title: "Billboard Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/bb", Venue: "Billboard Live TOKYO", AdminArea: "JP-13", LocalDate: "2026-08-07", StartTime: "2026-08-07T21:00:00+09:00"},
+					{Title: "Billboard Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/bb", Venue: "Billboard Live TOKYO", AdminArea: "JP-13", LocalDate: "2026-08-07", StartTime: "18:00"},
+					{Title: "Billboard Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/bb", Venue: "Billboard Live TOKYO", AdminArea: "JP-13", LocalDate: "2026-08-07", StartTime: "21:00"},
 				},
 				seriesSize: []int{2},
 			},
@@ -256,12 +279,12 @@ func TestConcertSearcher_Search(t *testing.T) {
 			// @spec components/entity/concert/search "Identical event listed twice"
 			name: "Identical event listed twice",
 			body: `{"series": [{"title": "TOUR", "source_url": "https://www.example.com/tour", "events": [
-				{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-04-10", "open_time": "", "start_time": "2026-04-10T19:00:00+09:00"}
+				{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-04-10", "open_time": "", "start_time": "19:00"}
 			]},
-				{"title": "TOUR Tokyo", "source_url": "https://www.example.com/news", "events": [{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-04-10", "open_time": "", "start_time": "2026-04-10T19:00:00+09:00"}]}
+				{"title": "TOUR Tokyo", "source_url": "https://www.example.com/news", "events": [{"venue": "Zepp Haneda", "country": "JP", "admin_area": "JP-13", "local_date": "2026-04-10", "open_time": "", "start_time": "19:00"}]}
 			]}`,
 			want: want{
-				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "Zepp Haneda", AdminArea: "JP-13", LocalDate: "2026-04-10", StartTime: "2026-04-10T19:00:00+09:00"}},
+				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "Zepp Haneda", AdminArea: "JP-13", LocalDate: "2026-04-10", StartTime: "19:00"}},
 				seriesSize: []int{1},
 			},
 		},
@@ -269,11 +292,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 			// @spec components/entity/concert/search "Same venue in two notations"
 			name: "Same venue in two notations",
 			body: `{"series": [{"title": "TOUR", "source_url": "https://www.example.com/tour", "events": [
-				{"venue": "渋谷CLUB QUATTRO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"},
-				{"venue": "渋谷 CLUB QUATTRO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "2026-05-20T19:00:00+09:00"}
+				{"venue": "渋谷CLUB QUATTRO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "19:00"},
+				{"venue": "渋谷 CLUB QUATTRO", "country": "JP", "admin_area": "JP-13", "local_date": "2026-05-20", "open_time": "", "start_time": "19:00"}
 			]}]}`,
 			want: want{
-				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "渋谷CLUB QUATTRO", AdminArea: "JP-13", LocalDate: "2026-05-20", StartTime: "2026-05-20T19:00:00+09:00"}},
+				events:     []flatEvent{{Title: "TOUR", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/tour", Venue: "渋谷CLUB QUATTRO", AdminArea: "JP-13", LocalDate: "2026-05-20", StartTime: "19:00"}},
 				seriesSize: []int{1},
 			},
 		},
@@ -296,6 +319,28 @@ func TestConcertSearcher_Search(t *testing.T) {
 			]}`,
 			want: want{
 				events:     []flatEvent{{Title: "Show", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/show", Venue: "Hall A", LocalDate: "2026-05-01"}},
+				seriesSize: []int{1},
+			},
+		},
+		{
+			// @spec components/entity/concert/search "Show abroad keeps its local time"
+			name: "Show abroad keeps its local time",
+			body: `{"series": [{"title": "Seoul Live", "source_url": "https://www.example.com/seoul", "events": [
+				{"venue": "Olympic Hall", "country": "KR", "admin_area": "KR-11", "local_date": "2026-09-05", "open_time": "17:30", "start_time": "18:30"}
+			]}]}`,
+			want: want{
+				events:     []flatEvent{{Title: "Seoul Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/seoul", Venue: "Olympic Hall", AdminArea: "KR-11", LocalDate: "2026-09-05", StartTime: "18:30", OpenTime: "17:30"}},
+				seriesSize: []int{1},
+			},
+		},
+		{
+			// @spec components/entity/concert/search "Time skipped by daylight saving"
+			name: "Time skipped by daylight saving",
+			body: `{"series": [{"title": "NYC Live", "source_url": "https://www.example.com/nyc", "events": [
+				{"venue": "Hall NY", "country": "US", "admin_area": "US-NY", "local_date": "2027-03-14", "open_time": "01:30", "start_time": "02:30"}
+			]}]}`,
+			want: want{
+				events:     []flatEvent{{Title: "NYC Live", Type: entity.SeriesTypeSingle, SourceURL: "https://www.example.com/nyc", Venue: "Hall NY", AdminArea: "US-NY", LocalDate: "2027-03-14", OpenTime: "01:30"}},
 				seriesSize: []int{1},
 			},
 		},

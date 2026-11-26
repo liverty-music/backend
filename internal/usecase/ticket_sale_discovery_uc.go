@@ -207,11 +207,14 @@ func (uc *ticketSaleDiscoveryUseCase) storeFound(ctx context.Context, found []*e
 
 // groupSalesSeries groups upcoming concerts of series without an Organizer
 // into series refs in first-seen order, collecting each series' upcoming event
-// dates. A first-party Series is left out: it sells only through its
+// dates and the time zone its venues share. A first-party Series is left out: it sells only through its
 // Organizer's own TicketSales.
 func groupSalesSeries(concerts []*entity.Concert) []*entity.SalesSeriesRef {
 	var refs []*entity.SalesSeriesRef
 	bySeriesID := make(map[string]*entity.SalesSeriesRef)
+	// zones holds the zones seen at each series' venues; a series whose
+	// venues share one has it as its time zone.
+	zones := make(map[string]map[string]struct{})
 	for _, c := range concerts {
 		if c.SeriesID == "" || c.Series == nil || !c.Series.IsSearchable() {
 			continue
@@ -223,6 +226,19 @@ func groupSalesSeries(concerts []*entity.Concert) []*entity.SalesSeriesRef {
 			refs = append(refs, ref)
 		}
 		ref.EventDates = append(ref.EventDates, c.LocalDate)
+		if c.Venue != nil && c.Venue.TimeZone != nil {
+			if zones[c.SeriesID] == nil {
+				zones[c.SeriesID] = map[string]struct{}{}
+			}
+			zones[c.SeriesID][*c.Venue.TimeZone] = struct{}{}
+		}
+	}
+	for _, ref := range refs {
+		if seen := zones[ref.SeriesID]; len(seen) == 1 {
+			for zone := range seen {
+				ref.TimeZone = zone
+			}
+		}
 	}
 	return refs
 }

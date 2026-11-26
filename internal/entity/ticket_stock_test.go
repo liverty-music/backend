@@ -130,8 +130,11 @@ func TestTicketStock_IsResaleOpenAt(t *testing.T) {
 
 	// An event starting at 18:00 Japan time on the 20th has its resale
 	// deadline at noon that day, 12:00 Japan time (03:00 UTC).
-	start := time.Date(2026, 12, 20, 9, 0, 0, 0, time.UTC)
-	event := &entity.Event{StartTime: &start}
+	tokyo := "Asia/Tokyo"
+	start := &entity.TimeOfDay{Hour: 18}
+	venue := &entity.Venue{TimeZone: &tokyo}
+	date := time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC)
+	event := &entity.Event{LocalDate: date, StartTime: start, Venue: venue}
 	deadline, ok := entity.ResaleDeadlineOf(event)
 	require.True(t, ok)
 	tests := []struct {
@@ -170,7 +173,7 @@ func TestTicketStock_IsResaleOpenAt(t *testing.T) {
 	t.Run("a cancelled event has no resale", func(t *testing.T) {
 		t.Parallel()
 		cancelled := entity.PublishStateCancelled
-		assert.False(t, stockOf(150, 150, 0).IsResaleOpenAt(deadline.Add(-24*time.Hour), &entity.Event{StartTime: &start, PublishState: &cancelled}))
+		assert.False(t, stockOf(150, 150, 0).IsResaleOpenAt(deadline.Add(-24*time.Hour), &entity.Event{LocalDate: date, StartTime: start, Venue: venue, PublishState: &cancelled}))
 	})
 
 	t.Run("an event without a start time has no resale", func(t *testing.T) {

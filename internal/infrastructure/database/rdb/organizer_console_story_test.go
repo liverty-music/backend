@@ -115,7 +115,7 @@ func (s *consoleStory) at(hh, mm int) time.Time {
 func (s *consoleStory) draftConcert() (string, string) {
 	s.t.Helper()
 	visibility := entity.SeriesVisibilityPublic
-	start, doors := s.at(19, 0), s.at(18, 0)
+	start, doors := timeOfDayAt(19, 0), timeOfDayAt(18, 0)
 	series, concerts, err := s.series.Create(s.ctx, s.orgID,
 		&entity.Series{Title: "XX 単独公演", Type: entity.SeriesTypeSingle, Visibility: &visibility},
 		[]*usecase.DraftEventInput{{
@@ -162,6 +162,7 @@ func (s *consoleStory) runConsole() (string, *entity.Scanner) {
 
 	open := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
 	_, err = s.sales.Create(s.ctx, s.orgID, usecase.CreateTicketSaleInput{
+		TimeZone:  "Asia/Tokyo",
 		SeriesID:  seriesID,
 		Name:      "ファンクラブ先行",
 		Method:    entity.TicketSaleMethodLottery,
@@ -241,6 +242,7 @@ func TestStory_RunAnEventFromTheOrganizerConsole(t *testing.T) {
 		require.NoError(t, err)
 		open := time.Now().Add(24 * time.Hour).Truncate(time.Hour)
 		_, err = s.sales.Create(s.ctx, s.orgID, usecase.CreateTicketSaleInput{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seriesID, Name: "ファンクラブ先行", Method: entity.TicketSaleMethodLottery,
 			SaleStart: open, SaleEnd: open.Add(7 * 24 * time.Hour), EventIDs: []string{eventID},
 		})

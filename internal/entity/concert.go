@@ -110,12 +110,12 @@ type DiscoveredEvent struct {
 	// LocalDate represents the calendar date of the event.
 	// See entity.Concert.LocalDate for detailed specifications.
 	LocalDate time.Time `json:"local_date"`
-	// StartTime is the specific starting time (optional).
-	// Zero value means unknown; omitted from JSON via omitzero.
-	StartTime time.Time `json:"start_time,omitzero"`
-	// OpenTime is the time when doors open (optional).
-	// Zero value means unknown; omitted from JSON via omitzero.
-	OpenTime time.Time `json:"open_time,omitzero"`
+	// StartTime is the wall-clock time the event starts at its venue, as the
+	// source states it (optional), read in TimeZone. Nil means unknown.
+	StartTime *TimeOfDay `json:"start_time,omitempty"`
+	// OpenTime is the wall-clock time the doors open (optional), read like
+	// StartTime. Nil means unknown.
+	OpenTime *TimeOfDay `json:"open_time,omitempty"`
 }
 
 // DiscoveredEventKey is what makes two discovered events of one search the same
@@ -124,8 +124,8 @@ type DiscoveredEvent struct {
 type DiscoveredEventKey struct {
 	LocalDate string
 	Venue     string
-	// StartTime is the start time in Unix seconds, 0 when it is unknown.
-	StartTime int64
+	// StartTime is the start time as HH:MM, empty when it is unknown.
+	StartTime string
 }
 
 // RepeatKey returns the key under which a search drops the repeats of an
@@ -136,18 +136,15 @@ type DiscoveredEventKey struct {
 // dedups conservatively when the disambiguator is missing, which loses two
 // genuinely distinct shows announced before their start times are published.
 func (e *DiscoveredEvent) RepeatKey() DiscoveredEventKey {
-	key := DiscoveredEventKey{LocalDate: e.LocalDate.Format("2006-01-02"), Venue: ListedVenueKey(e.ListedVenueName)}
-	if !e.StartTime.IsZero() {
-		key.StartTime = e.StartTime.Unix()
-	}
-	return key
+	return DiscoveredEventKey{LocalDate: e.LocalDate.Format("2006-01-02"), Venue: ListedVenueKey(e.ListedVenueName), StartTime: TimeOfDayKey(e.StartTime)}
 }
 
 // HasPassedAt reports whether the event's local date is before the current
 // date at its Venue at t ([CurrentDateAtVenue]): the whole event day still
 // counts as upcoming, and at 23:30 UTC the Venue is already on the next day.
 func (e *DiscoveredEvent) HasPassedAt(t time.Time) bool {
-	return e.LocalDate.Before(CurrentDateAtVenue(t))
+	venue := &Venue{TimeZone: e.TimeZone}
+	return e.LocalDate.Before(CurrentDateAtVenue(t, venue))
 }
 
 // ClassifyType sets the series' type from its venues, following the SeriesType
@@ -184,8 +181,8 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 		LocalDate:       e.LocalDate,
 		Artists:         []*Artist{{ID: artistID}},
 	}
-	c.StartTime = NullableTime(e.StartTime)
-	c.OpenTime = NullableTime(e.OpenTime)
+	c.StartTime = e.StartTime
+	c.OpenTime = e.OpenTime
 	return c
 }
 
@@ -264,33 +261,20 @@ func (s *DiscoveredSeries) ToConcert(ev *DiscoveredEvent, artistID, seriesID, ev
 		Series:          series,
 		Artists:         []*Artist{{ID: artistID}},
 	}
-	c.StartTime = NullableTime(ev.StartTime)
-	c.OpenTime = NullableTime(ev.OpenTime)
+	c.StartTime = ev.StartTime
+	c.OpenTime = ev.OpenTime
 	return c
 }
 
-// NullableTime returns a pointer to t, or nil when t is the zero value (an
-// unknown time). It is the canonical "unknown time → SQL NULL" conversion used
-// across the event physical key, mirroring how nullable TIMESTAMPTZ columns
-// model "unknown".
-func NullableTime(t time.Time) *time.Time {
-	if t.IsZero() {
-		return nil
-	}
-	return &t
-}
-
 // StartKey returns the canonical dedup key for an optional event start time
-// under NULLS NOT DISTINCT semantics: an unknown (nil/zero) start is the empty
-// string; a known start is its UTC RFC3339 form. Two events share a physical
-// start time iff their StartKey values are equal — the single source of truth
-// the application-layer dedup/fill paths use to match the DB's
-// `(venue_id, local_event_date, start_time) NULLS NOT DISTINCT` constraint.
-func StartKey(t *time.Time) string {
-	if t == nil || t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
+// under NULLS NOT DISTINCT semantics: an unknown (nil) start is the empty
+// string; a known start is its HH:MM form. Two events at one Venue on one date
+// share a start time iff their StartKey values are equal — the single source of
+// truth the application-layer dedup/fill paths use to match the DB's
+// `(venue_id, local_event_date, local_start_time) NULLS NOT DISTINCT`
+// constraint.
+func StartKey(t *TimeOfDay) string {
+	return TimeOfDayKey(t)
 }
 
 // NaturalKey is the physical identity of an event: its Venue, local date and
@@ -468,7 +452,7 @@ func (k knownSlots) keepNew(events []*DiscoveredEvent) []*DiscoveredEvent {
 			continue
 		}
 		key := DateVenueKey(ev.LocalDate, ev.ListedVenueName)
-		start := StartKey(NullableTime(ev.StartTime))
+		start := StartKey(ev.StartTime)
 		if k.known(key, start) {
 			continue
 		}
@@ -553,7 +537,7 @@ func concertEarlier(a, b *Concert) bool {
 	}
 	switch as, bs := a.StartTime, b.StartTime; {
 	case as != nil && bs != nil:
-		if !as.Equal(*bs) {
+		if *as != *bs {
 			return as.Before(*bs)
 		}
 	case as != nil && bs == nil:
@@ -752,7 +736,7 @@ type ConcertRepository interface {
 	// unchanged. An unknown event id is ignored, and so is the id of a DRAFT
 	// event, which is not a Concert: its times are not filled. Idempotent: a
 	// no-op when eventIDs is empty.
-	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error
+	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*TimeOfDay) error
 	// UpdateEventListedVenueName overwrites the listed_venue_name display field of
 	// an existing event. Used by the admin approval "adopt the candidate" reconciliation
 	// to replace the stored display name with the concert candidate's, leaving venue_id

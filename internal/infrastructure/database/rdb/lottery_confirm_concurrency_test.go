@@ -19,8 +19,8 @@ import (
 
 // TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime runs the fan's Confirm
 // and the payment provider's notice's Confirm for one Authorized card
-// authorization at the same time, a few seconds before the sale's end time by
-// the database clock, against Postgres: one entry is made, both return it,
+// authorization at the same time, shortly before the sale's end time by the
+// database clock, against Postgres: one entry is made, both return it,
 // and the card authorization is never released (the mock fails the test on a
 // Release call).
 func TestLotteryEntryConfirm_FanAndNoticeAtTheSameTime(t *testing.T) {

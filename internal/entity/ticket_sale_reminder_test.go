@@ -129,7 +129,7 @@ func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
 	}
 	good := func() *entity.DiscoveredTicketSale {
 		return &entity.DiscoveredTicketSale{
-			SeriesID: "s-1", Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
+			SeriesID: "s-1", Name: "先行抽選", Method: entity.TicketSaleMethodLottery, TimeZone: "Asia/Tokyo",
 			SaleStartTime: time.Date(2026, 10, 5, 16, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 10, 22, 23, 59, 0, 0, jst),
 		}
 	}
@@ -149,7 +149,7 @@ func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
 			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
 		}, ""},
 		{"starts after the day following the last event begins", func(d *entity.DiscoveredTicketSale) {
-			d.SaleStartTime = time.Date(2026, 12, 21, 0, 1, 0, 0, jst)
+			d.SaleStartTime = time.Date(2026, 12, 22, 0, 0, 0, 0, jst)
 			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
 		}, "apply_start_time after the series' last event"},
 	}
@@ -189,10 +189,10 @@ func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
 func TestTicketSale_ReminderAudience(t *testing.T) {
 	t.Parallel()
 
-	discovered := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1")
+	discovered := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(5, 10, 0), "e-1")
 	found := nov(1, 0, 0)
 	discovered.FindTime = &found
-	organizer := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(5, 10, 0), "e-1", "e-2")
+	organizer := entity.NewTicketSale("series-1", "n", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(5, 10, 0), "e-1", "e-2")
 
 	assert.Equal(t, entity.ReminderAudience{SeriesID: "series-1"}, discovered.ReminderAudience(), "every fan tracking the series")
 	assert.Equal(t, entity.ReminderAudience{EventIDs: []string{"e-1", "e-2"}}, organizer.ReminderAudience(), "only the fans tracking an event the sale names")

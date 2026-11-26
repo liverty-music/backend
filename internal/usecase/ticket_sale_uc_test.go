@@ -35,7 +35,9 @@ type ticketSaleFixture struct {
 	organizers *entitymocks.MockOrganizerRepository
 	events     *ucmocks.MockEventPublishStatePort
 	starts     map[string]*time.Time
-	uc         usecase.TicketSaleUseCase
+	// zones is the time zone of each event's Venue; Asia/Tokyo when absent.
+	zones map[string]string
+	uc    usecase.TicketSaleUseCase
 }
 
 func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
@@ -50,18 +52,27 @@ func newTicketSaleFixture(t *testing.T, now time.Time) *ticketSaleFixture {
 		organizers: entitymocks.NewMockOrganizerRepository(t),
 		events:     ucmocks.NewMockEventPublishStatePort(t),
 		starts:     map[string]*time.Time{},
+		zones:      map[string]string{},
 	}
 	// Every event starts at 2026-11-20 19:00 unless f.starts says otherwise.
 	eventStart := ucmocks.NewMockEventStartTimeRepository(t)
 	eventStart.EXPECT().GetEventStartTime(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, id string) (*time.Time, error) {
+		RunAndReturn(func(_ context.Context, id string) (*entity.EventStart, error) {
 			if s, ok := f.starts[id]; ok {
-				return s, nil
+				return eventStartIn(f.zoneOf(id), s), nil
 			}
-			return new(saleTime(11, 20, 19, 0)), nil
+			return eventStartIn(f.zoneOf(id), new(saleTime(11, 20, 19, 0))), nil
 		}).Maybe()
 	f.uc = usecase.NewTicketSaleUseCase(f.sales, f.stocks, f.entries, f.orders, f.series, f.organizers, f.eventRepo, f.events, eventStart, fixedClock(now))
 	return f
+}
+
+// zoneOf returns the time zone of the Venue of the event.
+func (f *ticketSaleFixture) zoneOf(eventID string) string {
+	if z, ok := f.zones[eventID]; ok {
+		return z
+	}
+	return "Asia/Tokyo"
 }
 
 // ownSeries makes series-1 org-1's, with the given events, all published and
@@ -87,12 +98,14 @@ func tsStock(eventID string, quantity, sold, held int) *entity.TicketStock {
 
 // seriesOwnedBy makes series-1 the given Organizer's, with the given events.
 func (f *ticketSaleFixture) seriesOwnedBy(organizerID string, eventIDs ...string) {
-	events := make([]*entity.Event, 0, len(eventIDs))
-	for _, id := range eventIDs {
-		events = append(events, &entity.Event{ID: id, SeriesID: "series-1"})
-	}
 	f.series.EXPECT().GetAuthored(mock.Anything, "series-1").
-		Return(&entity.Series{ID: "series-1", OrganizerID: &organizerID}, concertsOf(events, nil), nil).Maybe()
+		RunAndReturn(func(context.Context, string) (*entity.Series, []*entity.Concert, error) {
+			events := make([]*entity.Event, 0, len(eventIDs))
+			for _, id := range eventIDs {
+				events = append(events, &entity.Event{ID: id, SeriesID: "series-1", Venue: &entity.Venue{TimeZone: new(f.zoneOf(id))}})
+			}
+			return &entity.Series{ID: "series-1", OrganizerID: &organizerID}, concertsOf(events, nil), nil
+		}).Maybe()
 }
 
 // organizer makes org-1 have complete business details, or none.
@@ -120,7 +133,7 @@ func (f *ticketSaleFixture) stores() {
 
 // existingSale returns a sale of series-1 naming the events.
 func existingSale(name string, method entity.TicketSaleMethod, start, end time.Time, eventIDs ...string) *entity.TicketSale {
-	return entity.NewTicketSale("series-1", name, method, start, end, eventIDs...)
+	return entity.NewTicketSale("series-1", name, method, "Asia/Tokyo", start, end, eventIDs...)
 }
 
 func lotteryInput() usecase.CreateTicketSaleInput {
@@ -129,6 +142,7 @@ func lotteryInput() usecase.CreateTicketSaleInput {
 		SeriesID:  "series-1",
 		Name:      "ファンクラブ先行",
 		Method:    entity.TicketSaleMethodLottery,
+		TimeZone:  "Asia/Tokyo",
 		SaleStart: saleTime(11, 1, 10, 0),
 		SaleEnd:   end,
 		EventIDs:  []string{"event-1"},
@@ -140,6 +154,7 @@ func firstComeInput() usecase.CreateTicketSaleInput {
 		SeriesID:  "series-1",
 		Name:      "一般発売",
 		Method:    entity.TicketSaleMethodFirstCome,
+		TimeZone:  "Asia/Tokyo",
 		SaleStart: saleTime(11, 1, 10, 0),
 		SaleEnd:   saleTime(11, 20, 19, 0),
 		EventIDs:  []string{"event-1"},
@@ -268,6 +283,61 @@ func TestTicketSaleUseCase_Create(t *testing.T) {
 		_, err := f.uc.Create(ctx, "org-1", in)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("lottery for a show abroad closes before it starts", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/create "Lottery for a show abroad closes before it starts"
+		f := newTicketSaleFixture(t, now)
+		f.zones["event-1"] = "Asia/Seoul"
+		// 18:30 on 20 November in Seoul.
+		f.starts["event-1"] = new(time.Date(2026, 11, 20, 18, 30, 0, 0, time.FixedZone("KST", 9*60*60)))
+		f.organizer(true)
+		f.otherSales("event-1")
+		f.ownSeries("event-1")
+		f.stores()
+		in := lotteryInput()
+		in.TimeZone = "Asia/Seoul"
+		in.SaleStart = saleTime(11, 10, 10, 0)
+		in.SaleEnd = time.Date(2026, 11, 20, 18, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+
+		view, err := f.uc.Create(ctx, "org-1", in)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Seoul", view.TimeZone)
+	})
+
+	t.Run("tour across two time zones", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/create "Tour across two time zones"
+		f := newTicketSaleFixture(t, now)
+		f.zones["event-2"] = "Asia/Seoul"
+		f.organizer(true)
+		f.otherSales("event-1")
+		f.otherSales("event-2")
+		f.ownSeries("event-1", "event-2")
+		f.stores()
+		in := lotteryInput()
+		in.EventIDs = []string{"event-1", "event-2"}
+
+		view, err := f.uc.Create(ctx, "org-1", in)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Tokyo", view.TimeZone)
+	})
+
+	t.Run("time zone of no event's Venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/create "Time zone of no event's Venue"
+		f := newTicketSaleFixture(t, now)
+		f.seriesOwnedBy("org-1", "event-1")
+		in := lotteryInput()
+		in.TimeZone = "Asia/Taipei"
+
+		_, err := f.uc.Create(ctx, "org-1", in)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		f.sales.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 	})
 
 	t.Run("doors-open time not announced", func(t *testing.T) {
@@ -537,7 +607,7 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.otherSales("event-1", sales...)
 		limit := 4
-		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start, PerAccountLimit: &limit}, nil).Maybe()
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", LocalDate: entity.LocalDateIn(start, tsJST), StartTime: tod(start), Venue: tokyoVenue(), PerAccountLimit: &limit}, nil).Maybe()
 		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return(stocks, nil).Maybe()
 	}
 	general := func() *entity.TicketSale {
@@ -594,7 +664,7 @@ func TestTicketSaleUseCase_ListByEvent(t *testing.T) {
 		f := newTicketSaleFixture(t, start.Add(-time.Hour))
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.otherSales("event-1", general())
-		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", StartTime: &start}, nil)
+		f.eventRepo.EXPECT().Get(mock.Anything, "event-1").Return(&entity.Event{ID: "event-1", LocalDate: entity.LocalDateIn(start, tsJST), StartTime: tod(start), Venue: tokyoVenue()}, nil)
 		f.stocks.EXPECT().ListByEvent(mock.Anything, "event-1", mock.Anything).Return([]*entity.TicketStock{tsStock("event-1", 150, 150, 0)}, nil)
 
 		got, err := f.uc.ListByEvent(ctx, "event-1")
@@ -669,10 +739,10 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 
 	// setsWindow makes TicketSale.SetWindow return sale with the new window.
 	setsWindow := func(f *ticketSaleFixture, sale *entity.TicketSale, start, end time.Time) {
-		f.sales.EXPECT().SetWindow(mock.Anything, sale.ID, start, end).RunAndReturn(
-			func(_ context.Context, _ entity.TicketSaleID, s, e time.Time) (*entity.TicketSale, error) {
+		f.sales.EXPECT().SetWindow(mock.Anything, sale.ID, mock.Anything, start, end).RunAndReturn(
+			func(_ context.Context, _ entity.TicketSaleID, zone string, s, e time.Time) (*entity.TicketSale, error) {
 				moved := *sale
-				moved.SaleStartTime, moved.SaleEndTime = s, e
+				moved.TimeZone, moved.SaleStartTime, moved.SaleEndTime = zone, s, e
 				return &moved, nil
 			})
 	}
@@ -685,7 +755,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-2", "event-1")
 
-		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
+		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
@@ -696,7 +766,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing")).Return(nil, apperr.ErrNotFound)
 
-		_, err := f.uc.SetWindow(ctx, "org-1", "missing", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
+		_, err := f.uc.SetWindow(ctx, "org-1", "missing", "Asia/Tokyo", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -711,7 +781,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
-		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
+		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
 
 		require.NoError(t, err)
 		assert.Equal(t, saleTime(11, 2, 10, 0), view.SaleStartTime)
@@ -725,7 +795,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
-		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 12, 10, 0))
+		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 1, 10, 0), saleTime(11, 12, 10, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -740,7 +810,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 1, 10, 0), saleTime(11, 20, 18, 0))
 
-		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 20, 18, 0))
+		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 1, 10, 0), saleTime(11, 20, 18, 0))
 
 		require.NoError(t, err)
 		assert.Equal(t, saleTime(11, 20, 18, 0), view.SaleEndTime)
@@ -756,7 +826,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.seriesOwnedBy("org-1", "event-1")
 		f.otherSales("event-1", presale, general)
 
-		_, err := f.uc.SetWindow(ctx, "org-1", general.ID, saleTime(11, 8, 10, 0), saleTime(11, 20, 19, 0))
+		_, err := f.uc.SetWindow(ctx, "org-1", general.ID, "Asia/Tokyo", saleTime(11, 8, 10, 0), saleTime(11, 20, 19, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -771,7 +841,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.otherSales("event-1", sale)
 		setsWindow(f, sale, saleTime(11, 2, 0, 0), saleTime(11, 9, 0, 0))
 
-		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 2, 0, 0), saleTime(11, 9, 0, 0))
+		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 2, 0, 0), saleTime(11, 9, 0, 0))
 
 		require.NoError(t, err)
 		assert.Equal(t, saleTime(11, 9, 0, 0), view.SaleEndTime)
@@ -785,9 +855,46 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
-		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 30))
+		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 1, 10, 0), saleTime(11, 20, 19, 30))
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("time zone of another event's Venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/set-window "Time zone of another event's Venue"
+		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
+		f.zones["event-2"] = "Asia/Seoul"
+		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1", "event-2")
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
+		f.seriesOwnedBy("org-1", "event-1", "event-2")
+		f.otherSales("event-1", sale)
+		f.otherSales("event-2", sale)
+		f.sales.EXPECT().SetWindow(mock.Anything, sale.ID, "Asia/Seoul", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0)).RunAndReturn(
+			func(_ context.Context, _ entity.TicketSaleID, zone string, s, e time.Time) (*entity.TicketSale, error) {
+				moved := *sale
+				moved.TimeZone, moved.SaleStartTime, moved.SaleEndTime = zone, s, e
+				return &moved, nil
+			})
+
+		view, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Seoul", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
+
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Seoul", view.TimeZone)
+	})
+
+	t.Run("time zone of no event's Venue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket-sale/set-window "Time zone of no event's Venue"
+		f := newTicketSaleFixture(t, saleTime(10, 25, 12, 0))
+		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
+		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
+		f.seriesOwnedBy("org-1", "event-1")
+
+		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Europe/London", saleTime(11, 2, 10, 0), saleTime(11, 11, 10, 0))
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		f.sales.AssertNotCalled(t, "SetWindow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("window breaking the sale rules", func(t *testing.T) {
@@ -797,7 +904,7 @@ func TestTicketSaleUseCase_SetWindow(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, sale.ID).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 
-		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, saleTime(11, 1, 0, 0), saleTime(11, 16, 0, 0))
+		_, err := f.uc.SetWindow(ctx, "org-1", sale.ID, "Asia/Tokyo", saleTime(11, 1, 0, 0), saleTime(11, 16, 0, 0))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})

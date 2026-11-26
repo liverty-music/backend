@@ -2,7 +2,6 @@ package entity_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +10,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-func storedEvent(id string, state entity.PublishState, start *time.Time) *entity.Event {
+func storedEvent(id string, state entity.PublishState, start *entity.TimeOfDay) *entity.Event {
 	return &entity.Event{ID: id, PublishState: &state, StartTime: start}
 }
 
@@ -70,8 +69,8 @@ func TestEvent_ClaimSlotPlan(t *testing.T) {
 func TestPlanSeriesUpdate(t *testing.T) {
 	t.Parallel()
 
-	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
-	later := start.Add(time.Hour)
+	start := entity.TimeOfDay{Hour: 18}
+	later := entity.TimeOfDay{Hour: 19}
 	stored := map[string]*entity.Event{
 		"draft-1":     storedEvent("draft-1", entity.PublishStateDraft, nil),
 		"draft-2":     storedEvent("draft-2", entity.PublishStateDraft, nil),
@@ -185,7 +184,7 @@ func TestEvent_NamesVenueAndStartTime(t *testing.T) {
 	t.Parallel()
 
 	name, place, otherPlace := "Zepp Tokyo", "place-1", "place-2"
-	start := time.Date(2026, 12, 1, 18, 0, 0, 0, time.UTC)
+	start := entity.TimeOfDay{Hour: 18}
 	e := &entity.Event{ListedVenueName: &name, Venue: &entity.Venue{GooglePlaceID: &place}, StartTime: &start}
 
 	assert.True(t, e.NamesVenue("Zepp Tokyo", nil))

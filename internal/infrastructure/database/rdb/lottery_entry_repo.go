@@ -70,7 +70,7 @@ const (
 	lotteryEntryInsertQuery = `
 		INSERT INTO lottery_entries (id, order_id, ticket_sale_id, state)
 		SELECT $1, $2, ts.id, 1 FROM ticket_sales ts
-		WHERE ts.id = $3 AND clock_timestamp() < ts.sale_end_time
+		WHERE ts.id = $3 AND clock_timestamp() < (ts.local_end_time AT TIME ZONE ts.time_zone)
 	`
 	lotteryEntryGetQuery                      = lotteryEntrySelect + ` WHERE le.id = $1`
 	lotteryEntryGetByCardAuthorizationIDQuery = lotteryEntrySelect + ` WHERE o.card_authorization_id = $1`

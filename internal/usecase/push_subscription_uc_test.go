@@ -843,10 +843,7 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 	t.Parallel()
 
 	day := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
-	at := func(h, m int) *time.Time {
-		start := time.Date(2026, 9, 3, h-9, m, 0, 0, time.UTC) // JST wall time
-		return &start
-	}
+	at := todAt
 	// The IDs sort opposite to the start times, so the ID tie-break in
 	// concertEarlier cannot pick the earlier concert by itself.
 	late, early := newConcertFor("a-late", "JP-13", day), newConcertFor("z-early", "JP-13", day)

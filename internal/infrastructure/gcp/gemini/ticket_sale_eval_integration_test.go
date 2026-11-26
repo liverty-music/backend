@@ -328,7 +328,7 @@ func spEvalStored(group []*entity.DiscoveredTicketSale) *entity.DiscoveredTicket
 	for _, c := range group[1:] {
 		result := stored.ResultDate
 		stored = *c
-		if c.ResultDate == nil && (result == nil || !entity.IsResultDateOnOrAfterEnd(*result, c.SaleEndTime)) {
+		if c.ResultDate == nil && (result == nil || !entity.IsResultDateOnOrAfterEnd(*result, c.SaleEndTime, jst)) {
 			result = nil
 		} else if c.ResultDate != nil {
 			result = c.ResultDate

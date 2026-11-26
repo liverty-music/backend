@@ -69,14 +69,17 @@ func newUserID(t *testing.T, db *rdb.Database) entity.UserID {
 
 // setSaleEndByDatabaseClock moves the sale's window so that it opened an hour
 // before the database's current time and ends after the given interval from
-// it (negative: already ended). LotteryEntry.Create reads the database clock,
-// so the tests that store an entry place the window around it.
+// it (negative: already ended). A window is in whole minutes, so an end in the
+// future is rounded up to the next minute and a past one down.
+// LotteryEntry.Create reads the database clock, so the tests that store an
+// entry place the window around it.
 func setSaleEndByDatabaseClock(t *testing.T, db *rdb.Database, saleID entity.TicketSaleID, end time.Duration) {
 	t.Helper()
 	_, err := db.Pool.Exec(context.Background(), `
 		UPDATE ticket_sales
-		SET sale_start_time = now() - interval '1 hour' + least($2::interval, interval '0'),
-		    sale_end_time = now() + $2::interval
+		SET local_start_time = date_trunc('minute', (now() - interval '1 hour' + least($2::interval, interval '0')) AT TIME ZONE time_zone),
+		    local_end_time = date_trunc('minute', (now() + $2::interval) AT TIME ZONE time_zone
+		        + CASE WHEN $2::interval < interval '0' THEN interval '0' ELSE interval '1 minute' - interval '1 microsecond' END)
 		WHERE id = $1`, string(saleID), end)
 	require.NoError(t, err)
 }

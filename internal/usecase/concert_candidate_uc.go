@@ -75,10 +75,12 @@ type ExistingEventDisplay struct {
 	ListedVenueName string
 	// LocalDate is the local calendar date of the existing event.
 	LocalDate time.Time
-	// StartTime is the existing event's start time; nil when unknown.
-	StartTime *time.Time
-	// OpenTime is the existing event's door-open time; nil when unknown.
-	OpenTime *time.Time
+	// StartTime is the existing event's wall-clock start time at its venue; nil
+	// when unknown.
+	StartTime *entity.TimeOfDay
+	// OpenTime is the existing event's wall-clock door-open time; nil when
+	// unknown.
+	OpenTime *entity.TimeOfDay
 }
 
 // ConcertCandidateUseCase is the admin-console approval gate over
@@ -197,8 +199,8 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
 		if err := uc.concertRepo.FillEventStartTimes(ctx,
 			[]string{match.ID},
-			[]*time.Time{sc.StartTime},
-			[]*time.Time{sc.OpenTime},
+			[]*entity.TimeOfDay{sc.StartTime},
+			[]*entity.TimeOfDay{sc.OpenTime},
 		); err != nil {
 			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", sc.ID, err)
 		}
@@ -386,10 +388,10 @@ func duplicateEventAmong(events []*entity.Event, sc *entity.ConcertCandidate) *e
 		// Exact-start duplicate (or both-unknown at the same venue/date).
 		return match
 	}
-	if ev.StartTime.IsZero() {
+	if ev.StartTime == nil {
 		// Unknown-start concert candidate: a duplicate iff any known-start row exists here.
 		for _, e := range events {
-			if e.StartTime != nil && !e.StartTime.IsZero() {
+			if e.StartTime != nil {
 				return e
 			}
 		}
@@ -422,8 +424,8 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		}
 		if err := uc.concertRepo.FillEventStartTimes(ctx,
 			[]string{existing.ID},
-			[]*time.Time{sc.StartTime},
-			[]*time.Time{sc.OpenTime},
+			[]*entity.TimeOfDay{sc.StartTime},
+			[]*entity.TimeOfDay{sc.OpenTime},
 		); err != nil {
 			return nil, fmt.Errorf("adopt-candidate: fill start/open times: %w", err)
 		}
@@ -655,12 +657,8 @@ func candidateToEvent(sc *entity.ConcertCandidate) *entity.DiscoveredEvent {
 		ListedVenueName: sc.ListedVenueName,
 		LocalDate:       sc.LocalDate,
 	}
-	if sc.StartTime != nil {
-		ev.StartTime = *sc.StartTime
-	}
-	if sc.OpenTime != nil {
-		ev.OpenTime = *sc.OpenTime
-	}
+	ev.StartTime = sc.StartTime
+	ev.OpenTime = sc.OpenTime
 	if sc.AdminArea != nil {
 		ev.AdminArea = sc.AdminArea
 	}

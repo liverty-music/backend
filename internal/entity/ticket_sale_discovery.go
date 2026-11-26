@@ -15,9 +15,14 @@ type DiscoveredTicketSale struct {
 	Name string
 	// Method is how tickets are allocated.
 	Method TicketSaleMethod
-	// SaleStartTime is when the sale opens. Zero when the pages do not say.
+	// TimeZone is the IANA time zone the pages state or imply for the sale, in
+	// which its wall-clock times were read.
+	TimeZone string
+	// SaleStartTime is the instant the sale opens, computed from the wall-clock
+	// time the pages state in TimeZone. Zero when the pages do not say.
 	SaleStartTime time.Time
-	// SaleEndTime is when the sale closes. Zero when the pages do not say.
+	// SaleEndTime is the instant the sale closes, computed like SaleStartTime.
+	// Zero when the pages do not say.
 	SaleEndTime time.Time
 	// ResultDate is the calendar day on which a lottery's results are
 	// announced, as [TicketSale.ResultDate]. Nil when the pages do not say.
@@ -31,12 +36,22 @@ func (d *DiscoveredTicketSale) TicketSale(discovered time.Time) *TicketSale {
 		SeriesID:      d.SeriesID,
 		Name:          d.Name,
 		Method:        d.Method,
+		TimeZone:      d.TimeZone,
 		SaleStartTime: d.SaleStartTime,
 		SaleEndTime:   d.SaleEndTime,
 		FindTime:      &discovered,
 		ResultDate:    d.ResultDate,
 	}
 	return sale
+}
+
+// Location returns the sale's time zone; nil when it is not a known IANA name.
+func (d *DiscoveredTicketSale) Location() *time.Location {
+	loc, err := LoadZone(d.TimeZone)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
 
 // Validate reports whether d follows the TicketSale rules for a discovered
@@ -70,21 +85,31 @@ func (d *DiscoveredTicketSale) FoundReason(now time.Time, ref *SalesSeriesRef) s
 	if err := d.Validate(now); err != nil {
 		return err.Error()
 	}
-	if _, last, ok := ref.EventPeriod(); ok && d.SaleStartTime.After(last.AddDate(0, 0, 1)) {
+	if _, last, ok := ref.EventPeriod(); ok && d.startsAfterDay(last.AddDate(0, 0, 1)) {
 		return "apply_start_time after the series' last event"
 	}
 	return ""
 }
 
-// EventPeriod returns the first and last dates of the series' events in Japan
-// time, and false when it has none with a date.
+// startsAfterDay reports whether the sale starts on a date after day, read on
+// the sale's own calendar.
+func (d *DiscoveredTicketSale) startsAfterDay(day time.Time) bool {
+	loc := d.Location()
+	if loc == nil {
+		loc = time.UTC
+	}
+	return LocalDateIn(d.SaleStartTime, loc).After(day)
+}
+
+// EventPeriod returns the first and last dates of the series' events, and
+// false when it has none with a date.
 func (r *SalesSeriesRef) EventPeriod() (first, last time.Time, ok bool) {
 	for _, d := range r.EventDates {
 		if d.IsZero() {
 			continue
 		}
-		local := d.In(japanTime)
-		day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, japanTime)
+		y, m, dd := d.Date()
+		day := time.Date(y, m, dd, 0, 0, 0, 0, time.UTC)
 		if !ok || day.Before(first) {
 			first = day
 		}
@@ -107,7 +132,7 @@ const (
 	// UpsertOutcomeInserted means a new discovered sale was created.
 	UpsertOutcomeInserted UpsertOutcome = 1
 	// UpsertOutcomeUpdated means the known discovered sale with the same
-	// series, method and start date in Japan time was updated in place.
+	// series, method and start date in the sale's time zone was updated in place.
 	UpsertOutcomeUpdated UpsertOutcome = 2
 )
 
@@ -121,6 +146,10 @@ type SalesSeriesRef struct {
 	Title string
 	// EventDates are the known local dates of the series' upcoming events.
 	EventDates []time.Time
+	// TimeZone is the IANA time zone the series' venues share, which a sale
+	// takes when its page implies none; empty when they differ or are not
+	// known.
+	TimeZone string
 }
 
 // PublishedSaleSearchInput is the per-artist input of

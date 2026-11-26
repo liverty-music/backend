@@ -52,9 +52,14 @@ type CreateTicketSaleInput struct {
 	Name string
 	// Method is Lottery or FirstCome.
 	Method entity.TicketSaleMethod
-	// SaleStart is when the window opens.
+	// TimeZone is the IANA time zone the window's wall-clock times are read in:
+	// the time zone of one of the events' Venues.
+	TimeZone string
+	// SaleStart is the instant the window opens, computed from the wall-clock
+	// time in TimeZone.
 	SaleStart time.Time
-	// SaleEnd is when the window closes; required.
+	// SaleEnd is the instant the window closes, computed like SaleStart;
+	// required.
 	SaleEnd time.Time
 	// VerificationRequirement is whether a fan must hold an Active IdentityVerification; the
 	// zero value is None.
@@ -118,8 +123,9 @@ type TicketSaleUseCase interface {
 	// sale, is not published, or does not exist.
 	ListByEvent(ctx context.Context, eventID string) (*EventSales, error)
 
-	// SetWindow moves the window of one of the Organizer's sales and returns
-	// the updated sale. A Lottery sale's window moves only before it opens.
+	// SetWindow moves the window of one of the Organizer's sales, which is read
+	// in timeZone from now on, and returns the updated sale. A Lottery sale's
+	// window moves only before it opens.
 	//
 	// # Possible errors
 	//
@@ -128,7 +134,7 @@ type TicketSaleUseCase interface {
 	//  - InvalidArgument: the window breaks the TicketSale rules.
 	//  - FailedPrecondition: a Lottery sale has opened, the end time is too
 	//    late for an event, or the window overlaps another sale of an event.
-	SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*entity.TicketSale, error)
+	SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, timeZone string, saleStart, saleEnd time.Time) (*entity.TicketSale, error)
 
 	// SetVerificationRequirement changes whether fans taking part in one of
 	// the Organizer's sales must hold an Active IdentityVerification, at any time, and returns
@@ -218,7 +224,9 @@ func (uc *ticketSaleUseCase) eventStartTimes(ctx context.Context, eventIDs []str
 		if err != nil {
 			return nil, err
 		}
-		known[i] = start
+		if instant, ok := start.Instant(); ok {
+			known[i] = &instant
+		}
 	}
 	return entity.RequireStartTimes(known)
 }
@@ -257,9 +265,13 @@ func (uc *ticketSaleUseCase) createSnapshot(ctx context.Context, organizerID str
 		if err != nil {
 			return snapshot, err
 		}
-		start, err := uc.eventStart.GetEventStartTime(ctx, id)
+		eventStart, err := uc.eventStart.GetEventStartTime(ctx, id)
 		if err != nil {
 			return snapshot, err
+		}
+		var start *time.Time
+		if instant, ok := eventStart.Instant(); ok {
+			start = &instant
 		}
 		stocks, err := uc.stockRepo.ListByEvent(ctx, id, now)
 		if err != nil {
@@ -288,7 +300,7 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 	if in.SaleEnd.IsZero() {
 		return nil, apperr.New(codes.InvalidArgument, "a sale needs an end time")
 	}
-	sale := entity.NewTicketSale(in.SeriesID, in.Name, in.Method, in.SaleStart, in.SaleEnd, in.EventIDs...)
+	sale := entity.NewTicketSale(in.SeriesID, in.Name, in.Method, in.TimeZone, in.SaleStart, in.SaleEnd, in.EventIDs...)
 	sale.VerificationRequirement = in.VerificationRequirement
 	if err := sale.Validate(); err != nil {
 		return nil, err
@@ -296,6 +308,9 @@ func (uc *ticketSaleUseCase) Create(ctx context.Context, organizerID string, in 
 
 	events, err := authoredEvents(ctx, uc.seriesRepo, organizerID, in.SeriesID)
 	if err != nil {
+		return nil, err
+	}
+	if err := sale.CheckTimeZoneOfEvents(events); err != nil {
 		return nil, err
 	}
 	snapshot, err := uc.createSnapshot(ctx, organizerID, sale, events)
@@ -399,7 +414,7 @@ func (uc *ticketSaleUseCase) ownSale(ctx context.Context, organizerID string, sa
 }
 
 // SetWindow implements [TicketSaleUseCase].
-func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, saleStart, saleEnd time.Time) (*entity.TicketSale, error) {
+func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, saleID entity.TicketSaleID, timeZone string, saleStart, saleEnd time.Time) (*entity.TicketSale, error) {
 	sale, err := uc.ownSale(ctx, organizerID, saleID)
 	if err != nil {
 		return nil, err
@@ -407,11 +422,18 @@ func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, 
 	if sale.Method == entity.TicketSaleMethodLottery && !uc.clock().Before(sale.SaleStartTime) {
 		return nil, apperr.New(codes.FailedPrecondition, "a lottery sale's window cannot change once it has opened")
 	}
-	if err := sale.ValidateWindow(saleStart, saleEnd); err != nil {
+	moved := *sale
+	moved.TimeZone, moved.SaleStartTime, moved.SaleEndTime = timeZone, saleStart, saleEnd
+	if err := moved.Validate(); err != nil {
 		return nil, err
 	}
-	moved := *sale
-	moved.SaleStartTime, moved.SaleEndTime = saleStart, saleEnd
+	events, err := authoredEvents(ctx, uc.seriesRepo, organizerID, sale.SeriesID)
+	if err != nil {
+		return nil, err
+	}
+	if err := moved.CheckTimeZoneOfEvents(events); err != nil {
+		return nil, err
+	}
 	starts, err := uc.eventStartTimes(ctx, sale.EventIDs)
 	if err != nil {
 		return nil, err
@@ -426,7 +448,7 @@ func (uc *ticketSaleUseCase) SetWindow(ctx context.Context, organizerID string, 
 	if err := moved.CheckNoOverlap(others); err != nil {
 		return nil, err
 	}
-	return uc.saleRepo.SetWindow(ctx, saleID, saleStart, saleEnd)
+	return uc.saleRepo.SetWindow(ctx, saleID, timeZone, saleStart, saleEnd)
 }
 
 // SetVerificationRequirement implements [TicketSaleUseCase].

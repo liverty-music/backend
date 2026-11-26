@@ -9,6 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/type/timeofday"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -17,8 +18,8 @@ func TestFromConcertCandidate(t *testing.T) {
 
 	discoveredAt := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	localDate := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
-	startTime := time.Date(2026, 7, 15, 19, 0, 0, 0, time.UTC)
-	openTime := time.Date(2026, 7, 15, 18, 0, 0, 0, time.UTC)
+	startTime := entity.TimeOfDay{Hour: 19, Minute: 30}
+	openTime := entity.TimeOfDay{Hour: 18, Minute: 0}
 
 	performer := &entity.Artist{ID: "artist-1", Name: "Test Band"}
 
@@ -45,7 +46,7 @@ func TestFromConcertCandidate(t *testing.T) {
 		got := pb.FromConcertCandidate(sc, performer)
 		require.NotNil(t, got)
 		require.NotNil(t, got.OpenTime, "expected OpenTime to be set")
-		assert.Equal(t, timestamppb.New(openTime), got.OpenTime.Value)
+		assert.Equal(t, &timeofday.TimeOfDay{Hours: 18}, got.OpenTime.Value)
 	})
 
 	t.Run("open_time absent leaves proto OpenTime nil", func(t *testing.T) {
@@ -68,8 +69,8 @@ func TestFromConcertCandidate(t *testing.T) {
 		require.NotNil(t, got)
 		require.NotNil(t, got.StartTime)
 		require.NotNil(t, got.OpenTime)
-		assert.Equal(t, timestamppb.New(startTime), got.StartTime.Value)
-		assert.Equal(t, timestamppb.New(openTime), got.OpenTime.Value)
+		assert.Equal(t, &timeofday.TimeOfDay{Hours: 19, Minutes: 30}, got.StartTime.Value)
+		assert.Equal(t, &timeofday.TimeOfDay{Hours: 18}, got.OpenTime.Value)
 	})
 
 	t.Run("required fields are always populated", func(t *testing.T) {

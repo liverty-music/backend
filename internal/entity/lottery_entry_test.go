@@ -36,20 +36,20 @@ func TestValidateLotteryEntrySale(t *testing.T) {
 	t.Run("lottery sale of the event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/lottery-entry "Lottery sale of the event"
-		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-1")
+		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-1")
 		assert.NoError(t, entity.ValidateLotteryEntrySale(sale, stock))
 	})
 
 	t.Run("first-come sale", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/lottery-entry "First-come sale"
-		sale := entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, nov(1, 10, 0), nov(20, 18, 0), "event-1")
+		sale := entity.NewTicketSale("series-1", "一般発売", entity.TicketSaleMethodFirstCome, "Asia/Tokyo", nov(1, 10, 0), nov(20, 18, 0), "event-1")
 		assert.ErrorIs(t, entity.ValidateLotteryEntrySale(sale, stock), apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("lottery sale of another event", func(t *testing.T) {
 		t.Parallel()
-		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0), "event-2")
+		sale := entity.NewTicketSale("series-1", "FC先行", entity.TicketSaleMethodLottery, "Asia/Tokyo", nov(1, 10, 0), nov(10, 10, 0), "event-2")
 		assert.ErrorIs(t, entity.ValidateLotteryEntrySale(sale, stock), apperr.ErrFailedPrecondition)
 	})
 }

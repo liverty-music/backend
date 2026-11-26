@@ -48,6 +48,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 		ID:            venueID,
 		Name:          "Zepp Haneda (TOKYO)",
 		AdminArea:     new("JP-13"),
+		TimeZone:      new("Asia/Tokyo"),
 		GooglePlaceID: &placeID,
 	}
 

@@ -39,11 +39,12 @@ type ConcertCandidate struct {
 	// LocalDate is the scheduled calendar date of the concert in the venue
 	// local timezone.
 	LocalDate time.Time
-	// StartTime is the scheduled start time. Nil when the source did not
-	// state one.
-	StartTime *time.Time
-	// OpenTime is the doors-open time. Nil when not announced.
-	OpenTime *time.Time
+	// StartTime is the wall-clock start time at the venue as the source
+	// states it, read in TimeZone. Nil when the source did not state one.
+	StartTime *TimeOfDay
+	// OpenTime is the wall-clock doors-open time, read like StartTime. Nil
+	// when not announced.
+	OpenTime *TimeOfDay
 	// ListedVenueName is the raw venue name exactly as scraped from the source.
 	ListedVenueName string
 	// AdminArea is the admin area as discovery found it: a first-level Area

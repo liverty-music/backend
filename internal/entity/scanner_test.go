@@ -179,12 +179,14 @@ func TestAdmissionWindowOf(t *testing.T) {
 	t.Parallel()
 
 	date := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
-	ptr := func(t time.Time) *time.Time { return &t }
+	hm := func(h int) *entity.TimeOfDay { return &entity.TimeOfDay{Hour: h} }
+	tokyo, london := "Asia/Tokyo", "Europe/London"
+	atTokyo := &entity.Venue{TimeZone: &tokyo}
 
 	t.Run("usual evening show", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/scanner "Usual evening show"
-		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, OpenTime: ptr(at(18, 0, 0)), StartTime: ptr(at(19, 0, 0))})
+		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, OpenTime: hm(18), StartTime: hm(19), Venue: atTokyo})
 		require.True(t, ok)
 		assert.True(t, w.OpenTime.Equal(at(16, 0, 0)))
 		assert.True(t, w.CloseTime.Equal(time.Date(2026, 11, 21, 4, 0, 0, 0, jst)))
@@ -193,7 +195,7 @@ func TestAdmissionWindowOf(t *testing.T) {
 	t.Run("no open time", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/scanner "No open time"
-		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, StartTime: ptr(at(19, 0, 0))})
+		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, StartTime: hm(19), Venue: atTokyo})
 		require.True(t, ok)
 		assert.True(t, w.OpenTime.Equal(at(16, 0, 0)))
 	})
@@ -201,15 +203,25 @@ func TestAdmissionWindowOf(t *testing.T) {
 	t.Run("no start time", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/scanner "No start time"
-		_, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, OpenTime: ptr(at(18, 0, 0))})
+		_, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, OpenTime: hm(18), Venue: atTokyo})
 		assert.False(t, ok)
 	})
 
-	t.Run("close is in Japan time whatever the date's zone", func(t *testing.T) {
+	t.Run("venue in Europe/London", func(t *testing.T) {
 		t.Parallel()
-		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, StartTime: ptr(time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC))})
+		// @spec components/entity/scanner "Usual evening show"
+		// The window is read in the Venue's zone, not in Japan time.
+		loc := wallZone(t, london)
+		w, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, StartTime: hm(19), Venue: &entity.Venue{TimeZone: &london}})
 		require.True(t, ok)
-		assert.True(t, w.CloseTime.Equal(time.Date(2026, 11, 20, 19, 0, 0, 0, time.UTC)))
+		assert.True(t, w.OpenTime.Equal(time.Date(2026, 11, 20, 16, 0, 0, 0, loc)))
+		assert.True(t, w.CloseTime.Equal(time.Date(2026, 11, 21, 4, 0, 0, 0, loc)))
+	})
+
+	t.Run("venue without a time zone has no window", func(t *testing.T) {
+		t.Parallel()
+		_, ok := entity.AdmissionWindowOf(&entity.Event{LocalDate: date, StartTime: hm(19), Venue: &entity.Venue{}})
+		assert.False(t, ok)
 	})
 
 	window := entity.AdmissionWindow{OpenTime: at(16, 0, 0), CloseTime: time.Date(2026, 11, 21, 4, 0, 0, 0, jst)}

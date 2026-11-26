@@ -168,8 +168,8 @@ func (uc *settlementUseCase) releaseGatePassed(ctx context.Context, s *entity.Se
 		return false, err
 	}
 	var startTime time.Time
-	if eventStartTime != nil {
-		startTime = *eventStartTime
+	if instant, ok := eventStartTime.Instant(); ok {
+		startTime = instant
 	}
 	// Gate not yet passed is not an error — the next sweep will retry.
 	return entity.IsReleaseEligible(now, startTime, uc.disputeBuffer), nil

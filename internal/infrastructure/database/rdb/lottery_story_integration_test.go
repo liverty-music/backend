@@ -299,11 +299,11 @@ func (s *lotteryStory) pushedLoss(id entity.LotteryEntryID) bool {
 func (s *lotteryStory) secondEvent(price int64, quantity int) (string, *entity.TicketStock) {
 	s.t.Helper()
 	eventID := uuid.NewV7().String()
-	start := storyEventStart.Add(24 * time.Hour)
+	start := storyEventStart.Add(24 * time.Hour).In(storyJST)
 	_, err := s.db.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit)
-		SELECT $1, series_id, venue_id, $3, $4, 'PUBLISHED', 4 FROM events WHERE id = $2
-	`, eventID, s.eventID, start.Format(time.DateOnly), start)
+		INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time, publish_state, per_account_limit)
+		SELECT $1, series_id, venue_id, $3, $4::text::time, 'PUBLISHED', 4 FROM events WHERE id = $2
+	`, eventID, s.eventID, start.Format(time.DateOnly), start.Format("15:04"))
 	require.NoError(s.t, err)
 	seatType, err := s.seatTypes.Create(s.ctx, s.organizerID, s.seriesID, "S席 2日目", price)
 	require.NoError(s.t, err)
@@ -383,8 +383,8 @@ func (s *lotteryStory) seedOrganizerEvent() {
 
 	s.eventID = uuid.NewV7().String()
 	_, err = s.db.Pool.Exec(s.ctx, `
-		INSERT INTO events (id, series_id, venue_id, local_event_date, start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5, 'PUBLISHED', 4)
-	`, s.eventID, s.seriesID, seedVenue(t, s.db, "story-venue"), storyEventStart.Format(time.DateOnly), storyEventStart)
+		INSERT INTO events (id, series_id, venue_id, local_event_date, local_start_time, publish_state, per_account_limit) VALUES ($1, $2, $3, $4, $5::text::time, 'PUBLISHED', 4)
+	`, s.eventID, s.seriesID, seedVenue(t, s.db, "story-venue"), storyEventStart.In(storyJST).Format(time.DateOnly), storyEventStart.In(storyJST).Format("15:04"))
 	require.NoError(t, err)
 }
 
@@ -404,6 +404,7 @@ func (s *lotteryStory) stock(name string, price int64, quantity int) *entity.Tic
 func (s *lotteryStory) createLottery(name string, start, end time.Time) entity.TicketSaleID {
 	s.t.Helper()
 	sale, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
+		TimeZone:  "Asia/Tokyo",
 		SeriesID:  s.seriesID,
 		Name:      name,
 		Method:    entity.TicketSaleMethodLottery,
@@ -1036,7 +1037,7 @@ func TestLotteryStory_EntryMadeOnlyAfterTheWindowClosed(t *testing.T) {
 	// A window that has already ended by the database clock: the fan
 	// completes card authentication 10 seconds before the end time, and the
 	// confirmation reaches the platform only after it.
-	end := time.Now().Add(-time.Minute)
+	end := time.Now().Add(-time.Minute).Truncate(time.Minute)
 	start := end.Add(-24 * time.Hour)
 	s.now = start.Add(-24 * time.Hour)
 	sale := s.createLottery("抽選", start, end)
@@ -1299,6 +1300,7 @@ func TestLotteryStory_AnotherDateOfTheSale(t *testing.T) {
 	secondEventID, second := s.secondEvent(8000, 100)
 	end := storyWindowStart.Add(3 * 24 * time.Hour)
 	created, err := s.sales.Create(s.ctx, s.organizerID, usecase.CreateTicketSaleInput{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: s.seriesID, Name: "抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStart: storyWindowStart, SaleEnd: end, EventIDs: []string{s.eventID, secondEventID},
 	})

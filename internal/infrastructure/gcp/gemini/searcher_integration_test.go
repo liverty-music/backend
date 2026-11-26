@@ -59,7 +59,7 @@ type abVariant struct {
 // parseABVariant parses a variant name such as "cap+nosearch".
 func parseABVariant(name string) (abVariant, error) {
 	v := abVariant{Name: name}
-	for _, opt := range strings.Split(name, "+") {
+	for opt := range strings.SplitSeq(name, "+") {
 		switch strings.TrimSpace(opt) {
 		case "base":
 		case "cap":
@@ -93,7 +93,7 @@ func csvEnv(name string, def ...string) []string {
 		return def
 	}
 	var out []string
-	for _, v := range strings.Split(raw, ",") {
+	for v := range strings.SplitSeq(raw, ",") {
 		if v = strings.TrimSpace(v); v != "" {
 			out = append(out, v)
 		}
@@ -125,7 +125,7 @@ func abMatrix(t *testing.T, artists []gemini.GroundTruthArtist) []abCell {
 	// target a specific artist (e.g. GEMINI_AB_EVAL_ARTISTS=Vaundy).
 	if filter := strings.TrimSpace(os.Getenv(abEvalArtistsEnvVar)); filter != "" {
 		want := map[string]bool{}
-		for _, a := range strings.Split(filter, ",") {
+		for a := range strings.SplitSeq(filter, ",") {
 			want[strings.TrimSpace(a)] = true
 		}
 		filtered := artists[:0:0]

@@ -81,7 +81,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	}},
 	"venues": {insert: true},
 	"events": {insert: true, delete: true, updateColumns: []string{
-		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_time", "open_time", "per_account_limit",
+		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_time", "open_time", "local_start_time", "local_open_time", "per_account_limit",
 	}},
 	"concert_artists":    {insert: true, delete: true},
 	"ticket_journeys":    {insert: true},
@@ -90,7 +90,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"series_images":      {insert: true},
 	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_sync_time"}},
 	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoke_time"}},
-	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_time", "sale_end_time", "verification_requirement"}},
+	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_time", "sale_end_time", "time_zone", "local_start_time", "local_end_time", "verification_requirement"}},
 	"seat_types":         {insert: true, delete: true},
 	"ticket_stocks":      {insert: true},
 	"ticket_sale_events": {insert: true},
@@ -114,8 +114,11 @@ type receptionTableAccess struct {
 // to scanners and token to link_token, and the privileges follow them).
 // The role has no privilege on any other app table.
 var receptionAccess = map[string]receptionTableAccess{
-	"scanners":           {selects: true, updateColumns: []string{"status", "bound_public_key", "bind_time", "link_token"}},
-	"events":             {selects: true},
+	"scanners": {selects: true, updateColumns: []string{"status", "bound_public_key", "bind_time", "link_token"}},
+	"events":   {selects: true},
+	// 20261126060405_wall_clock_times.sql: an event's times are read in its
+	// venue's time zone.
+	"venues":             {selects: true},
 	"wallet_public_keys": {selects: true},
 	"tickets":            {selects: true, updateColumns: []string{"admit_time"}},
 	"admissions":         {selects: true, insert: true},

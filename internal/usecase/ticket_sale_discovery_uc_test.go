@@ -539,3 +539,59 @@ func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_EndedArtist(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, 0, got)
 }
+
+func TestTicketSaleDiscoveryUseCase_DiscoverForArtist_TimeZones(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	nextMonth := now.AddDate(0, 1, 0)
+	at := func(date time.Time, zone string) *entity.Concert {
+		c := upcomingConcert("series-a", "Tour A", date)
+		c.Venue = &entity.Venue{TimeZone: &zone}
+		return c
+	}
+
+	tests := []struct {
+		name     string
+		concerts []*entity.Concert
+		wantZone string
+	}{
+		{
+			// @spec components/usecase/ticket-sale/discover-for-artist "Series in one time zone"
+			name:     "give the series the time zone its venues share",
+			concerts: []*entity.Concert{at(nextMonth, "Asia/Taipei"), at(nextMonth.AddDate(0, 0, 1), "Asia/Taipei")},
+			wantZone: "Asia/Taipei",
+		},
+		{
+			// @spec components/usecase/ticket-sale/discover-for-artist "Series across time zones"
+			name:     "give no time zone to a series whose venues have different ones",
+			concerts: []*entity.Concert{at(nextMonth, "Asia/Tokyo"), at(nextMonth.AddDate(0, 0, 1), "Asia/Seoul")},
+			wantZone: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newDiscoveryMocks(t)
+			m.concerts(tt.concerts...)
+			m.tracked("series-a", true)
+			m.sales("series-a")
+			m.searches([]string{"series-a"})
+			m.officialSite()
+			var given []*entity.SalesSeriesRef
+			m.searcher.EXPECT().SearchPublishedSales(mock.Anything, mock.Anything).
+				Run(func(_ context.Context, in *entity.PublishedSaleSearchInput) { given = in.Series }).
+				Return(nil, nil).Once()
+			m.record([]string{"series-a"}, nil)
+			uc := usecase.NewTicketSaleDiscoveryUseCase(m.concertRepo, m.artistRepo, m.salesRepo, m.searchRepo, m.journeyRepo,
+				m.searcher, nil, func() time.Time { return now }, newTestLogger(t))
+
+			_, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
+
+			require.NoError(t, err)
+			require.Len(t, given, 1)
+			assert.Equal(t, tt.wantZone, given[0].TimeZone)
+		})
+	}
+}

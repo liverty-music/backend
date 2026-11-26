@@ -29,17 +29,27 @@ type rowQuerier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// ticketSaleColumns selects a ticket_sales row (aliased ts).
+// ticketSaleColumns selects a ticket_sales row (aliased ts). The window is
+// stored as wall-clock times in the sale's time zone and read back as such;
+// the instants are computed in Go.
 const ticketSaleColumns = `
-	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_time, ts.sale_end_time,
+	ts.id, ts.series_id, ts.name, ts.method, ts.time_zone, ts.local_start_time, ts.local_end_time,
 	ts.verification_requirement, ts.find_time, ts.result_date
 `
 
 const (
+	// saleStartInstant and saleEndInstant are the instants of a sale's window
+	// as PostgreSQL computes them, for filtering and ordering rows; the exact
+	// rules are applied in Go.
+	saleStartInstant = `(ts.local_start_time AT TIME ZONE ts.time_zone)`
+	saleEndInstant   = `(ts.local_end_time AT TIME ZONE ts.time_zone)`
+)
+
+const (
 	ticketSaleInsertQuery = `
 		INSERT INTO ticket_sales (
-			id, series_id, name, method, sale_start_time, sale_end_time, verification_requirement
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			id, series_id, name, method, time_zone, local_start_time, local_end_time, verification_requirement
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	// ticketSaleEventInsertQuery names the event only when it is an event of
 	// the sale's Series ($3); another event inserts no row.
@@ -55,21 +65,21 @@ const (
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		JOIN ticket_sale_events tse ON tse.ticket_sale_id = ts.id
 		WHERE tse.event_id = $1
-		ORDER BY ts.sale_start_time, ts.id
+		ORDER BY ` + saleStartInstant + `, ts.id
 	`
 	// ticketSaleListDueForDrawQuery returns the Organizer's Lottery sales
 	// that ended at or before $1, the instant entity.LotteryDrawDelay before
 	// now, and still have an Entered entry. A discovered sale has no entry.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ts.sale_end_time <= $1 AND ts.find_time IS NULL
+		WHERE ts.method = 2 AND ` + saleEndInstant + ` <= $1 AND ts.find_time IS NULL
 		  AND EXISTS (SELECT 1 FROM lottery_entries le WHERE le.ticket_sale_id = ts.id AND le.state = 1)
-		ORDER BY ts.sale_end_time, ts.id
+		ORDER BY ` + saleEndInstant + `, ts.id
 	`
 	ticketSaleListBySeriesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
 		WHERE ts.series_id = $1
-		ORDER BY ts.sale_start_time, ts.id
+		ORDER BY ` + saleStartInstant + `, ts.id
 	`
 	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
 	// within the lookahead ($1 seconds) and whose end is no further back than
@@ -77,36 +87,37 @@ const (
 	// is while one of its events is PUBLISHED.
 	ticketSaleListWithPendingMilestonesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.sale_start_time <= NOW() + make_interval(secs => $1)
-		  AND ts.sale_end_time >= NOW() - make_interval(secs => $2)
+		WHERE ` + saleStartInstant + ` <= NOW() + make_interval(secs => $1)
+		  AND ` + saleEndInstant + ` >= NOW() - make_interval(secs => $2)
 		  AND (ts.find_time IS NOT NULL OR EXISTS (
 		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
-		ORDER BY ts.sale_start_time, ts.id
+		ORDER BY ` + saleStartInstant + `, ts.id
 	`
 	// ticketSaleUpsertDiscoveredQuery stores a discovered sale in one
 	// statement. The SELECT from series yields no row when the series does
 	// not exist or has an Organizer, so nothing is written and no row is
 	// returned. A known discovered sale with the same series, method and start
-	// date in Japan time (uq_ticket_sales_discovered_convergence) gets the new
-	// name and times and keeps its id, series, method and find_time. It
-	// takes the new result date when there is one; otherwise it keeps the
-	// stored one while it is no earlier than the Japan-time day of the new end
-	// time, and clears it once a later end time makes it impossible.
+	// date in the sale's time zone (uq_ticket_sales_discovered_convergence)
+	// gets the new name, time zone and times and keeps its id, series, method
+	// and find_time. It takes the new result date when there is one; otherwise
+	// it keeps the stored one while it is no earlier than the local day of the
+	// new end time, and clears it once a later end time makes it impossible.
 	// xmax = 0 is true only for a freshly inserted row.
 	ticketSaleUpsertDiscoveredQuery = `
 		INSERT INTO ticket_sales (
-			id, series_id, name, method, sale_start_time, sale_end_time,
+			id, series_id, name, method, time_zone, local_start_time, local_end_time,
 			verification_requirement, find_time, result_date
 		)
-		SELECT $1, s.id, $3, $4, $5, $6, 0, NOW(), $7::date
+		SELECT $1, s.id, $3, $4, $5, $6, $7, 0, NOW(), $8::date
 		FROM series s WHERE s.id = $2 AND s.organizer_id IS NULL
-		ON CONFLICT (series_id, method, sale_start_date_jst) WHERE find_time IS NOT NULL DO UPDATE
-		SET name          = EXCLUDED.name,
-		    sale_start_time = EXCLUDED.sale_start_time,
-		    sale_end_time   = EXCLUDED.sale_end_time,
-		    result_date   = CASE
+		ON CONFLICT (series_id, method, sale_start_local_date) WHERE find_time IS NOT NULL DO UPDATE
+		SET name             = EXCLUDED.name,
+		    time_zone        = EXCLUDED.time_zone,
+		    local_start_time = EXCLUDED.local_start_time,
+		    local_end_time   = EXCLUDED.local_end_time,
+		    result_date      = CASE
 		        WHEN EXCLUDED.result_date IS NOT NULL THEN EXCLUDED.result_date
-		        WHEN ticket_sales.result_date >= (EXCLUDED.sale_end_time AT TIME ZONE 'Asia/Tokyo')::date THEN ticket_sales.result_date
+		        WHEN ticket_sales.result_date >= EXCLUDED.local_end_time::date THEN ticket_sales.result_date
 		    END
 		RETURNING id, (xmax = 0) AS inserted
 	`
@@ -117,7 +128,7 @@ const (
 		ORDER BY ticket_sale_id, event_id
 	`
 	ticketSaleSetWindowQuery = `
-		UPDATE ticket_sales SET sale_start_time = $2, sale_end_time = $3 WHERE id = $1
+		UPDATE ticket_sales SET time_zone = $2, local_start_time = $3, local_end_time = $4 WHERE id = $1
 	`
 	ticketSaleSetVerificationRequirementQuery = `
 		UPDATE ticket_sales SET verification_requirement = $2 WHERE id = $1
@@ -152,7 +163,8 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, ticketSaleInsertQuery,
-		string(sale.ID), sale.SeriesID, sale.Name, int16(sale.Method), sale.SaleStartTime, sale.SaleEndTime,
+		string(sale.ID), sale.SeriesID, sale.Name, int16(sale.Method), sale.TimeZone,
+		entity.CivilTime(sale.SaleStartTime, sale.Location()), entity.CivilTime(sale.SaleEndTime, sale.Location()),
 		int16(sale.VerificationRequirement),
 	); err != nil {
 		return nil, toAppErr(err, "failed to insert ticket sale", attrs...)
@@ -215,7 +227,8 @@ func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time
 }
 
 // UpsertDiscovered stores a discovered sale, converging on the known
-// discovered sale with the same series, method and start date in Japan time.
+// discovered sale with the same series, method and start date in the sale's
+// time zone.
 //
 // # Announces
 //
@@ -255,8 +268,9 @@ func (r *TicketSaleRepository) UpsertDiscovered(ctx context.Context, found *enti
 		found.SeriesID,
 		found.Name,
 		int16(found.Method),
-		found.SaleStartTime,
-		found.SaleEndTime,
+		found.TimeZone,
+		entity.CivilTime(found.SaleStartTime, found.Location()),
+		entity.CivilTime(found.SaleEndTime, found.Location()),
 		found.ResultDate,
 	).Scan(&id, &inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -317,16 +331,19 @@ func (r *TicketSaleRepository) ListWithPendingMilestones(ctx context.Context, lo
 
 // SetWindow stores the sale's new window after checking it against the
 // sale's method.
-func (r *TicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, saleStart, saleEnd time.Time) (*entity.TicketSale, error) {
+func (r *TicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, timeZone string, saleStart, saleEnd time.Time) (*entity.TicketSale, error) {
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(id))}
 	current, err := r.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if err := current.ValidateWindow(saleStart, saleEnd); err != nil {
+	moved := *current
+	moved.TimeZone, moved.SaleStartTime, moved.SaleEndTime = timeZone, saleStart, saleEnd
+	if err := moved.Validate(); err != nil {
 		return nil, err
 	}
-	tag, err := r.db.Pool.Exec(ctx, ticketSaleSetWindowQuery, string(id), saleStart, saleEnd)
+	loc := moved.Location()
+	tag, err := r.db.Pool.Exec(ctx, ticketSaleSetWindowQuery, string(id), timeZone, entity.CivilTime(saleStart, loc), entity.CivilTime(saleEnd, loc))
 	if err != nil {
 		return nil, toAppErr(err, "failed to set ticket sale window", attrs...)
 	}
@@ -418,11 +435,26 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 		verifReq     int16
 		discoveredAt sql.NullTime
 		resultDate   sql.NullTime
+		localStart   time.Time
+		localEnd     time.Time
 	)
 	if err := row.Scan(
-		&id, &s.SeriesID, &s.Name, &method, &s.SaleStartTime, &s.SaleEndTime,
+		&id, &s.SeriesID, &s.Name, &method, &s.TimeZone, &localStart, &localEnd,
 		&verifReq, &discoveredAt, &resultDate,
 	); err != nil {
+		return nil, err
+	}
+	loc, err := entity.LoadZone(s.TimeZone)
+	if err != nil {
+		return nil, err
+	}
+	// The window is announced as wall-clock times, so a time the clocks skip
+	// cannot be stored; if the zone's rules changed since, the instant moves
+	// to the first minute the clocks show after the gap.
+	if s.SaleStartTime, err = saleInstant(localStart, loc); err != nil {
+		return nil, err
+	}
+	if s.SaleEndTime, err = saleInstant(localEnd, loc); err != nil {
 		return nil, err
 	}
 	s.ID = entity.TicketSaleID(id)

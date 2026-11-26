@@ -31,6 +31,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 
 	lottery := func(seriesID string, start time.Time) *entity.DiscoveredTicketSale {
 		return &entity.DiscoveredTicketSale{
+			TimeZone:      "Asia/Tokyo",
 			SeriesID:      seriesID,
 			Name:          "先行抽選",
 			Method:        entity.TicketSaleMethodLottery,
@@ -67,6 +68,32 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		assert.NoError(t, sales[0].Validate(), "a stored discovered sale reads back valid")
 	})
 
+	// @spec components/entity/ticket-sale/upsert-discovered "Late-evening sale abroad keeps its date"
+	t.Run("Late-evening sale abroad keeps its date", func(t *testing.T) {
+		cleanTables(t, db)
+		seriesID := seedSeriesOnly(t, db, "Tour")
+		taipei, err := time.LoadLocation("Asia/Taipei")
+		require.NoError(t, err)
+		taipeiLottery := func(hour int) *entity.DiscoveredTicketSale {
+			sale := lottery(seriesID, time.Date(2026, 11, 1, hour, 30, 0, 0, taipei))
+			sale.TimeZone = "Asia/Taipei"
+			sale.SaleEndTime = time.Date(2026, 11, 10, 23, 59, 0, 0, taipei)
+			return sale
+		}
+		// 23:30 in Taipei is 00:30 on 2 November in Japan; 22:30 is still
+		// 1 November there.
+		firstID, _ := upsertDiscovered(t, repo, ctx, taipeiLottery(23))
+
+		id, outcome := upsertDiscovered(t, repo, ctx, taipeiLottery(22))
+
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		assert.Equal(t, firstID, id)
+		sales := listOf(t, seriesID)
+		require.Len(t, sales, 1)
+		assert.Equal(t, "Asia/Taipei", sales[0].TimeZone)
+		assert.True(t, time.Date(2026, 11, 1, 22, 30, 0, 0, taipei).Equal(sales[0].SaleStartTime))
+	})
+
 	// @spec components/entity/ticket-sale/upsert-discovered "Re-discovery with a new name"
 	t.Run("Re-discovery with a new name", func(t *testing.T) {
 		cleanTables(t, db)
@@ -92,6 +119,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		firstID, _ := upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At18))
 
 		nov10 := &entity.DiscoveredTicketSale{
+			TimeZone:      "Asia/Tokyo",
 			SeriesID:      seriesID,
 			Name:          "二次先行",
 			Method:        entity.TicketSaleMethodLottery,
@@ -112,6 +140,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		upsertDiscovered(t, repo, ctx, lottery(seriesID, oct5At18))
 
 		firstCome := &entity.DiscoveredTicketSale{
+			TimeZone:      "Asia/Tokyo",
 			SeriesID:      seriesID,
 			Name:          "一般発売",
 			Method:        entity.TicketSaleMethodFirstCome,
@@ -233,6 +262,7 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 			name: "First-come sale until sold out",
 			sale: func(seriesID string) *entity.DiscoveredTicketSale {
 				return &entity.DiscoveredTicketSale{
+					TimeZone: "Asia/Tokyo",
 					SeriesID: seriesID, Name: "一般発売", Method: entity.TicketSaleMethodFirstCome, SaleStartTime: oct5At18,
 				}
 			},
@@ -291,6 +321,19 @@ func TestTicketSaleRepository_UpsertDiscovered(t *testing.T) {
 		assert.Empty(t, listOf(t, seriesID))
 	})
 
+	// @spec components/entity/ticket-sale/upsert-discovered "No time zone"
+	t.Run("No time zone", func(t *testing.T) {
+		cleanTables(t, db)
+		seriesID := seedSeriesOnly(t, db, "Tour")
+		sale := lottery(seriesID, time.Date(2026, 11, 1, 12, 0, 0, 0, jst))
+		sale.SaleEndTime = time.Date(2026, 11, 10, 23, 59, 0, 0, jst)
+		sale.TimeZone = ""
+
+		_, _, err := repo.UpsertDiscovered(ctx, sale)
+		assertAppErrCode(t, err, codes.InvalidArgument)
+		assert.Empty(t, listOf(t, seriesID))
+	})
+
 	// @spec components/entity/ticket-sale/upsert-discovered "Unknown series"
 	t.Run("Unknown series", func(t *testing.T) {
 		cleanTables(t, db)
@@ -326,6 +369,7 @@ func TestTicketSaleRepository_UpsertDiscovered_FindTime(t *testing.T) {
 
 	before := time.Now().UTC().Add(-time.Second)
 	upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: t0, SaleEndTime: t0.Add(72 * time.Hour),
 	})
@@ -340,6 +384,7 @@ func TestTicketSaleRepository_UpsertDiscovered_FindTime(t *testing.T) {
 	first := *sales[0].FindTime
 
 	upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime: t0, SaleEndTime: t0.Add(96 * time.Hour),
 	})
@@ -367,10 +412,12 @@ func TestTicketSaleRepository_ListBySeries(t *testing.T) {
 		oct5 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
 		// Insert the later one first so the order comes from the query.
 		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seriesID, Name: "二次先行", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: nov10, SaleEndTime: nov10.Add(72 * time.Hour),
 		})
 		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seriesID, Name: "先行抽選", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: oct5, SaleEndTime: oct5.Add(72 * time.Hour),
 		})
@@ -418,7 +465,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 
 	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
-	now := time.Now()
+	now := time.Now().Truncate(time.Minute)
 	lookahead := 7 * 24 * time.Hour
 	lookback := 2 * time.Hour
 	const day = 24 * time.Hour
@@ -426,6 +473,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	discovered := func(t *testing.T, method entity.TicketSaleMethod, start, end time.Time) entity.TicketSaleID {
 		t.Helper()
 		id, _ := upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seedSeriesOnly(t, db, "Tour"), Name: "オフィシャル先行", Method: method,
 			SaleStartTime: start, SaleEndTime: end,
 		})
@@ -477,6 +525,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	lotteryWithResult := func(t *testing.T, start, end time.Time, result time.Time) {
 		t.Helper()
 		upsertDiscovered(t, repo, ctx, &entity.DiscoveredTicketSale{
+			TimeZone: "Asia/Tokyo",
 			SeriesID: seedSeriesOnly(t, db, "Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
 			SaleStartTime: start, SaleEndTime: end, ResultDate: &result,
 		})
@@ -488,7 +537,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	// is what 12 October is at that moment.
 	t.Run("Result date was yesterday in Japan", func(t *testing.T) {
 		cleanTables(t, db)
-		yesterday := entity.JapanDate(now.Add(-lookback)).AddDate(0, 0, -1)
+		yesterday := japanDate(now.Add(-lookback)).AddDate(0, 0, -1)
 		lotteryWithResult(t, now.Add(-20*day), now.Add(-12*day), yesterday)
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
@@ -499,7 +548,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Closed lottery with its result date ahead"
 	t.Run("Closed lottery with its result date ahead", func(t *testing.T) {
 		cleanTables(t, db)
-		lotteryWithResult(t, now.Add(-15*day), now.Add(-5*day), entity.JapanDate(now.Add(day)))
+		lotteryWithResult(t, now.Add(-15*day), now.Add(-5*day), japanDate(now.Add(day)))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)
@@ -509,7 +558,7 @@ func TestTicketSaleRepository_ListWithPendingMilestones(t *testing.T) {
 	// @spec components/entity/ticket-sale/list-with-pending-milestones "Result date long past"
 	t.Run("Result date long past", func(t *testing.T) {
 		cleanTables(t, db)
-		lotteryWithResult(t, now.Add(-30*day), now.Add(-20*day), entity.JapanDate(now.Add(-10*day)))
+		lotteryWithResult(t, now.Add(-30*day), now.Add(-20*day), japanDate(now.Add(-10*day)))
 
 		sales, err := repo.ListWithPendingMilestones(ctx, lookahead, lookback)
 		require.NoError(t, err)

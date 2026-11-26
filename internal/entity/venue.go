@@ -284,23 +284,24 @@ func (v *Venue) Location() *time.Location {
 	return loc
 }
 
-// VenueTimeZone returns the time zone of every Venue, which is Asia/Tokyo: a
-// Venue carries no time zone of its own, so every Venue is taken to be in
-// Japan. An Event's day at an overseas Venue is therefore off by that Venue's
-// time difference from Japan. Giving a Venue its own time zone is tracked in
-// https://github.com/liverty-music/specification/issues/1379; that changes
-// what this function returns, not the rule that an Event's day is the day at
-// its Venue.
-func VenueTimeZone() *time.Location {
-	return japanTime
-}
+// unknownZoneFloor is the zone, UTC-12, whose calendar day is the earliest of
+// any place: a date that is past there is past everywhere.
+var unknownZoneFloor = time.FixedZone("UTC-12", -12*60*60)
 
-// CurrentDateAtVenue returns the calendar day that t falls on at a Venue, in
-// [VenueTimeZone], at midnight UTC like an Event's local date. Every
-// comparison of an Event's local date with the current date, today or a date
-// given as an instant, uses it, never the calendar day of the clock of the
-// server or the database.
-func CurrentDateAtVenue(t time.Time) time.Time {
-	y, m, d := t.In(VenueTimeZone()).Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+// CurrentDateAtVenue returns the calendar day that t falls on at the Venue, in
+// the Venue's time zone, at midnight UTC like an Event's local date. A nil
+// Venue, or one whose zone is not known, counts the day in UTC-12, so an Event
+// whose zone is not known yet is past only when its date is before the
+// current date everywhere. Every comparison of an Event's local date with the
+// current date, today or a date given as an instant, uses it, never the
+// calendar day of the clock of the server or the database.
+func CurrentDateAtVenue(t time.Time, v *Venue) time.Time {
+	var loc *time.Location
+	if v != nil {
+		loc = v.Location()
+	}
+	if loc == nil {
+		loc = unknownZoneFloor
+	}
+	return LocalDateIn(t, loc)
 }

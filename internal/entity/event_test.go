@@ -14,16 +14,16 @@ var (
 	testVenueB  = "019a0000-0000-7000-8000-00000000000b"
 	testOrgID   = "019a0000-0000-7000-8000-000000000001"
 	testDate    = time.Date(2026, 12, 24, 0, 0, 0, 0, time.UTC)
-	testAt13    = time.Date(2026, 12, 24, 4, 0, 0, 0, time.UTC)
-	testAt18    = time.Date(2026, 12, 24, 9, 0, 0, 0, time.UTC)
-	testAt17_30 = time.Date(2026, 12, 24, 8, 30, 0, 0, time.UTC)
+	testAt13    = entity.TimeOfDay{Hour: 13}
+	testAt18    = entity.TimeOfDay{Hour: 18}
+	testAt17_30 = entity.TimeOfDay{Hour: 17, Minute: 30}
 )
 
 //go:fix inline
 
 //go:fix inline
 
-func eventAt(venueID string, start *time.Time, state *entity.PublishState) *entity.Event {
+func eventAt(venueID string, start *entity.TimeOfDay, state *entity.PublishState) *entity.Event {
 	return &entity.Event{
 		ID:           entity.NewID(),
 		VenueID:      venueID,
@@ -161,7 +161,7 @@ func TestEvent_CheckChange(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/event "Doors-open time after publish"
 		ev := published()
-		next := withChange(ev, func(n *entity.Event) { n.OpenTime = new(testAt17_30.Add(-30 * time.Minute)) })
+		next := withChange(ev, func(n *entity.Event) { n.OpenTime = new(entity.TimeOfDay{Hour: 17}) })
 		assert.NoError(t, ev.CheckChange(next, true))
 	})
 
@@ -321,11 +321,11 @@ func TestEvent_CanBeStocked(t *testing.T) {
 func TestEvent_CheckScannerAllowed(t *testing.T) {
 	t.Parallel()
 
-	start := time.Date(2026, 11, 20, 19, 0, 0, 0, time.UTC)
+	start := entity.TimeOfDay{Hour: 19}
 	tests := []struct {
 		name    string
 		state   *entity.PublishState
-		start   *time.Time
+		start   *entity.TimeOfDay
 		wantErr bool
 	}{
 		{"published with a start time", new(entity.PublishStatePublished), &start, false},

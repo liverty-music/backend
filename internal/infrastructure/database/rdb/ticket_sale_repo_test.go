@@ -45,7 +45,7 @@ func seriesOf(t *testing.T, db *rdb.Database, eventID string) string {
 // the first event, naming the events.
 func newSaleFor(t *testing.T, db *rdb.Database, method entity.TicketSaleMethod, start, end time.Time, eventIDs ...string) *entity.TicketSale {
 	t.Helper()
-	return entity.NewTicketSale(seriesOf(t, db, eventIDs[0]), "ファンクラブ先行", method, start, end, eventIDs...)
+	return entity.NewTicketSale(seriesOf(t, db, eventIDs[0]), "ファンクラブ先行", method, "Asia/Tokyo", start, end, eventIDs...)
 }
 
 // createSale stores the sale with the repository.
@@ -282,14 +282,17 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 
 	repo := rdb.NewTicketSaleRepository(db, testOutbox)
 	ctx := context.Background()
-	now := saleWindowStart.Add(7*24*time.Hour + 2*time.Minute)
+	// closedAt is on a whole minute, as a sale's window is; now is 30 seconds
+	// after it.
+	closedAt := saleWindowStart.Add(7*24*time.Hour + 2*time.Minute)
+	now := closedAt.Add(30 * time.Second)
 
 	// lottery stores a lottery stock and a sale of it ending at end, with one
 	// entry in each given state.
 	lottery := func(t *testing.T, end time.Time, states ...entity.LotteryEntryState) entity.TicketSaleID {
 		t.Helper()
 		f := seedStock(t, db, entity.TicketSaleMethodLottery, 100, 4)
-		_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET sale_end_time = $2 WHERE id = $1`, string(f.SaleID), end)
+		_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET local_end_time = $2::timestamptz AT TIME ZONE time_zone WHERE id = $1`, string(f.SaleID), end)
 		require.NoError(t, err)
 		for _, s := range states {
 			orderStatus := entity.OrderStatusPending
@@ -302,15 +305,16 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	}
 	won, lost, entered := entity.LotteryEntryStateWon, entity.LotteryEntryStateLost, entity.LotteryEntryStateEntered
 
-	closed := lottery(t, now.Add(-2*time.Minute), entered, won)
-	closedAMinuteAgo := lottery(t, now.Add(-time.Minute), entered)
-	justClosed := lottery(t, now.Add(-30*time.Second), entered)
-	open := lottery(t, now.Add(time.Second), entered)
-	drawn := lottery(t, now.Add(-2*time.Minute), won, lost)
-	empty := lottery(t, now.Add(-2*time.Minute))
+	closed := lottery(t, closedAt.Add(-2*time.Minute), entered, won)
+	closedAMinuteAgo := lottery(t, closedAt.Add(-time.Minute), entered)
+	justClosed := lottery(t, closedAt, entered)
+	open := lottery(t, closedAt.Add(time.Minute), entered)
+	drawn := lottery(t, closedAt.Add(-2*time.Minute), won, lost)
+	empty := lottery(t, closedAt.Add(-2*time.Minute))
 	discoveredID, _, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
+		TimeZone: "Asia/Tokyo",
 		SeriesID: seedSeriesOnly(t, db, "Discovered Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
-		SaleStartTime: saleWindowStart, SaleEndTime: now.Add(-time.Hour),
+		SaleStartTime: saleWindowStart, SaleEndTime: closedAt.Add(-time.Hour),
 	})
 	require.NoError(t, err)
 
@@ -320,8 +324,11 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 
 	t.Run("closed and undrawn", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/list-due-for-draw "Closed and undrawn"
-		assert.Contains(t, ids, closed, "ended 2 minutes before the instant")
-		assert.Contains(t, ids, closedAMinuteAgo, "an end time 1 minute before the instant is due")
+		assert.Contains(t, ids, closed, "ended 2 minutes 30 seconds before the instant")
+		assert.Contains(t, ids, closedAMinuteAgo)
+		atBoundary, err := repo.ListDueForDraw(ctx, closedAt)
+		require.NoError(t, err)
+		assert.Contains(t, saleIDs(atBoundary), closedAMinuteAgo, "an end time 1 minute before the instant is due")
 		for _, s := range got {
 			assert.Len(t, s.EventIDs, 1, "each sale comes with its events")
 		}
@@ -370,7 +377,7 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 		first := seedPublishedEvent(t, db)
 		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(10), first, seedEventInSeriesOf(t, db, first)))
 
-		got, err := repo.SetWindow(ctx, sale.ID, nov(2), nov(11))
+		got, err := repo.SetWindow(ctx, sale.ID, "Asia/Tokyo", nov(2), nov(11))
 
 		require.NoError(t, err)
 		assert.True(t, got.SaleStartTime.Equal(nov(2)))
@@ -385,11 +392,49 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 		assert.ElementsMatch(t, sale.EventIDs, stored.EventIDs)
 	})
 
+	t.Run("time zone changed with the window", func(t *testing.T) {
+		// @spec components/entity/ticket-sale/set-window "Time zone changed with the window"
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(7), seedPublishedEvent(t, db)))
+		seoul, err := time.LoadLocation("Asia/Seoul")
+		require.NoError(t, err)
+		start := time.Date(2026, 11, 1, 12, 0, 0, 0, seoul)
+		end := time.Date(2026, 11, 7, 23, 59, 0, 0, seoul)
+
+		got, err := repo.SetWindow(ctx, sale.ID, "Asia/Seoul", start, end)
+
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Seoul", got.TimeZone)
+		assert.True(t, got.SaleStartTime.Equal(start))
+		assert.True(t, got.SaleEndTime.Equal(end))
+		var localStart, localEnd, zone string
+		require.NoError(t, db.Pool.QueryRow(ctx,
+			`SELECT to_char(local_start_time, 'YYYY-MM-DD HH24:MI'), to_char(local_end_time, 'YYYY-MM-DD HH24:MI'), time_zone FROM ticket_sales WHERE id = $1`, string(sale.ID)).
+			Scan(&localStart, &localEnd, &zone))
+		assert.Equal(t, []string{"2026-11-01 12:00", "2026-11-07 23:59", "Asia/Seoul"}, []string{localStart, localEnd, zone})
+		assert.Equal(t, sale.Name, got.Name)
+		assert.Equal(t, sale.Method, got.Method)
+		assert.Equal(t, sale.VerificationRequirement, got.VerificationRequirement)
+		assert.Equal(t, sale.EventIDs, got.EventIDs)
+	})
+
+	t.Run("unknown time zone", func(t *testing.T) {
+		// @spec components/entity/ticket-sale/set-window "Unknown time zone"
+		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(8), seedPublishedEvent(t, db)))
+
+		_, err := repo.SetWindow(ctx, sale.ID, "JST", nov(2), nov(9))
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		stored, err := repo.Get(ctx, sale.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Asia/Tokyo", stored.TimeZone)
+		assert.True(t, stored.SaleStartTime.Equal(nov(1)))
+	})
+
 	t.Run("lottery window too long", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/set-window "Lottery window too long"
 		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodLottery, nov(1), nov(8), seedPublishedEvent(t, db)))
 
-		_, err := repo.SetWindow(ctx, sale.ID, nov(1), nov(16))
+		_, err := repo.SetWindow(ctx, sale.ID, "Asia/Tokyo", nov(1), nov(16))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		stored, err := repo.Get(ctx, sale.ID)
@@ -400,14 +445,14 @@ func TestTicketSaleRepository_SetWindow(t *testing.T) {
 	t.Run("end not after start", func(t *testing.T) {
 		sale := createSale(t, db, newSaleFor(t, db, entity.TicketSaleMethodFirstCome, nov(1), nov(8), seedPublishedEvent(t, db)))
 
-		_, err := repo.SetWindow(ctx, sale.ID, nov(8), nov(8))
+		_, err := repo.SetWindow(ctx, sale.ID, "Asia/Tokyo", nov(8), nov(8))
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("unknown sale", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/set-window "Unknown sale"
-		_, err := repo.SetWindow(ctx, entity.TicketSaleID(entity.NewID()), nov(2), nov(11))
+		_, err := repo.SetWindow(ctx, entity.TicketSaleID(entity.NewID()), "Asia/Tokyo", nov(2), nov(11))
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

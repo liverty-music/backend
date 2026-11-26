@@ -43,10 +43,13 @@ type Event struct {
 	// This ensures that the date remains consistent when saved to a Postgres DATE type.
 	// It avoids "date shifting" issues during timezone conversions.
 	LocalDate time.Time
-	// StartTime is the specific starting time of the event (optional).
-	StartTime *time.Time
-	// OpenTime is the time when doors open (optional).
-	OpenTime *time.Time
+	// StartTime is the wall-clock time the event starts at its Venue (optional):
+	// a time of day on LocalDate, read in the Venue's time zone. The instant is
+	// computed with [Event.StartInstant].
+	StartTime *TimeOfDay
+	// OpenTime is the wall-clock time the doors open (optional), read like
+	// StartTime.
+	OpenTime *TimeOfDay
 	// PublishState is where the event is in the organizer publish lifecycle.
 	// Set for an Event of a first-party series; nil for an Event of a
 	// discovered series.
@@ -82,7 +85,7 @@ type HeldTickets struct {
 // DRAFT: it holds no slot and is not a [Concert] until it is published. A nil
 // perAccountLimit means none was given, and the limit is
 // [EventDefaultPerAccountLimit].
-func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDate time.Time, startTime, openTime *time.Time, perAccountLimit *int) *Event {
+func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDate time.Time, startTime, openTime *TimeOfDay, perAccountLimit *int) *Event {
 	state := PublishStateDraft
 	limit := EventDefaultPerAccountLimit
 	if perAccountLimit != nil {
@@ -179,7 +182,7 @@ func (e *Event) CanTransitionTo(next PublishState) bool {
 // Venue, local date and start time): the existing row is preserved and only an
 // unknown start or open time is filled from incoming. A known time is never
 // replaced. The unique index on the natural key makes the conflict.
-func (e *Event) MergeDiscovered(incoming *Event) (start, open *time.Time) {
+func (e *Event) MergeDiscovered(incoming *Event) (start, open *TimeOfDay) {
 	start, open = e.StartTime, e.OpenTime
 	if start == nil {
 		start = incoming.StartTime
@@ -237,8 +240,8 @@ func (e *Event) NamesVenue(venueName string, placeID *string) bool {
 
 // HasStartTime reports whether the event's start time is t, where an unknown
 // start time equals only another unknown one.
-func (e *Event) HasStartTime(t *time.Time) bool {
-	return sameOptionalTime(e.StartTime, t)
+func (e *Event) HasStartTime(t *TimeOfDay) bool {
+	return SameTimeOfDay(e.StartTime, t)
 }
 
 // CheckChange returns FailedPrecondition when next would change what the
@@ -250,7 +253,7 @@ func (e *Event) CheckChange(next *Event, onSale bool) error {
 	switch {
 	case e.HasPublishState(PublishStateCancelled):
 		if next.VenueID != e.VenueID || !next.LocalDate.Equal(e.LocalDate) ||
-			!sameOptionalTime(next.StartTime, e.StartTime) || !sameOptionalTime(next.OpenTime, e.OpenTime) ||
+			!SameTimeOfDay(next.StartTime, e.StartTime) || !SameTimeOfDay(next.OpenTime, e.OpenTime) ||
 			next.Limit() != e.Limit() {
 			return apperr.New(codes.FailedPrecondition, "a cancelled event cannot change")
 		}
@@ -261,27 +264,73 @@ func (e *Event) CheckChange(next *Event, onSale bool) error {
 		if next.Limit() != e.Limit() {
 			return apperr.New(codes.FailedPrecondition, "the per-account limit of a published event cannot change")
 		}
-		if onSale && !sameOptionalTime(next.StartTime, e.StartTime) {
+		if onSale && !SameTimeOfDay(next.StartTime, e.StartTime) {
 			return apperr.New(codes.FailedPrecondition, "the start time of an event on sale cannot change")
 		}
 	}
 	return nil
 }
 
-// sameOptionalTime reports whether two optional instants are equal, where two
-// unknown (nil) instants are equal and an unknown one equals no known one.
-func sameOptionalTime(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
+// Location returns the time zone of the event's Venue; nil when the Venue is
+// not resolved or has none.
+func (e *Event) Location() *time.Location {
+	if e.Venue == nil {
+		return nil
 	}
-	return a.Equal(*b)
+	return e.Venue.Location()
+}
+
+// StartInstant returns the instant the event starts, computed from its local
+// date, start time and the time zone of its Venue. It reports false when the
+// start is unknown, the Venue's zone is unknown, or the wall-clock time does
+// not exist in the zone.
+func (e *Event) StartInstant() (time.Time, bool) {
+	return e.instantOf(e.StartTime)
+}
+
+// OpenInstant returns the instant the doors open, like [Event.StartInstant].
+func (e *Event) OpenInstant() (time.Time, bool) {
+	return e.instantOf(e.OpenTime)
+}
+
+func (e *Event) instantOf(t *TimeOfDay) (time.Time, bool) {
+	loc := e.Location()
+	if t == nil || loc == nil {
+		return time.Time{}, false
+	}
+	instant, err := LocalInstant(e.LocalDate, *t, loc)
+	return instant, err == nil
 }
 
 // HasPassedAt reports whether the event's local date is before the current
 // date at its Venue at t ([CurrentDateAtVenue]): the whole event day still
-// counts as upcoming.
+// counts as upcoming. A Venue whose zone is not known counts the date in
+// UTC-12, so the event is never dropped early.
 func (e *Event) HasPassedAt(t time.Time) bool {
-	return e.LocalDate.Before(CurrentDateAtVenue(t))
+	return e.LocalDate.Before(CurrentDateAtVenue(t, e.Venue))
+}
+
+// EventStart is an event's current local date and start time with the time
+// zone of its Venue, from which the start's instant follows.
+type EventStart struct {
+	// LocalDate is the event's current local date.
+	LocalDate time.Time
+	// StartTime is the wall-clock start time; nil when it is not announced.
+	StartTime *TimeOfDay
+	// TimeZone is the IANA time zone of the event's Venue.
+	TimeZone string
+}
+
+// Instant returns the instant the event starts, and false when the start is
+// not announced, the zone is unknown, or the wall-clock time does not exist in
+// the zone.
+func (s EventStart) Instant() (time.Time, bool) {
+	loc, err := LoadZone(s.TimeZone)
+	if s.StartTime == nil || err != nil {
+		return time.Time{}, false
+	}
+	instant, err := LocalInstant(s.LocalDate, *s.StartTime, loc)
+	return instant, err == nil
 }
 
 // EventRepository reads one [Event]'s current date, times and publish state.

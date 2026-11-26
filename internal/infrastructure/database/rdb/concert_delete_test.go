@@ -56,8 +56,8 @@ func TestConcertRepository_Delete(t *testing.T) {
 		exec(t, `INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2026-08-02')`,
 			otherEventID, seriesID, venueID)
 		discoveredID := uuid.NewV7().String()
-		exec(t, `INSERT INTO ticket_sales (id, series_id, name, method, sale_start_time, sale_end_time, find_time)
-			VALUES ($1, $2, 'オフィシャル先行', 2, now(), now() + interval '1 day', now())`, discoveredID, seriesID)
+		exec(t, `INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time, find_time)
+			VALUES ($1, $2, 'オフィシャル先行', 2, 'Asia/Tokyo', date_trunc('minute', now() AT TIME ZONE 'Asia/Tokyo'), date_trunc('minute', now() AT TIME ZONE 'Asia/Tokyo') + interval '1 day', now())`, discoveredID, seriesID)
 
 		require.NoError(t, repo.Delete(ctx, eventID))
 

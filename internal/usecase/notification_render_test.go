@@ -200,7 +200,7 @@ func decodeMessage(t *testing.T, raw []byte) *entity.NotificationPayload {
 func renderedConcert(id string) *entity.Concert {
 	return &entity.Concert{
 		ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC),
-		Venue:   &entity.Venue{Name: "Zepp Shinjuku"},
+		Venue:   &entity.Venue{Name: "Zepp Shinjuku", TimeZone: new("Asia/Tokyo")},
 		Series:  &entity.Series{Title: "Liverty Live 2026", OrganizerID: new("org-1")},
 		Artists: []*entity.Artist{{ID: "artist-1", Name: "Vaundy"}},
 	}

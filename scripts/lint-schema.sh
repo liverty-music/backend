@@ -3,7 +3,8 @@
 #
 # Checks:
 #   1. No SERIAL / BIGSERIAL (use UUIDv7)
-#   2. No bare TIMESTAMP (use TIMESTAMPTZ)
+#   2. No bare TIMESTAMP (use TIMESTAMPTZ), except on a local_* column, which
+#      holds an announced wall-clock time read in a stored time zone
 #   3. No audit columns (update_time, delete_time). create_time is allowed: a
 #      timestamp column exists only when an entity field needs it, and when that
 #      field means "when the record was created" it is named create_time rather
@@ -43,7 +44,8 @@ check_serial() {
 # ── Check 2: bare TIMESTAMP (not TIMESTAMPTZ) ─────────────────────────
 check_timestamp() {
   local hits
-  hits=$(grep -nP '\bTIMESTAMP\b(?!\s+WITH\s+TIME\s+ZONE)' "$SCHEMA" || true)
+  hits=$(grep -nP '\bTIMESTAMP\b(?!\s+WITH\s+TIME\s+ZONE)' "$SCHEMA" |
+    grep -vP '^\d+:\s+local_[a-z0-9_]+\s+TIMESTAMP\b' || true)
   if [ -n "$hits" ]; then
     echo "FAIL: bare TIMESTAMP detected (use TIMESTAMPTZ instead):" >&2
     echo "$hits" >&2

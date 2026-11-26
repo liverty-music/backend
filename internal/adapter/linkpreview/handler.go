@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"uuid"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -32,6 +34,7 @@ const (
 // in the fan web's index.html stand.
 type Handler struct {
 	concerts usecase.ConcertUseCase
+	zones    ZoneNames
 	tags     *TagBuilder
 	logger   *logging.Logger
 	now      func() time.Time
@@ -46,10 +49,18 @@ type cacheEntry struct {
 	expires time.Time
 }
 
+// ZoneNames reads the time zones of a country with their names, from which a
+// preview names the zone its times are read in.
+type ZoneNames interface {
+	// ListByCountry returns the country's Areas, regions and time zones.
+	ListByCountry(ctx context.Context, country string) (*entity.CountryAreas, error)
+}
+
 // NewHandler creates the link preview handler.
-func NewHandler(concerts usecase.ConcertUseCase, tags *TagBuilder, logger *logging.Logger) *Handler {
+func NewHandler(concerts usecase.ConcertUseCase, zones ZoneNames, tags *TagBuilder, logger *logging.Logger) *Handler {
 	return &Handler{
 		concerts: concerts,
+		zones:    zones,
 		tags:     tags,
 		logger:   logger,
 		now:      time.Now,
@@ -99,7 +110,33 @@ func (h *Handler) render(ctx context.Context, eventID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Render(h.tags.Build(concert, seriesConcerts))
+	return Render(h.tags.Build(concert, seriesConcerts, h.zoneName(ctx, concert.Venue)))
+}
+
+// zoneName returns the Japanese name of the Venue's time zone, without 時間:
+// 日本 for Asia/Tokyo, the published name of another zone, and the city of its
+// IANA name when none is published or the names cannot be read.
+func (h *Handler) zoneName(ctx context.Context, v *entity.Venue) string {
+	if v == nil || v.TimeZone == nil {
+		return ""
+	}
+	zone := *v.TimeZone
+	if zone == "Asia/Tokyo" {
+		return "日本"
+	}
+	if v.AdminArea != nil && len(*v.AdminArea) >= 2 {
+		if country, err := h.zones.ListByCountry(ctx, (*v.AdminArea)[:2]); err == nil {
+			for _, z := range country.TimeZones {
+				if z.Name == zone && z.NameJA != nil {
+					return *z.NameJA
+				}
+			}
+		} else {
+			h.logger.Warn(ctx, "failed to read the time zone names for a link preview", slog.String("error", err.Error()))
+		}
+	}
+	city := zone[strings.LastIndex(zone, "/")+1:]
+	return strings.ReplaceAll(city, "_", " ")
 }
 
 func (h *Handler) cached(eventID string) ([]byte, bool) {
