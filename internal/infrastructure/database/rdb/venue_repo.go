@@ -64,27 +64,6 @@ const (
 		UPDATE venues SET latitude = NULL, longitude = NULL, coordinates_fetch_time = NULL
 		WHERE coordinates_fetch_time < $1
 	`
-	listVenuesWithoutAreaOrZoneQuery = `
-		SELECT v.id, COALESCE(NULLIF(v.listed_venue_name, ''), v.name), COALESCE(v.admin_area, ''),
-		       COALESCE((
-		           SELECT s.source_url FROM events e JOIN series s ON s.id = e.series_id
-		           WHERE e.venue_id = v.id AND s.source_url IS NOT NULL AND s.source_url <> ''
-		           ORDER BY e.local_event_date DESC LIMIT 1
-		       ), ''),
-		       COALESCE((
-		           SELECT string_agg(x.name, ' / ' ORDER BY x.name) FROM (
-		               SELECT DISTINCT a.name FROM events e
-		               JOIN concert_artists ca ON ca.event_id = e.id
-		               JOIN artists a ON a.id = ca.artist_id
-		               WHERE e.venue_id = v.id ORDER BY a.name LIMIT 3
-		           ) x
-		       ), ''),
-		       (SELECT count(*) FROM events e WHERE e.venue_id = v.id),
-		       COALESCE((SELECT min(e.local_event_date)::text FROM events e WHERE e.venue_id = v.id), '')
-		FROM venues v
-		WHERE v.admin_area IS NULL OR v.time_zone IS NULL
-		ORDER BY v.id
-	`
 	// venueAreaQuery reads the Area a venue names and the time zones of its
 	// country, for Venue.CheckArea.
 	venueAreaQuery = `
@@ -240,29 +219,6 @@ func (r *VenueRepository) ClearExpiredCoordinates(ctx context.Context, at time.T
 	return tag.RowsAffected(), nil
 }
 
-// ListWithoutAreaOrZone implements entity.VenueRepository.
-func (r *VenueRepository) ListWithoutAreaOrZone(ctx context.Context) ([]*entity.VenueToBackfill, error) {
-	rows, err := r.db.Pool.Query(ctx, listVenuesWithoutAreaOrZoneQuery)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list venues without an area or a zone")
-	}
-	defer rows.Close()
-	venues := []*entity.VenueToBackfill{}
-	for rows.Next() {
-		v := &entity.VenueToBackfill{}
-		if err := rows.Scan(&v.VenueID, &v.ListedName, &v.AdminArea, &v.SourceURL, &v.Artists, &v.EventCount, &v.FirstEventDate); err != nil {
-			return nil, toAppErr(err, "failed to scan a venue without an area or a zone")
-		}
-		venues = append(venues, v)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to list venues without an area or a zone")
-	}
-	return venues, nil
-}
-
-// checkArea reads the Area the venue names and its country's time zones,
-// and checks the venue against them (Venue.CheckArea).
 func (r *VenueRepository) checkArea(ctx context.Context, venue *entity.Venue) error {
 	if venue.AdminArea == nil {
 		return venue.CheckArea(nil, nil)

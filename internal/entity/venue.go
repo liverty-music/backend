@@ -18,12 +18,11 @@ type Venue struct {
 	// Name is the name its source listed or the name a member saved; never a
 	// name read from the map catalog that no member saved.
 	Name string
-	// AdminArea is the code of the venue's first-level Area (JP-13, HK). Nil
-	// only for a venue stored before its area was known.
+	// AdminArea is the code of the venue's first-level Area (JP-13, HK). Set
+	// on every stored venue.
 	AdminArea *string
 	// TimeZone is the IANA zone of the venue: its Area's zone when the Area
-	// has one, otherwise one of its country's. Nil only for a venue stored
-	// before its zone was known.
+	// has one, otherwise one of its country's. Set on every stored venue.
 	TimeZone *string
 	// GooglePlaceID is the Google Maps Place ID for the canonical venue record.
 	GooglePlaceID *string
@@ -218,53 +217,6 @@ type VenueRepository interface {
 	// venue whose coordinates were fetched more than [CoordinatesMaxAge]
 	// before at, and returns how many venues it changed.
 	ClearExpiredCoordinates(ctx context.Context, at time.Time) (int64, error)
-
-	// ListWithoutAreaOrZone returns every venue that has no admin area or no
-	// time zone, with its listed name (its name when it has none) and the
-	// source page of one of its events' series (the latest, empty when none
-	// has one), for the one-off backfill of areas and zones.
-	ListWithoutAreaOrZone(ctx context.Context) ([]*VenueToBackfill, error)
-}
-
-// VenueToBackfill is a venue without an admin area or a time zone, and what
-// the backfill asks about it.
-type VenueToBackfill struct {
-	VenueID    string
-	ListedName string
-	// AdminArea is the area the venue already has; empty when it has none.
-	AdminArea string
-	// SourceURL is the page that listed one of the venue's events; empty when
-	// none is known.
-	SourceURL string
-	// Artists names up to three artists that perform at the venue's events,
-	// separated by " / "; empty when it has no event.
-	Artists string
-	// EventCount is how many events the venue has. A venue with none is
-	// unused: no event refers to it.
-	EventCount int
-	// FirstEventDate is the date of the venue's earliest event as YYYY-MM-DD;
-	// empty when it has no event.
-	FirstEventDate string
-}
-
-// VenueAreaAnswer is what an external model answered for a venue: an area
-// code and an IANA time zone, each empty when it could not tell. Neither is
-// checked.
-type VenueAreaAnswer struct {
-	AdminArea string
-	TimeZone  string
-}
-
-// VenueAreaAsker asks an external model where a venue is, from its listed
-// name and the page that listed it.
-type VenueAreaAsker interface {
-	// AskVenueArea returns the model's answer for the venue.
-	//
-	// # Possible errors
-	//
-	//  - Unavailable: The model cannot be reached.
-	//  - Any other failure of the call or of its answer.
-	AskVenueArea(ctx context.Context, venueName, sourceURL string) (*VenueAreaAnswer, error)
 }
 
 // CoordinatesRefreshAge is the age after which a venue's coordinates are read

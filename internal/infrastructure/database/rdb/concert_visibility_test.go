@@ -54,7 +54,7 @@ func (f *visibilityFixture) exec(sql string, args ...any) {
 func (f *visibilityFixture) venue(adminArea string, lat, lng *float64) string {
 	f.t.Helper()
 	id := entity.NewID()
-	f.exec(`INSERT INTO venues (id, name, admin_area, latitude, longitude, coordinates_fetch_time) VALUES ($1, $2, $3, $4, $5, CASE WHEN $4::float8 IS NULL THEN NULL ELSE now() END)`,
+	f.exec(`INSERT INTO venues (id, name, admin_area, time_zone, latitude, longitude, coordinates_fetch_time) VALUES ($1, $2, $3, (SELECT COALESCE(a.time_zone, (SELECT time_zone FROM country_time_zones WHERE country_code = a.country_code ORDER BY time_zone LIMIT 1)) FROM areas a WHERE a.code = $3), $4, $5, CASE WHEN $4::float8 IS NULL THEN NULL ELSE now() END)`,
 		id, "Hall "+id[len(id)-6:], adminArea, lat, lng)
 	return id
 }

@@ -94,7 +94,7 @@ func seedVenue(t *testing.T, db *rdb.Database, name string) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
+		`INSERT INTO venues (id, name, admin_area, time_zone) VALUES ($1, $2, 'JP-13', 'Asia/Tokyo')`,
 		id, name,
 	)
 	require.NoError(t, err)

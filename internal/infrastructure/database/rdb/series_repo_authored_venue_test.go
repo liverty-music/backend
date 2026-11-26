@@ -27,7 +27,7 @@ func TestSeriesRepository_GetAuthored_EventVenue(t *testing.T) {
 	placeID := "ChIJ-authored-" + uuid.NewV7().String()
 	venueID := uuid.NewV7().String()
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name, admin_area, google_place_id, latitude, longitude, coordinates_fetch_time) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2, 35.5473958, 139.7565213, now())`,
+		`INSERT INTO venues (id, name, admin_area, time_zone, google_place_id, latitude, longitude, coordinates_fetch_time) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', 'Asia/Tokyo', $2, 35.5473958, 139.7565213, now())`,
 		venueID, placeID,
 	)
 	require.NoError(t, err)

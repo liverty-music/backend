@@ -98,21 +98,17 @@ COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
 -- Venues table
--- Venues stored before release 1 got their admin_area and time_zone in
--- 20261126010000_backfill_venue_areas.sql, which keeps a duplicate row only
--- while one of its Events shares a slot with the surviving row; both stay
--- nullable until the following migration makes them required.
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
-    admin_area TEXT,
+    admin_area TEXT NOT NULL,
     google_place_id TEXT,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     listed_venue_name TEXT,
     admin_area_first_level BOOLEAN NOT NULL DEFAULT TRUE,
-    time_zone TEXT,
-    country_code TEXT GENERATED ALWAYS AS (left(admin_area, 2)) STORED,
+    time_zone TEXT NOT NULL,
+    country_code TEXT NOT NULL GENERATED ALWAYS AS (left(admin_area, 2)) STORED,
     coordinates_fetch_time TIMESTAMPTZ,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
     CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
@@ -123,12 +119,12 @@ CREATE TABLE IF NOT EXISTS venues (
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN venues.name IS 'Venue name: the name its source listed, or the name a member saved; never a name read from the map catalog unsaved';
-COMMENT ON COLUMN venues.admin_area IS 'Code of the first-level Area of the venue (e.g., JP-13, HK); NULL only for a venue whose area is not known yet';
+COMMENT ON COLUMN venues.admin_area IS 'Code of the first-level Area of the venue (e.g., JP-13, HK)';
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID of the venue; kept indefinitely';
 COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude read from the map catalog at coordinates_fetch_time; cleared after 30 days';
 COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude read from the map catalog at coordinates_fetch_time; cleared after 30 days';
 COMMENT ON COLUMN venues.admin_area_first_level IS 'Always true; with admin_area it lets the foreign key require a first-level Area';
-COMMENT ON COLUMN venues.time_zone IS 'IANA time zone of the venue, in which its events'' wall-clock times are read; one of its country''s zones, equal to the Area''s zone when the Area has one; NULL only while not known yet';
+COMMENT ON COLUMN venues.time_zone IS 'IANA time zone of the venue, in which its events'' wall-clock times are read; one of its country''s zones, equal to the Area''s zone when the Area has one';
 COMMENT ON COLUMN venues.country_code IS 'Country of the venue, the first two letters of admin_area; with time_zone it lets the foreign key require a zone of that country';
 COMMENT ON COLUMN venues.coordinates_fetch_time IS 'When the coordinates were read from the map catalog; set exactly when they are';
 COMMENT ON COLUMN venues.listed_venue_name IS 'Raw scraped venue name as returned by Gemini; used for DB-first lookup to avoid redundant Places API calls';
