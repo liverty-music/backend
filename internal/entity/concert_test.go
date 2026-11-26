@@ -636,7 +636,7 @@ func TestFilterNewSeries(t *testing.T) {
 			wantEventVenues: []string{"フェスティバルホール"},
 		},
 		{
-			// @spec components/entity/discovered-series/filter-new-series "Same instant in another time zone"
+			// @spec components/entity/discovered-series/filter-new-series "Same wall-clock start"
 			name: "the same wall-clock start is deduped however it is stored",
 			args: args{
 				series: []*entity.DiscoveredSeries{
