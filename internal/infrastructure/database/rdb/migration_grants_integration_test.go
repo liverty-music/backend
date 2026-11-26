@@ -73,7 +73,9 @@ type organizerTableWrites struct {
 // columns, and the privileges follow them; 20261013000000_event_publish_state.sql
 // drops the draft tables and the series state columns with their privileges;
 // 20261029015006_remodel_ticket_sales.sql drops ticket_types with its
-// privileges and grants the seat type, ticket stock and sale event writes).
+// privileges and grants the seat type, ticket stock and sale event writes;
+// 20261126103923_drop_replaced_time_home_and_place_columns.sql drops the
+// instant columns of events and ticket_sales with their privileges).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, delete: true, updateColumns: []string{
@@ -81,7 +83,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	}},
 	"venues": {insert: true},
 	"events": {insert: true, delete: true, updateColumns: []string{
-		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "start_time", "open_time", "local_start_time", "local_open_time", "per_account_limit",
+		"series_id", "publish_state", "venue_id", "listed_venue_name", "local_event_date", "local_start_time", "local_open_time", "per_account_limit",
 	}},
 	"concert_artists":    {insert: true, delete: true},
 	"ticket_journeys":    {insert: true},
@@ -90,7 +92,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"series_images":      {insert: true},
 	"payout_accounts":    {insert: true, updateColumns: []string{"provider_account_id", "status", "status_sync_time"}},
 	"scanners":           {insert: true, updateColumns: []string{"status", "link_token", "revoke_time"}},
-	"ticket_sales":       {insert: true, updateColumns: []string{"sale_start_time", "sale_end_time", "time_zone", "local_start_time", "local_end_time", "verification_requirement"}},
+	"ticket_sales":       {insert: true, updateColumns: []string{"time_zone", "local_start_time", "local_end_time", "verification_requirement"}},
 	"seat_types":         {insert: true, delete: true},
 	"ticket_stocks":      {insert: true},
 	"ticket_sale_events": {insert: true},

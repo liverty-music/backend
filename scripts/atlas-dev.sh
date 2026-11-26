@@ -7,7 +7,7 @@
 # Atlas computes a migration by replaying the migration directory into a
 # throwaway "dev database". Production applies migrations with search_path=app,
 # so the dev database must be scoped to schema app: then Atlas writes
-# unqualified names ("homes", not "app"."homes") and a generated file needs no
+# unqualified names ("venues", not "app"."venues") and a generated file needs no
 # hand edit. A schema-scoped dev URL needs the schema to exist before Atlas
 # reads it, and Atlas's own docker:// driver cannot create it without
 # `atlas login`, so this script starts the container, creates schema app and

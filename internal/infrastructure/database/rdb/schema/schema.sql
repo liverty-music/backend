@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL,
     preferred_language TEXT NOT NULL,
     time_zone TEXT,
-    home_id UUID,
     full_name TEXT,
     phone_number TEXT,
     last_login_time TIMESTAMPTZ,
@@ -31,7 +30,6 @@ COMMENT ON COLUMN users.email IS 'Primary contact and login identifier (at most 
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
 COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). Set when the user is created.';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
-COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
 COMMENT ON COLUMN users.full_name IS '本人確認 full name (1-200 characters) shown on the face of the user''s tickets; NULL until the user first gives it';
 COMMENT ON COLUMN users.phone_number IS '本人確認 phone number in E.164 form shown on the face of the user''s tickets; NULL until the user first gives it';
 
@@ -42,31 +40,6 @@ CREATE TABLE IF NOT EXISTS deleted_user_identities (
 
 COMMENT ON TABLE deleted_user_identities IS 'Identity-provider IDs of removed users. A recorded ID never gets a new user: its identity can still sign in until the identity provider removes it.';
 COMMENT ON COLUMN deleted_user_identities.provider_user_id IS 'The identity provider''s ID the removed user had';
-
--- Homes table
-CREATE TABLE IF NOT EXISTS homes (
-    id UUID PRIMARY KEY,
-    country_code TEXT NOT NULL,
-    level_1 TEXT NOT NULL,
-    level_2 TEXT,
-    centroid_latitude DOUBLE PRECISION,
-    centroid_longitude DOUBLE PRECISION,
-    CONSTRAINT chk_homes_country_code_length CHECK (char_length(country_code) = 2),
-    CONSTRAINT chk_homes_level_1_length CHECK (char_length(level_1) BETWEEN 2 AND 6),
-    CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20),
-    CONSTRAINT chk_homes_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
-);
-
-ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
-
-
-COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
-COMMENT ON COLUMN homes.id IS 'Unique home record identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
-COMMENT ON COLUMN homes.level_1 IS 'ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo, US-NY for New York)';
-COMMENT ON COLUMN homes.level_2 IS 'Optional finer-grained area code. Code system determined by country_code. NULL in Phase 1.';
-COMMENT ON COLUMN homes.centroid_latitude IS 'Approximate latitude of the home area centroid, resolved at write time from level_1. Used for proximity calculations.';
-COMMENT ON COLUMN homes.centroid_longitude IS 'Approximate longitude of the home area centroid, resolved at write time from level_1. Used for proximity calculations.';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
@@ -240,8 +213,6 @@ CREATE TABLE IF NOT EXISTS events (
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     listed_venue_name TEXT,
     local_event_date DATE NOT NULL,
-    start_time TIMESTAMPTZ,
-    open_time TIMESTAMPTZ,
     local_start_time TIME,
     local_open_time TIME,
     publish_state event_publish_state,
@@ -258,8 +229,6 @@ COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggre
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
-COMMENT ON COLUMN events.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
-COMMENT ON COLUMN events.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
 COMMENT ON COLUMN events.local_start_time IS 'Wall-clock time the event starts at its venue, a time of day in whole minutes on local_event_date, read in the venue''s time_zone; NULL when not announced. The instant is computed by the application from the date, this time and the zone';
 COMMENT ON COLUMN events.local_open_time IS 'Wall-clock time the doors open at the venue, read like local_start_time; NULL when not announced';
 COMMENT ON COLUMN events.publish_state IS 'Publish lifecycle of an event of a first-party series (DRAFT / PUBLISHED / CANCELLED). NULL exactly for an event of a discovered series; the series repository, the only writer of first-party events, always sets it. A DRAFT event is not a concert and holds no slot of uq_events_natural_key.';
@@ -415,9 +384,9 @@ COMMENT ON COLUMN notifications.read_time IS 'Timestamp when the user marked the
 -- Concert candidates (approval queue)
 -- Concerts discovered by the Gemini search pipeline are held here in a pending
 -- state until a developer approves them in the admin console. Venue resolution
--- (Google Places) runs at staging time and is denormalised onto the row so the
--- reviewer can judge venue accuracy; the canonical venues row is created only on
--- approval. This table holds only pending rows — both approve and reject delete
+-- (Google Places) runs at staging time and only its place id is kept on the row,
+-- so the reviewer can judge venue accuracy; the canonical venues row is created
+-- only on approval. This table holds only pending rows — both approve and reject delete
 -- the row, so a re-discovered concert can re-enter the queue after a rejection.
 CREATE TABLE IF NOT EXISTS concert_candidates (
     id UUID PRIMARY KEY,
@@ -425,18 +394,12 @@ CREATE TABLE IF NOT EXISTS concert_candidates (
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     local_date DATE NOT NULL,
-    start_time TIMESTAMPTZ,
-    open_time TIMESTAMPTZ,
     local_start_time TIME,
     local_open_time TIME,
     listed_venue_name TEXT NOT NULL,
     admin_area TEXT,
     source_url TEXT,
     resolved_place_id TEXT,
-    resolved_venue_name TEXT,
-    resolved_admin_area TEXT,
-    resolved_latitude DOUBLE PRECISION,
-    resolved_longitude DOUBLE PRECISION,
     time_zone TEXT,
     find_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_concert_candidates_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
@@ -448,8 +411,6 @@ COMMENT ON COLUMN concert_candidates.artist_id IS 'The performing artist this co
 COMMENT ON COLUMN concert_candidates.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
 COMMENT ON COLUMN concert_candidates.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
 COMMENT ON COLUMN concert_candidates.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
-COMMENT ON COLUMN concert_candidates.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
-COMMENT ON COLUMN concert_candidates.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
 COMMENT ON COLUMN concert_candidates.local_start_time IS 'Wall-clock start time at the venue, in whole minutes, as the source states it; read in time_zone. NULL when the source did not state one.';
 COMMENT ON COLUMN concert_candidates.local_open_time IS 'Wall-clock doors-open time at the venue, read like local_start_time. NULL when not announced.';
 COMMENT ON COLUMN concert_candidates.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
@@ -457,10 +418,6 @@ COMMENT ON COLUMN concert_candidates.admin_area IS 'Administrative area extracte
 COMMENT ON COLUMN concert_candidates.source_url IS 'Source URL where the concert was found. NULL when not provided.';
 COMMENT ON COLUMN concert_candidates.time_zone IS 'IANA time zone of the venue as discovery resolved it: the Area''s zone, else the source''s when it is one of the country''s zones; NULL when neither is known';
 COMMENT ON COLUMN concert_candidates.resolved_place_id IS 'Google Places place id of the resolved venue. NULL when the listed name could not be resolved.';
-COMMENT ON COLUMN concert_candidates.resolved_venue_name IS 'Canonical venue name resolved via Google Places. NULL when unresolved.';
-COMMENT ON COLUMN concert_candidates.resolved_admin_area IS 'ISO 3166-2 admin area of the resolved venue. NULL when unresolved or indeterminate.';
-COMMENT ON COLUMN concert_candidates.resolved_latitude IS 'WGS 84 latitude of the resolved venue. NULL when unresolved.';
-COMMENT ON COLUMN concert_candidates.resolved_longitude IS 'WGS 84 longitude of the resolved venue. NULL when unresolved.';
 COMMENT ON COLUMN concert_candidates.find_time IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
 
 -- Rejected concerts (append-only)
@@ -473,16 +430,12 @@ CREATE TABLE IF NOT EXISTS rejected_concerts (
     artist_name TEXT NOT NULL,
     title TEXT NOT NULL,
     local_date DATE NOT NULL,
-    start_time TIMESTAMPTZ,
-    open_time TIMESTAMPTZ,
     local_start_time TIME,
     local_open_time TIME,
     listed_venue_name TEXT NOT NULL,
     admin_area TEXT,
     source_url TEXT,
     resolved_place_id TEXT,
-    resolved_venue_name TEXT,
-    resolved_admin_area TEXT,
     time_zone TEXT,
     reason TEXT NOT NULL,
     reviewed_by TEXT,
@@ -496,8 +449,6 @@ COMMENT ON COLUMN rejected_concerts.artist_id IS 'The performing artist the reje
 COMMENT ON COLUMN rejected_concerts.artist_name IS 'Artist display name captured at rejection time for readability.';
 COMMENT ON COLUMN rejected_concerts.title IS 'Descriptive title of the rejected concert.';
 COMMENT ON COLUMN rejected_concerts.local_date IS 'Scheduled calendar date of the rejected concert.';
-COMMENT ON COLUMN rejected_concerts.start_time IS 'Replaced by local_start_time and no longer written; dropped by the migration that follows release 2';
-COMMENT ON COLUMN rejected_concerts.open_time IS 'Replaced by local_open_time and no longer written; dropped by the migration that follows release 2';
 COMMENT ON COLUMN rejected_concerts.local_start_time IS 'Wall-clock start time of the rejected concert at its venue, in whole minutes, read in time_zone. NULL when unknown.';
 COMMENT ON COLUMN rejected_concerts.local_open_time IS 'Wall-clock doors-open time of the rejected concert, read like local_start_time. NULL when unknown.';
 COMMENT ON COLUMN rejected_concerts.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
@@ -505,8 +456,6 @@ COMMENT ON COLUMN rejected_concerts.admin_area IS 'Administrative area extracted
 COMMENT ON COLUMN rejected_concerts.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
 COMMENT ON COLUMN rejected_concerts.time_zone IS 'IANA time zone of the venue as discovery resolved it, kept from the candidate; NULL when it had none';
 COMMENT ON COLUMN rejected_concerts.resolved_place_id IS 'Google Places place id of the resolved venue at rejection time. NULL when unresolved.';
-COMMENT ON COLUMN rejected_concerts.resolved_venue_name IS 'Resolved canonical venue name at rejection time. NULL when unresolved.';
-COMMENT ON COLUMN rejected_concerts.resolved_admin_area IS 'Resolved admin area at rejection time. NULL when unresolved.';
 COMMENT ON COLUMN rejected_concerts.reason IS 'Reviewer-provided reason for rejecting the concert.';
 COMMENT ON COLUMN rejected_concerts.reviewed_by IS 'Identity (Zitadel subject) of the developer who rejected the concert. NULL when unavailable.';
 COMMENT ON COLUMN rejected_concerts.reject_time IS 'Timestamp when the concert was rejected.';
@@ -672,8 +621,6 @@ CREATE TABLE IF NOT EXISTS ticket_sales (
     series_id                UUID        NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     name                     TEXT        NOT NULL,
     method                   SMALLINT    NOT NULL,
-    sale_start_time            TIMESTAMPTZ,
-    sale_end_time              TIMESTAMPTZ,
     time_zone                  TEXT        NOT NULL,
     local_start_time           TIMESTAMP   NOT NULL,
     local_end_time             TIMESTAMP   NOT NULL,
@@ -696,10 +643,8 @@ COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, app
 COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
 COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and Organizers (1-100 characters), e.g. ファンクラブ先行 or 一般発売; a discovered sale takes the name its page gives it';
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
-COMMENT ON COLUMN ticket_sales.sale_start_time IS 'Replaced by local_start_time and time_zone and no longer written; dropped by the migration that follows release 2';
 COMMENT ON COLUMN ticket_sales.time_zone IS 'IANA time zone the sale''s window is read in: on an Organizer''s sale one of the time zones of its events'' venues, on a discovered sale the zone its page states or its series'' venues share';
 COMMENT ON COLUMN ticket_sales.local_start_time IS 'Wall-clock time the sale opens, in whole minutes, read in time_zone; the instant is computed by the application';
-COMMENT ON COLUMN ticket_sales.sale_end_time IS 'Replaced by local_end_time and time_zone and no longer written; dropped by the migration that follows release 2';
 COMMENT ON COLUMN ticket_sales.local_end_time IS 'Wall-clock time the sale closes, read in time_zone; after local_start_time. On an Organizer''s sale 1 to 14 days after the start for a lottery, and no later than the start of every event the sale covers (checked by the application)';
 COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required); always 0 on a discovered sale';
 COMMENT ON COLUMN ticket_sales.find_time IS 'When discovery first stored the sale; set on insert and never updated. NULL exactly on an Organizer''s sale. The reminder scan uses it as the first-sight guard: a stage whose anchor is before find_time is not sent.';
@@ -1152,11 +1097,11 @@ CREATE TABLE IF NOT EXISTS settlements (
     CONSTRAINT chk_settlements_provider_charge_id_not_empty CHECK (provider_charge_id IS NULL OR provider_charge_id <> '')
 );
 
-COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (event start_time + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
+COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (the event''s start + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
 COMMENT ON COLUMN settlements.id IS 'Unique settlement identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN settlements.order_id IS 'The Order this settlement pays out; one settlement per order (unique index)';
 COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through the order''s ticket stock → event → series.';
-COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check reads events.start_time without extra joins.';
+COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check finds the event''s start without extra joins.';
 COMMENT ON COLUMN settlements.provider_charge_id IS 'The payment provider''s ID for the charge (e.g. Stripe "ch_...") resolved from the Order''s provider payment ID at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
 COMMENT ON COLUMN settlements.status IS 'Settlement lifecycle: 1=Held (gate not passed), 2=Released (Transfer(s) created), 3=Reversed (transfer_reversal clawback applied)';
 COMMENT ON COLUMN settlements.release_time IS 'When the settlement was released (Transfer(s) created). NULL while Held.';
@@ -1452,7 +1397,6 @@ COMMENT ON COLUMN area_memberships.member_code IS 'A first-level area the region
 COMMENT ON COLUMN area_memberships.member_first_level IS 'Always true; with member_code it lets the foreign key require a first-level member';
 
 -- The home Area of each user (OpenSpec change globalize-venues, Decision 8).
--- It replaces homes, which stays until the code that reads it is gone.
 CREATE TABLE IF NOT EXISTS user_home_areas (
     user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
     area_code TEXT NOT NULL,
