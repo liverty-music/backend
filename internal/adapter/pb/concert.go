@@ -230,8 +230,8 @@ func DateToTime(d *date.Date) time.Time {
 // DateToTimePtr converts an optional google.type.Date proto to a *time.Time at
 // midnight UTC, preserving the absent case as nil. Unlike DateToTime (which maps
 // nil to the zero time), this distinguishes "no date provided" from a real date,
-// so callers can bind SQL NULL and let a COALESCE default (e.g. CURRENT_DATE)
-// take effect for the today-onward ListByFollower behavior.
+// so callers can bind SQL NULL and let the today-onward default of
+// ListByFollower, the current date at each Venue, take effect.
 func DateToTimePtr(d *date.Date) *time.Time {
 	if d == nil {
 		return nil

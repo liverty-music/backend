@@ -50,7 +50,7 @@ type OrderConfirmationDeps struct {
 	// Tickets reads the Tickets of a cancelled event's Order for its
 	// cancellation notice.
 	Tickets entity.TicketRepository
-	// TimeZone renders the concert and payment times (Asia/Tokyo).
+	// TimeZone renders the payment times (Asia/Tokyo).
 	TimeZone *time.Location
 	// Now is the clock (time.Now in production).
 	Now Clock

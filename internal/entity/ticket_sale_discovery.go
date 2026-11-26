@@ -71,8 +71,9 @@ func (d *DiscoveredTicketSale) Validate(now time.Time) error {
 //   - it has no name ("no name") or no end time ("no apply_end_time");
 //   - it breaks the TicketSale rules for a discovered sale ([TicketSale.Validate]),
 //     in which case the reason is that error's text;
-//   - it starts after the day following the series' last event ("apply_start_time
-//     after the series' last event"), when the series has events with dates.
+//   - it starts on a date after the day of the series' last event, read on the
+//     sale's calendar ("apply_start_time after the series' last event"), when
+//     the series has events with dates.
 func (d *DiscoveredTicketSale) FoundReason(now time.Time, ref *SalesSeriesRef) string {
 	switch {
 	case !d.SaleStartTime.After(now):
@@ -85,7 +86,7 @@ func (d *DiscoveredTicketSale) FoundReason(now time.Time, ref *SalesSeriesRef) s
 	if err := d.Validate(now); err != nil {
 		return err.Error()
 	}
-	if _, last, ok := ref.EventPeriod(); ok && d.startsAfterDay(last.AddDate(0, 0, 1)) {
+	if _, last, ok := ref.EventPeriod(); ok && d.startsAfterDay(last) {
 		return "apply_start_time after the series' last event"
 	}
 	return ""

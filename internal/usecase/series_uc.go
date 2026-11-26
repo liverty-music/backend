@@ -250,39 +250,51 @@ func generateUnlistedToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// resolveVenueForInput returns the id of the Venue for one event's picked
-// place: the Venue holding the place id when one is held, otherwise a new Venue
-// with the venue name, admin area and time zone the member saved and the map
-// catalog place's coordinates with their fetch time. The catalog's own name,
-// suggested area and zone are not stored. A new place without a saved name,
-// area or zone, or with an area or zone Venue.Create refuses, is
-// InvalidArgument; a catalog NotFound becomes InvalidArgument (the member sent
-// a place id the catalog does not know); Unavailable passes through.
+// venuePlan is the Venue of one event's picked place: a held one, or a new
+// one that is not stored yet. One plan is shared by the inputs that pick the
+// same new place.
+type venuePlan struct {
+	venue  *entity.Venue
+	stored bool
+}
+
+// planVenue returns the Venue for one event's picked place without storing
+// anything: the Venue holding the place id when one is held, otherwise a new
+// Venue with the venue name, admin area and time zone the member saved and the
+// map catalog place's coordinates with their fetch time. The catalog's own
+// name, suggested area and zone are not stored. A new place without a saved
+// name, area or zone is InvalidArgument; a catalog NotFound becomes
+// InvalidArgument (the member sent a place id the catalog does not know);
+// Unavailable passes through. newPlaces holds the new Venues planned so far,
+// by place id.
 //
 // The new Venue carries no listed venue name: the member's typed name is
 // kept on the event (Event.ListedVenueName), and a listed name on the
 // Venue would let Create's (listed_venue_name, admin_area) dedupe merge this
 // place into another same-named Venue in the same admin area.
-func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEventInput) (string, error) {
+func (uc *seriesUseCase) planVenue(ctx context.Context, inp *DraftEventInput, newPlaces map[string]*venuePlan) (*venuePlan, error) {
 	placeID := *inp.PlaceID
 
 	v, err := uc.venueRepo.GetByPlaceID(ctx, placeID)
 	if err == nil {
-		return v.ID, nil
+		return &venuePlan{venue: v, stored: true}, nil
 	}
 	if !errors.Is(err, apperr.ErrNotFound) {
-		return "", fmt.Errorf("get venue by place id: %w", err)
+		return nil, fmt.Errorf("get venue by place id: %w", err)
+	}
+	if plan, ok := newPlaces[placeID]; ok {
+		return plan, nil
 	}
 	if err := newPlaceInputComplete(inp); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	place, err := uc.mapCatalog.GetPlace(ctx, placeID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return "", apperr.Wrap(err, codes.InvalidArgument, "the picked venue is not a place in the map catalog")
+			return nil, apperr.Wrap(err, codes.InvalidArgument, "the picked venue is not a place in the map catalog")
 		}
-		return "", fmt.Errorf("get place from map catalog: %w", err)
+		return nil, fmt.Errorf("get place from map catalog: %w", err)
 	}
 
 	venue := &entity.Venue{
@@ -297,10 +309,23 @@ func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEve
 		venue.Coordinates = place.Coordinates
 		venue.CoordinatesFetchTime = &fetch
 	}
-	venueID, err := uc.venueRepo.Create(ctx, venue)
+	plan := &venuePlan{venue: venue}
+	newPlaces[placeID] = plan
+	return plan, nil
+}
+
+// saveVenue stores a planned Venue that is not held yet and returns the id of
+// the Venue the event is at. A new place with an area or zone Venue.Create
+// refuses is InvalidArgument.
+func (uc *seriesUseCase) saveVenue(ctx context.Context, plan *venuePlan) (string, error) {
+	if plan.stored {
+		return plan.venue.ID, nil
+	}
+	venueID, err := uc.venueRepo.Create(ctx, plan.venue)
 	if err != nil {
 		return "", fmt.Errorf("create venue: %w", err)
 	}
+	plan.venue.ID, plan.stored = venueID, true
 	return venueID, nil
 }
 
@@ -319,24 +344,34 @@ func newPlaceInputComplete(inp *DraftEventInput) error {
 	return nil
 }
 
-// newDraftEvent resolves the venue of a new or DRAFT event input and returns
-// the event to store. The id is left as given: empty for a new date.
-func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID string, inp *DraftEventInput) (*entity.Event, error) {
+// planDraftEvent checks a new or DRAFT event input and plans its Venue. It
+// stores nothing, so a save refused for any of its events creates no Venue.
+func (uc *seriesUseCase) planDraftEvent(ctx context.Context, inp *DraftEventInput, newPlaces map[string]*venuePlan) (*venuePlan, error) {
+	if inp.PerAccountLimit != nil {
+		if err := (&entity.Event{PerAccountLimit: inp.PerAccountLimit}).ValidatePerAccountLimit(); err != nil {
+			return nil, err
+		}
+	}
+	plan, err := uc.planVenue(ctx, inp, newPlaces)
+	if err != nil {
+		return nil, fmt.Errorf("resolve venue for event on %s: %w", inp.LocalDate.Format("2006-01-02"), err)
+	}
+	if err := uc.checkTimesAtVenue(plan.venue, inp); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// newDraftEvent stores the planned Venue of a new or DRAFT event input and
+// returns the event to store. The id is left as given: empty for a new date.
+func (uc *seriesUseCase) newDraftEvent(ctx context.Context, seriesID, eventID string, inp *DraftEventInput, plan *venuePlan) (*entity.Event, error) {
 	limit := entity.EventDefaultPerAccountLimit
 	if inp.PerAccountLimit != nil {
 		limit = *inp.PerAccountLimit
 	}
-	// Checked before the venue is resolved, so a refused save creates no
-	// Venue.
-	if err := (&entity.Event{PerAccountLimit: &limit}).ValidatePerAccountLimit(); err != nil {
-		return nil, err
-	}
-	venueID, err := uc.resolveVenueForInput(ctx, inp)
+	venueID, err := uc.saveVenue(ctx, plan)
 	if err != nil {
 		return nil, fmt.Errorf("resolve venue for event on %s: %w", inp.LocalDate.Format("2006-01-02"), err)
-	}
-	if err := uc.checkTimesAtVenue(ctx, venueID, inp, true); err != nil {
-		return nil, err
 	}
 	lvn := inp.VenueName
 	draft := entity.PublishStateDraft
@@ -382,10 +417,21 @@ func (uc *seriesUseCase) Create(
 	orgID := callerOrgID
 	draft.OrganizerID = &orgID
 
-	// Resolve venues and build the DRAFT events.
+	// Check every event against its Venue before any Venue is stored.
+	newPlaces := make(map[string]*venuePlan)
+	plans := make([]*venuePlan, len(eventInputs))
+	for i, inp := range eventInputs {
+		plan, err := uc.planDraftEvent(ctx, inp, newPlaces)
+		if err != nil {
+			return nil, nil, err
+		}
+		plans[i] = plan
+	}
+
+	// Store the new venues and build the DRAFT events.
 	events := make([]*entity.Event, 0, len(eventInputs))
-	for _, inp := range eventInputs {
-		e, err := uc.newDraftEvent(ctx, draft.ID, entity.NewID(), inp)
+	for i, inp := range eventInputs {
+		e, err := uc.newDraftEvent(ctx, draft.ID, entity.NewID(), inp, plans[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -445,26 +491,36 @@ func checkEveryDateGiven(storedEvents []*entity.Event, eventInputs []*DraftEvent
 
 // updatedEvents builds the events of an update from its inputs: a new draft
 // for an input that names no event or a DRAFT one, and the correction of a
-// published or cancelled event otherwise.
+// published or cancelled event otherwise. Every input is checked before any
+// Venue is stored.
 func (uc *seriesUseCase) updatedEvents(ctx context.Context, seriesID string, eventInputs []*DraftEventInput, stored map[string]*entity.Event) ([]*entity.Event, error) {
-	events := make([]*entity.Event, 0, len(eventInputs))
-	for _, inp := range eventInputs {
-		var (
-			e   *entity.Event
-			err error
-		)
-		switch current := eventNamedBy(inp, stored); {
-		case current == nil:
-			e, err = uc.newDraftEvent(ctx, seriesID, "", inp)
-		case current.HasPublishState(entity.PublishStateDraft):
-			e, err = uc.newDraftEvent(ctx, seriesID, current.ID, inp)
-		default:
-			e, err = uc.correctedEvent(ctx, current, inp)
+	newPlaces := make(map[string]*venuePlan)
+	plans := make([]*venuePlan, len(eventInputs))
+	events := make([]*entity.Event, len(eventInputs))
+	for i, inp := range eventInputs {
+		var err error
+		if current := eventNamedBy(inp, stored); current == nil || current.HasPublishState(entity.PublishStateDraft) {
+			plans[i], err = uc.planDraftEvent(ctx, inp, newPlaces)
+		} else {
+			events[i], err = uc.correctedEvent(ctx, current, inp)
 		}
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, e)
+	}
+	for i, inp := range eventInputs {
+		if plans[i] == nil {
+			continue
+		}
+		eventID := ""
+		if current := eventNamedBy(inp, stored); current != nil {
+			eventID = current.ID
+		}
+		e, err := uc.newDraftEvent(ctx, seriesID, eventID, inp, plans[i])
+		if err != nil {
+			return nil, err
+		}
+		events[i] = e
 	}
 	return events, nil
 }
@@ -745,16 +801,12 @@ func (uc *seriesUseCase) validateEventInput(inp *DraftEventInput, requirePlace, 
 	return nil
 }
 
-// checkTimesAtVenue checks an event input against the resolved Venue's time
-// zone: its date is not before the current date at the Venue when checkDate,
-// and a start or open time is a wall-clock time that exists there (the clocks
-// skip one hour when they go forward). It fails with InvalidArgument.
-func (uc *seriesUseCase) checkTimesAtVenue(ctx context.Context, venueID string, inp *DraftEventInput, checkDate bool) error {
-	venue, err := uc.venueRepo.Get(ctx, venueID)
-	if err != nil {
-		return fmt.Errorf("get venue %s: %w", venueID, err)
-	}
-	if checkDate && inp.LocalDate.Before(entity.CurrentDateAtVenue(uc.now(), venue)) {
+// checkTimesAtVenue checks an event input against its Venue's time zone: its
+// date is not before the current date at the Venue, and a start or open time
+// is a wall-clock time that exists there (the clocks skip one hour when they
+// go forward). It fails with InvalidArgument.
+func (uc *seriesUseCase) checkTimesAtVenue(venue *entity.Venue, inp *DraftEventInput) error {
+	if inp.LocalDate.Before(entity.CurrentDateAtVenue(uc.now(), venue)) {
 		return apperr.New(codes.InvalidArgument,
 			fmt.Sprintf("event date %s is in the past", inp.LocalDate.Format("2006-01-02")),
 		)
