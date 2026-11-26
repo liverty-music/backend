@@ -112,7 +112,7 @@ one repetition on the cheapest cases; it does not compare recall.
 
 | workload | cases | tier | result |
 |---|---|---|---|
-| concert search (`ab_results/20261126T094109Z.*`) | go!go!vanillas | Flex (temporary local change) | recall 1.00; start and open time accuracy 1.00; 34 start and 34 open times, all `HH:MM` |
+| concert search (`ab_results/20261126T094109Z.*`) | go!go!vanillas | Flex (temporary local change) | recall 1.00; start and open time accuracy 1.00; all 17 returned events carried `HH:MM` start and open times |
 | concert search, same run | [Alexandros] | Flex | 503 "high demand" on all 3 attempts |
 | ticket sale search (`ab_results/ticket_sale_20261126T094644Z.*`) | kinggnu, zutomayo, creepynuts | standard | 6/6 sales found, 0 extra, 0 wrong; cost $0.186 at the 2027 price |
 
