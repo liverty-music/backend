@@ -237,7 +237,7 @@ func writeUserHome(ctx context.Context, tx pgx.Tx, userID, area string) (*entity
 // # Announces
 //
 // USER.created with the User without its full name, phone number and display
-// name, in the transaction of the insert. Nothing on AlreadyExists.
+// name, in the transaction of the insert. Nothing on AlreadyExists or FailedPrecondition.
 func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params == nil {
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")

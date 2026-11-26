@@ -96,7 +96,8 @@ type UserUseCase interface {
 	//
 	//  - NotFound: If the user does not exist.
 	//  - FailedPrecondition: If the user has a deletion blocker.
-	//  - Unavailable: If the removal could not be started.
+	//  - Unavailable: If the removal could not be started, or the wait for it
+	//    could not be read; a started removal goes on.
 	//  - Any failure the removal ends with within the wait, with its own code.
 	Delete(ctx context.Context, id string) error
 

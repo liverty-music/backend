@@ -240,7 +240,8 @@ type UserRepository interface {
 	// # Announces
 	//
 	// USER.created with the User without its full name, phone number and display
-	// name, together with the insert. Nothing on AlreadyExists.
+	// name, together with the insert. Nothing on AlreadyExists or
+	// FailedPrecondition.
 	Create(ctx context.Context, params *NewUser) (*User, error)
 
 	// RecordLogin sets the user's last login time to at when it has none or

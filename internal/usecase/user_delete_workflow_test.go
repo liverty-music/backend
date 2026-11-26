@@ -82,7 +82,7 @@ func TestUserUseCase_Delete(t *testing.T) {
 	}{
 		{
 			// @spec components/usecase/user/delete "Existing user"
-			name: "removes the identity and then the user",
+			name: "removes the user and then the identity",
 		},
 		{
 			// @spec components/usecase/user/delete "User whose concerts are over"
@@ -181,6 +181,29 @@ func TestUserUseCase_Delete(t *testing.T) {
 		d.repo.EXPECT().Get(ctx, userID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
 		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrNotFound)
+	})
+
+	t.Run("returns Unavailable when the removal cannot be started", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.workflows.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(apperr.New(codes.Internal, "start workflow delete-user")).Once()
+
+		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrUnavailable)
+	})
+
+	t.Run("returns Unavailable when the wait for the removal cannot be read", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.removalStarts(t)
+		d.workflows.EXPECT().Await(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(apperr.New(codes.Internal, "await workflow")).Once()
+
+		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrUnavailable)
 	})
 
 	// @spec components/usecase/user/delete "Retry after the record failed"

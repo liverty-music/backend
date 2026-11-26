@@ -55,7 +55,7 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 	if err := uc.workflows.Start(ctx, WorkflowDeleteUser, runID,
 		UserDeletion{UserID: id, ProviderUserID: user.ProviderUserID},
 		WithDeadline(uc.clock().Add(deleteUserDeadline))); err != nil {
-		return err
+		return apperr.Wrap(err, codes.Unavailable, "start the user removal", slog.String("user_id", id))
 	}
 	_, err = Await[struct{}](ctx, uc.workflows, runID, deleteUserWait)
 	switch {
@@ -70,8 +70,11 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 		uc.logger.Info(ctx, "user removal goes on after the request",
 			slog.String("user_id", id), slog.String("workflow_id", runID))
 		return nil
+	case err != nil:
+		return apperr.Wrap(err, codes.Unavailable, "wait for the user removal",
+			slog.String("user_id", id), slog.String("workflow_id", runID))
 	}
-	return err
+	return nil
 }
 
 // RunDeleteUser implements [UserUseCase]. The User goes first: nothing can
