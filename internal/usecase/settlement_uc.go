@@ -14,13 +14,15 @@ import (
 )
 
 // SettlementUseCase executes the periodic post-event payout sweep.
-// For each held Settlement whose Order has passed the release gate and whose
-// Organizer's payout account is payout-active, it resolves pi_ → ch_,
-// creates the Stripe Transfer(s), and marks the settlement released.
+// For each held Settlement whose event is not cancelled and has passed the
+// release gate, and whose Organizer's payout account is payout-active, it
+// resolves pi_ → ch_, creates the Stripe Transfer(s), and marks the settlement
+// released.
 type SettlementUseCase interface {
 	// ReleaseDueSettlements scans held settlements whose release gate has
 	// passed and whose Organizer is payout-active, then releases each by
-	// creating the Transfer(s) and recording the result. Per-settlement
+	// creating the Transfer(s) and recording the result. A settlement of a
+	// cancelled event is never released and stays held. Per-settlement
 	// failures are logged and skipped so one bad settlement never blocks the
 	// rest of the sweep. Idempotent: an already-released settlement is skipped.
 	//
@@ -36,6 +38,7 @@ type settlementUseCase struct {
 	settlementRepo     entity.SettlementRepository
 	orderRepo          entity.OrderRepository
 	payoutAccountRepo  entity.PayoutAccountRepository
+	eventRepo          entity.EventRepository
 	eventStartTimeRepo EventStartTimeRepository
 	disputeBuffer      time.Duration
 	clock              Clock
@@ -53,6 +56,7 @@ func NewSettlementUseCase(
 	settlementRepo entity.SettlementRepository,
 	orderRepo entity.OrderRepository,
 	payoutAccountRepo entity.PayoutAccountRepository,
+	eventRepo entity.EventRepository,
 	eventStartTimeRepo EventStartTimeRepository,
 	disputeBuffer time.Duration,
 	clock Clock,
@@ -62,6 +66,7 @@ func NewSettlementUseCase(
 		settlementRepo:     settlementRepo,
 		orderRepo:          orderRepo,
 		payoutAccountRepo:  payoutAccountRepo,
+		eventRepo:          eventRepo,
 		eventStartTimeRepo: eventStartTimeRepo,
 		disputeBuffer:      disputeBuffer,
 		clock:              clock,
@@ -150,29 +155,51 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	return nil
 }
 
-// releaseGatePassed reports whether the settlement's release gate (event
-// start time + dispute buffer) has passed at now. A nil start time means the
-// event time is not yet published; it withholds (no error). Reading it fresh
-// each sweep picks up a start time filled in after the purchase. An event
-// that no longer exists is skipped with a warning.
+// releaseGatePassed reports whether the settlement's release gate (event not
+// cancelled, and event start time + dispute buffer elapsed) has passed at now.
+// A nil start time means the event time is not yet published; it withholds (no
+// error). Both the publish state and the start time are read fresh each sweep,
+// so a cancellation or a start time filled in after the purchase applies. An
+// event that no longer exists is skipped with a warning.
+//
+// now must be taken before the event is read: a cancellation stored before a
+// release time was then seen by the run that released. No lock is held between
+// the read and the payout, so a later cancellation does not stop this run.
 func (uc *settlementUseCase) releaseGatePassed(ctx context.Context, s *entity.Settlement, now time.Time) (bool, error) {
+	event, err := uc.eventRepo.Get(ctx, s.EventID)
+	if err != nil {
+		return false, uc.skipMissingEvent(ctx, s, err)
+	}
 	eventStartTime, err := uc.eventStartTimeRepo.GetEventStartTime(ctx, s.EventID)
 	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Warn(ctx, "payout sweep: event not found for settlement; skipping",
-				slog.String("settlement_id", string(s.ID)),
-				slog.String("event_id", s.EventID),
-			)
-			return false, nil
-		}
-		return false, err
+		return false, uc.skipMissingEvent(ctx, s, err)
+	}
+	if event.HasPublishState(entity.PublishStateCancelled) {
+		uc.logger.Info(ctx, "payout sweep: event cancelled; payout withheld",
+			slog.String("settlement_id", string(s.ID)),
+			slog.String("event_id", s.EventID),
+		)
 	}
 	var startTime time.Time
 	if instant, ok := eventStartTime.Instant(); ok {
 		startTime = instant
 	}
 	// Gate not yet passed is not an error — the next sweep will retry.
-	return entity.IsReleaseEligible(now, startTime, uc.disputeBuffer), nil
+	return entity.IsReleaseEligible(now, event.PublishState, startTime, uc.disputeBuffer), nil
+}
+
+// skipMissingEvent turns a failed read of the settlement's event into the
+// outcome of the release: nil with a warning when the event no longer exists,
+// so the settlement is skipped, and err otherwise.
+func (uc *settlementUseCase) skipMissingEvent(ctx context.Context, s *entity.Settlement, err error) error {
+	if !errors.Is(err, apperr.ErrNotFound) {
+		return err
+	}
+	uc.logger.Warn(ctx, "payout sweep: event not found for settlement; skipping",
+		slog.String("settlement_id", string(s.ID)),
+		slog.String("event_id", s.EventID),
+	)
+	return nil
 }
 
 // payoutActiveAccount returns the Organizer's payout account when its
