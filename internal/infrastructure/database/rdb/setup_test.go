@@ -353,7 +353,6 @@ func cleanTables(t *testing.T, db *rdb.Database) {
 		"rejected_concerts",
 		"artists",
 		"venues",
-		"homes",
 		"users",
 		"deleted_user_identities",
 		"organizers",

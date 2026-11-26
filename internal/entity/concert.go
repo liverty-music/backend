@@ -279,7 +279,7 @@ func StartKey(t *TimeOfDay) string {
 
 // NaturalKey is the physical identity of an event: its Venue, local date and
 // start time, where an unknown start time keys as the empty string
-// (`(venue_id, local_event_date, start_time) NULLS NOT DISTINCT`; see
+// (`(venue_id, local_event_date, local_start_time) NULLS NOT DISTINCT`; see
 // [StartKey]). Two events with the same key are the same show.
 func (c *Concert) NaturalKey() string {
 	return c.VenueID + "|" + c.LocalDate.Format("2006-01-02") + "|" + StartKey(c.StartTime)
@@ -332,7 +332,7 @@ func NotifiableEventIDs(inserted, linked []string) []string {
 // duplicate another event within this same batch) from each discovered series,
 // then drops any series left with no events. It is a best-effort upstream filter
 // aligned with the events physical natural key
-// `(venue_id, local_event_date, start_time)`, applied per event while preserving
+// `(venue_id, local_event_date, local_start_time)`, applied per event while preserving
 // the series grouping so a tour that partially overlaps known dates still
 // persists its new dates under one series.
 //

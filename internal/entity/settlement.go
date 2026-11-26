@@ -93,7 +93,7 @@ type Settlement struct {
 	// joining through the lottery entry/ticket type/event chain.
 	OrganizerID string
 	// EventID is the event this settlement is for. Stored denormalized so the
-	// release-gate check can read events.start_time without joining through
+	// release-gate check can read the event's start without joining through
 	// order → lottery entry or checkout → ticket type.
 	EventID string
 	// ProviderChargeID is the payment provider's ID for the charge (e.g. a Stripe "ch_..." id)
@@ -349,11 +349,11 @@ func PlatformFee(amountJPY int64, rateBps int) int64 {
 //
 // The release gate requires all of:
 //  1. The event is not CANCELLED.
-//  2. The event's current start_time has passed (counter-performance gate).
+//  2. The event's current start has passed (counter-performance gate).
 //  3. A dispute-safety buffer has elapsed since the event started.
 //
-// The caller reads the event's current publish state and start_time from the
-// database on every sweep, so a cancellation or a start_time filled in after the
+// The caller reads the event's current publish state and start time from the
+// database on every sweep, so a cancellation or a start time filled in after the
 // purchase takes effect on a later read. A nil publishState is the state of a
 // discovered event, which has none. A zero eventStartTime means the event time
 // is not yet published; the settlement is withheld (not failed).
@@ -364,7 +364,7 @@ func IsReleaseEligible(now time.Time, publishState *PublishState, eventStartTime
 		return false
 	}
 	if eventStartTime.IsZero() {
-		// start_time not yet published; hold until known.
+		// Start not yet published; hold until known.
 		return false
 	}
 	return now.After(eventStartTime.Add(disputeBuffer))

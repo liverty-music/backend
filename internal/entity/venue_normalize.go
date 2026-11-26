@@ -99,7 +99,7 @@ func isUnannouncedVenue(normalized string) bool {
 // so that formatting drift across discovery runs collapses to one identity.
 // Full/half-width forms are NFKC-folded, whitespace is collapsed, and a leading
 // location prefix ("大阪・…" or "大阪公演 ＠…") is stripped. It is a best-effort
-// heuristic — the event natural key `(venue_id, local_event_date, start_time)`
+// heuristic — the event natural key `(venue_id, local_event_date, local_start_time)`
 // remains the DB-level safety net for anything it fails to collapse.
 //
 // It returns "" for a name that is missing: a blank or whitespace-only name,

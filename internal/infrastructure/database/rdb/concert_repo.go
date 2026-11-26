@@ -851,8 +851,8 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 
 	// Compact the slice first AND dedup by the events physical natural key
-	// `(venue_id, local_event_date, start_time)` (NULLS NOT DISTINCT — an unknown
-	// start_time keys as empty so two unpublished-time rows collapse). PostgreSQL
+	// `(venue_id, local_event_date, local_start_time)` (NULLS NOT DISTINCT — an unknown
+	// start time keys as empty so two unpublished-time rows collapse). PostgreSQL
 	// rejects `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
 	// statement target the same conflict row with:
 	//   ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time
@@ -1169,8 +1169,8 @@ func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID str
 	return events, nil
 }
 
-// FillEventStartTimes implements entity.ConcertRepository. It fills start_time /
-// open_time on existing events by id, using COALESCE so a known time is never
+// FillEventStartTimes implements entity.ConcertRepository. It fills local_start_time /
+// local_open_time on existing events by id, using COALESCE so a known time is never
 // overwritten.
 func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*entity.TimeOfDay) error {
 	if len(eventIDs) == 0 {
