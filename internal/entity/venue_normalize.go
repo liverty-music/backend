@@ -2,6 +2,7 @@ package entity
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -155,10 +156,18 @@ func ListedVenueKey(listedVenueName string) string {
 }
 
 // SelectVenuePlace picks the place of the venue listed as listedVenueName
-// among the places a search returned, most relevant first: the first place
-// whose name is the same venue under [ListedVenueKey], otherwise the most
-// relevant place. It returns nil when there is no place.
-func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace {
+// among the places a search returned, most relevant first. When adminArea is
+// the venue's first-level Area, only the places inside it count (see
+// [placeInArea]): a search also returns places of the same name elsewhere.
+// Among those it picks the first whose name is the same venue under
+// [ListedVenueKey], otherwise the most relevant. It returns nil when no place
+// counts.
+func SelectVenuePlace(listedVenueName string, adminArea *string, places []*VenuePlace) *VenuePlace {
+	if adminArea != nil {
+		places = slices.DeleteFunc(slices.Clone(places), func(p *VenuePlace) bool {
+			return !placeInArea(p, *adminArea)
+		})
+	}
 	if len(places) == 0 {
 		return nil
 	}
@@ -170,4 +179,15 @@ func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace 
 		}
 	}
 	return places[0]
+}
+
+// placeInArea reports whether a place lies in the first-level Area of code
+// area: the Area its address stands for equals it, or, when the address does
+// not tell the Area, its country is the Area's country.
+func placeInArea(p *VenuePlace, area string) bool {
+	if p.AdminArea != nil {
+		return *p.AdminArea == area
+	}
+	country, _, _ := strings.Cut(area, "-")
+	return p.CountryCode == country
 }

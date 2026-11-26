@@ -47,6 +47,28 @@ const (
 	addressTypeCountry         = "country"
 )
 
+// addressComponent is one part of a place's address.
+type addressComponent struct {
+	LongText  string   `json:"longText"`
+	ShortText string   `json:"shortText"`
+	Types     []string `json:"types"`
+}
+
+// countryAndRegion returns the ISO 3166-1 alpha-2 code of an address's
+// country ("" when it names none) and the full and short names of its
+// first-level administrative area (nil when it names none).
+func countryAndRegion(components []addressComponent) (country string, region []string) {
+	for _, comp := range components {
+		switch {
+		case slices.Contains(comp.Types, addressTypeCountry):
+			country = strings.ToUpper(comp.ShortText)
+		case slices.Contains(comp.Types, addressTypeAdminAreaLevel1):
+			region = []string{comp.LongText, comp.ShortText}
+		}
+	}
+	return country, region
+}
+
 // Compile-time check that Client is the organizer console's map catalog.
 var _ entity.VenueMapCatalog = (*Client)(nil)
 
@@ -88,12 +110,8 @@ type placeDetailsResponse struct {
 		Latitude  float64 `json:"latitude"`
 		Longitude float64 `json:"longitude"`
 	} `json:"location"`
-	AddressComponents []struct {
-		LongText  string   `json:"longText"`
-		ShortText string   `json:"shortText"`
-		Types     []string `json:"types"`
-	} `json:"addressComponents"`
-	TimeZone *struct {
+	AddressComponents []addressComponent `json:"addressComponents"`
+	TimeZone          *struct {
 		ID string `json:"id"`
 	} `json:"timeZone"`
 }
@@ -196,14 +214,7 @@ func (c *Client) GetPlace(ctx context.Context, placeID string) (*entity.MapPlace
 		place.TimeZone = &zone
 	}
 	var region []string
-	for _, comp := range data.AddressComponents {
-		switch {
-		case slices.Contains(comp.Types, addressTypeCountry):
-			place.CountryCode = strings.ToUpper(comp.ShortText)
-		case slices.Contains(comp.Types, addressTypeAdminAreaLevel1):
-			region = []string{comp.LongText, comp.ShortText}
-		}
-	}
+	place.CountryCode, region = countryAndRegion(data.AddressComponents)
 	if place.SuggestedAdminArea, err = c.suggestArea(ctx, place.CountryCode, region); err != nil {
 		return nil, err
 	}

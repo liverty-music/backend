@@ -18,7 +18,7 @@ import (
 // newPlaceSearcher returns the Google Maps Places API venue searcher of
 // projectID, which CreateFromDiscovered requires. It authenticates with ADC
 // (Workload Identity in GKE).
-func newPlaceSearcher(ctx context.Context, projectID string, logger *logging.Logger) (entity.VenuePlaceSearcher, error) {
+func newPlaceSearcher(ctx context.Context, projectID string, areas entity.AreaRepository, logger *logging.Logger) (entity.VenuePlaceSearcher, error) {
 	if projectID == "" {
 		return nil, fmt.Errorf("GCP project ID is required for Google Maps Places API")
 	}
@@ -30,5 +30,5 @@ func newPlaceSearcher(ctx context.Context, projectID string, logger *logging.Log
 		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
 		Timeout:   10 * time.Second,
 	}
-	return googlemaps.NewPlaceSearcher(googlemaps.NewClient(tokenSource, projectID, httpClient, nil, logger)), nil
+	return googlemaps.NewPlaceSearcher(googlemaps.NewClient(tokenSource, projectID, httpClient, areas, logger)), nil
 }

@@ -87,3 +87,33 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 		})
 	}
 }
+
+func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
+	t.Parallel()
+
+	areas := resolvingAreas(t, map[string]map[string]string{"US": {"California": "US-CA"}})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Contains(t, r.Header.Get("X-Goog-FieldMask"), "places.addressComponents")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"places":[
+			{"id":"sf","displayName":{"text":"The Independent"},"addressComponents":[
+				{"longText":"California","shortText":"CA","types":["administrative_area_level_1"]},
+				{"longText":"United States","shortText":"US","types":["country"]}]},
+			{"id":"nowhere","displayName":{"text":"The Independent"}}]}`))
+	}))
+	defer server.Close()
+
+	client := google.NewClient(staticTokenSource(), "test-project", server.Client(), areas, testLogger(t))
+	client.SetBaseURL(server.URL)
+
+	// @spec components/entity/venue/search-place "Country and area of each place"
+	places, err := google.NewPlaceSearcher(client).SearchPlace(context.Background(), "The Independent", "US-CA")
+
+	require.NoError(t, err)
+	require.Len(t, places, 2)
+	assert.Equal(t, "US", places[0].CountryCode)
+	require.NotNil(t, places[0].AdminArea)
+	assert.Equal(t, "US-CA", *places[0].AdminArea)
+	assert.Empty(t, places[1].CountryCode)
+	assert.Nil(t, places[1].AdminArea)
+}
