@@ -1,4 +1,4 @@
-h1:bHfe94SJDjwoa+5Cnrxp/DSR0y4TYDdVoeOoCdUcYxQ=
+h1:r91Gq/V6aE+xWS8fz1d177nSwvlZzuyzkAYbJayRrt0=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -146,3 +146,4 @@ h1:bHfe94SJDjwoa+5Cnrxp/DSR0y4TYDdVoeOoCdUcYxQ=
 20261125011819_add_user_home_areas.sql h1:g78EMhI7zkclsxqAU95+qlvZnvoBtlepqpp1ikMC7Zc=
 20261125015333_complete_venue_areas.sql h1:JWo93h9EkgAxBJS5UDgKqpGagXcbMlF4zDjblknkoug=
 20261125120000_upgrade_dbos_schema_to_130.sql h1:ELRx8rinueRtzE9Q9DgkUCR1lDXdZxqBDtHMDd6naxw=
+20261126010000_backfill_venue_areas.sql h1:sIkZfnzKz3EaQskKyhJ0GbEhbg8R6N/vdQX8/2S8QIg=
