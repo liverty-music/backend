@@ -101,6 +101,9 @@ func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 				{"longText":"United States","shortText":"US","types":["country"]}]},
 			{"id":"hk","displayName":{"text":"The Independent"},"addressComponents":[
 				{"longText":"Hong Kong","shortText":"HK","types":["country"]}]},
+			{"id":"elsewhere","displayName":{"text":"The Independent"},"addressComponents":[
+				{"longText":"Nowhere","shortText":"NW","types":["administrative_area_level_1"]},
+				{"longText":"United States","shortText":"US","types":["country"]}]},
 			{"id":"nowhere","displayName":{"text":"The Independent"}}]}`))
 	}))
 	defer server.Close()
@@ -112,7 +115,7 @@ func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 	places, err := google.NewPlaceSearcher(client).SearchPlace(context.Background(), "The Independent", "US-CA")
 
 	require.NoError(t, err)
-	require.Len(t, places, 3)
+	require.Len(t, places, 4)
 	assert.Equal(t, "US", places[0].CountryCode)
 	require.NotNil(t, places[0].AdminArea)
 	assert.Equal(t, "US-CA", *places[0].AdminArea)
@@ -120,7 +123,10 @@ func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 	assert.Equal(t, "HK", places[1].CountryCode)
 	require.NotNil(t, places[1].AdminArea)
 	assert.Equal(t, "HK", *places[1].AdminArea)
-	// @spec components/entity/venue/search-place "Address without a country"
-	assert.Empty(t, places[2].CountryCode)
+	// @spec components/entity/venue/search-place "Region that matches no Area"
+	assert.Equal(t, "US", places[2].CountryCode)
 	assert.Nil(t, places[2].AdminArea)
+	// @spec components/entity/venue/search-place "Address without a country"
+	assert.Empty(t, places[3].CountryCode)
+	assert.Nil(t, places[3].AdminArea)
 }
