@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -76,11 +77,14 @@ const (
 		ORDER BY ` + saleStartInstant + `, ts.id
 	`
 	// ticketSaleListDueForDrawQuery returns the Organizer's Lottery sales
-	// that ended at or before $1, the instant entity.LotteryDrawDelay before
-	// now, and still have an Entered entry. A discovered sale has no entry.
+	// that still have an Entered entry and ended at or before $1, the instant
+	// entity.LotteryDrawDelay before now, or within a day after it: the
+	// repository applies the exact rule to the instants it computes, so a sale
+	// is not lost while PostgreSQL's time zone data and the binary's differ.
+	// A discovered sale has no entry.
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ` + saleEndInstant + ` <= $1 AND ts.find_time IS NULL
+		WHERE ts.method = 2 AND ` + saleEndInstant + ` <= $1::timestamptz + interval '1 day' AND ts.find_time IS NULL
 		  AND EXISTS (SELECT 1 FROM lottery_entries le WHERE le.ticket_sale_id = ts.id AND le.state = 1)
 		ORDER BY ` + saleEndInstant + `, ts.id
 	`
@@ -91,12 +95,13 @@ const (
 	`
 	// ticketSaleListWithPendingMilestonesQuery returns the sales that open
 	// within the lookahead ($1 seconds) and whose end is no further back than
-	// the lookback ($2 seconds). An Organizer's sale is returned only while its Series is Published, that
+	// the lookback ($2 seconds), both widened by a day (the repository applies
+	// the exact bounds). An Organizer's sale is returned only while its Series is Published, that
 	// is while one of its events is PUBLISHED.
 	ticketSaleListWithPendingMilestonesQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ` + saleStartInstant + ` <= NOW() + make_interval(secs => $1)
-		  AND ` + saleEndInstant + ` >= NOW() - make_interval(secs => $2)
+		WHERE ` + saleStartInstant + ` <= NOW() + make_interval(days => 1, secs => $1)
+		  AND ` + saleEndInstant + ` >= NOW() - make_interval(days => 1, secs => $2)
 		  AND (ts.find_time IS NOT NULL OR EXISTS (
 		        SELECT 1 FROM events e WHERE e.series_id = ts.series_id AND e.publish_state = 'PUBLISHED'))
 		ORDER BY ` + saleStartInstant + `, ts.id
@@ -227,11 +232,12 @@ func (r *TicketSaleRepository) ListByEvent(ctx context.Context, eventID string) 
 // ListDueForDraw returns every Organizer's Lottery sale that ended at least
 // entity.LotteryDrawDelay before now and still has an Entered entry.
 func (r *TicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time) ([]*entity.TicketSale, error) {
-	sales, err := listTicketSales(ctx, r.db.Pool, ticketSaleListDueForDrawQuery, now.Add(-entity.LotteryDrawDelay))
+	endedBy := now.Add(-entity.LotteryDrawDelay)
+	sales, err := listTicketSales(ctx, r.db.Pool, ticketSaleListDueForDrawQuery, endedBy)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list ticket sales due for draw")
 	}
-	return sales, nil
+	return slices.DeleteFunc(sales, func(s *entity.TicketSale) bool { return s.SaleEndTime.After(endedBy) }), nil
 }
 
 // UpsertDiscovered stores a discovered sale, converging on the known
@@ -334,7 +340,10 @@ func (r *TicketSaleRepository) ListWithPendingMilestones(ctx context.Context, lo
 			slog.Float64("lookback_secs", lookback.Seconds()),
 		)
 	}
-	return sales, nil
+	now := time.Now()
+	return slices.DeleteFunc(sales, func(s *entity.TicketSale) bool {
+		return s.SaleStartTime.After(now.Add(lookahead)) || s.SaleEndTime.Before(now.Add(-lookback))
+	}), nil
 }
 
 // SetWindow stores the sale's new window after checking it against the

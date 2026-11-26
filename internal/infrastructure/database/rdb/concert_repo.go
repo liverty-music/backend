@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -179,7 +180,7 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
-		AND e.local_event_date >= (($2::timestamptz) AT TIME ZONE v.time_zone)::date` + fanVisibilityGuard + `
+		AND e.local_event_date >= (($2::timestamptz) AT TIME ZONE v.time_zone)::date - 1` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -320,7 +321,7 @@ const (
 		JOIN concert_artists ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
-		  AND e.local_event_date >= COALESCE($2::date, (($3::timestamptz) AT TIME ZONE v.time_zone)::date)` + fanVisibilityGuard + `
+		  AND e.local_event_date >= COALESCE($2::date, (($3::timestamptz) AT TIME ZONE v.time_zone)::date - 1)` + fanVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -554,7 +555,21 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string) (
 // artist is one of the performers, from the current date at their Venue at
 // now onward.
 func (r *ConcertRepository) ListUpcomingByArtist(ctx context.Context, artistID string, now time.Time) ([]*entity.Concert, error) {
-	return r.listByArtist(ctx, artistID, listUpcomingConcertsByArtistQuery, artistID, now)
+	concerts, err := r.listByArtist(ctx, artistID, listUpcomingConcertsByArtistQuery, artistID, now)
+	if err != nil {
+		return nil, err
+	}
+	return upcomingAt(concerts, now), nil
+}
+
+// upcomingAt keeps the concerts whose date has not passed at their Venue at
+// now. The queries select from one day earlier, so a row is not lost while
+// PostgreSQL's time zone data and the binary's differ; this applies the exact
+// rule.
+func upcomingAt(concerts []*entity.Concert, now time.Time) []*entity.Concert {
+	return slices.DeleteFunc(concerts, func(c *entity.Concert) bool {
+		return c.LocalDate.Before(entity.CurrentDateAtVenue(now, c.Venue))
+	})
 }
 
 // listByArtist runs one of the by-artist concert queries and hydrates its
@@ -633,7 +648,8 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 // date at the Venue (today onward). Venue lat/lng are included for proximity
 // classification.
 func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
-	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID, from, time.Now())
+	now := time.Now()
+	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID, from, now)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by follower", slog.String("user_id", userID))
 	}
@@ -649,6 +665,10 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string, f
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if from == nil {
+		concerts = upcomingAt(concerts, now)
 	}
 
 	if err := r.hydrate(ctx, concerts); err != nil {
