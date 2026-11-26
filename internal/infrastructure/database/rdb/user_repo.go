@@ -111,13 +111,17 @@ const (
 	`
 
 	// deleteUserQuery removes the user and records its identity as removed, in
-	// one statement, so both happen or neither does.
+	// one statement, so both happen or neither does. The identity may already
+	// be recorded, when a release without the refusal in Create (during a
+	// rollout or after a rollback) stored a user for it; the update on conflict
+	// keeps the removal working and counted as one row.
 	deleteUserQuery = `
 		WITH removed AS (
 			DELETE FROM users WHERE id = $1 RETURNING provider_user_id
 		)
 		INSERT INTO deleted_user_identities (provider_user_id)
 		SELECT provider_user_id FROM removed
+		ON CONFLICT (provider_user_id) DO UPDATE SET provider_user_id = EXCLUDED.provider_user_id
 	`
 
 	identityRemovedQuery = `SELECT EXISTS (SELECT 1 FROM deleted_user_identities WHERE provider_user_id = $1)`

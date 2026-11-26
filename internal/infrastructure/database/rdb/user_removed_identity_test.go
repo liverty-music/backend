@@ -32,6 +32,17 @@ func TestUserRepository_RemovedIdentity(t *testing.T) {
 		assert.Equal(t, announced, countRows(t, db, `SELECT count(*) FROM watermill_events_outbox`), "nothing is announced")
 	})
 
+	t.Run("a user stored for a recorded identity by older code can still be removed", func(t *testing.T) {
+		recorded, err := repo.Create(ctx, newTestUser("ext-recorded", "recorded@example.com", "Recorded"))
+		require.NoError(t, err)
+		_, err = db.Pool.Exec(ctx, `INSERT INTO deleted_user_identities (provider_user_id) VALUES ($1)`, "ext-recorded")
+		require.NoError(t, err)
+
+		require.NoError(t, repo.Delete(ctx, recorded.ID))
+
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM users WHERE id = $1`, recorded.ID))
+	})
+
 	// @spec components/entity/user/create "Same email with a new identity"
 	t.Run("the email of a removed user is free for another identity", func(t *testing.T) {
 		_, err := repo.Create(ctx, newTestUser("ext-removed-new", "removed@example.com", "New"))
