@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -262,6 +263,17 @@ func TestPasskeyUseCase_RunRecordChange(t *testing.T) {
 
 			assert.ErrorIs(t, err, tc.err, tc.name)
 		}
+	})
+
+	t.Run("a removal goes on when the addition's run failed with Aborted", func(t *testing.T) {
+		t.Parallel()
+		d := newPasskeyTestDeps(t, time.Second)
+		d.expectAwaitAddition(fmt.Errorf("workflow record: %w: %w", usecase.ErrWorkflowFailed, apperr.New(codes.Aborted, "serialization failure")))
+		d.passkeys.EXPECT().Delete(mock.Anything, "token-1").Return(nil).Once()
+
+		_, err := d.uc.RunRecordChange(ctx, &inlineFlow{}, entity.UserPasskeyChangedData{ProviderPasskeyID: "token-1", Kind: "removed"})
+
+		assert.NoError(t, err)
 	})
 }
 

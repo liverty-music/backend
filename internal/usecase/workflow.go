@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -35,6 +36,11 @@ type Flow interface {
 	DeprecatePatch(ctx context.Context, name string) error
 }
 
+// ErrWorkflowFailed marks an error of Workflows.Await as the failure the
+// awaited run ended with, which carries the run's own apperr code. An error
+// without it is the wait's: it timed out, or the run could not be read.
+var ErrWorkflowFailed = errors.New("workflow run failed")
+
 // Workflows starts, signals and waits for workflows from outside a workflow
 // (API handlers, event consumers, jobs). These callers never run a workflow
 // themselves; the workflow worker does.
@@ -45,7 +51,9 @@ type Workflows interface {
 	// Send sends message to the workflow id under topic, for its Recv.
 	Send(ctx context.Context, id, topic string, message any) error
 	// Await waits up to timeout for the workflow id to end and decodes its
-	// result into out. It fails with DeadlineExceeded when the timeout passes.
+	// result into out. It fails with DeadlineExceeded when the timeout passes,
+	// and with the run's failure, marked ErrWorkflowFailed, when the run ended
+	// with an error.
 	Await(ctx context.Context, id string, timeout time.Duration, out any) error
 	// Cancel stops a workflow that has not started yet and reports whether it did;
 	// false means it already started or ended.

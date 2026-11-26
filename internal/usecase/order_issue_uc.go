@@ -120,7 +120,7 @@ func (uc *orderUseCase) Place(ctx context.Context, checkoutID entity.CheckoutID,
 		return nil, err
 	}
 	result, err := Await[IssueResult](ctx, uc.workflows, id, placeWait)
-	if errors.Is(err, apperr.ErrDeadlineExceeded) {
+	if errors.Is(err, apperr.ErrDeadlineExceeded) && !errors.Is(err, ErrWorkflowFailed) {
 		return nil, apperr.Wrap(err, codes.Unavailable, "the purchase is still being completed", attrs)
 	}
 	if err != nil {

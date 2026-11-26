@@ -140,7 +140,7 @@ func (w *registered[In, Out]) run(ctx dbos.Context, in In) (Out, error) {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 	}
-	return out, err
+	return out, storable(err)
 }
 
 // ownStatus reads the status of the running workflow: its trace attributes

@@ -3,6 +3,8 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
@@ -105,6 +107,9 @@ func (c *Client) Await(ctx context.Context, id string, timeout time.Duration, ou
 		return toAppErr(err, "find workflow "+id)
 	}
 	raw, err := handle.GetResult(dbos.WithHandleTimeout(timeout))
+	if _, ok := errors.AsType[*runFailure](err); ok {
+		return fmt.Errorf("workflow %s: %w: %w", id, usecase.ErrWorkflowFailed, err)
+	}
 	if err != nil {
 		return toAppErr(err, "await workflow "+id)
 	}
