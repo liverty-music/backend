@@ -79,7 +79,10 @@ type TicketJourneyUseCase interface {
 	// Entered or Won, because that entry's result decides the journey, or when
 	// the journey is not replaceable by it (Unpaid, Paid or Lost). A checkout
 	// or a resale entry does not hold the record back. It never raises a hype
-	// level, and running it again for the same entry changes nothing.
+	// level. Running it again for the same entry changes nothing while the
+	// journey is as the first run left it; after the fan set Tracking or
+	// Applied or removed the journey, a redelivery records Lost again, because
+	// nothing stores that an entry's loss was applied.
 	//
 	// # Possible errors:
 	//

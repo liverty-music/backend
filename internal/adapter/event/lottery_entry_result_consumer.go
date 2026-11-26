@@ -26,8 +26,9 @@ import (
 // The workflow starter is guarded by the workflow named after the entry's
 // Order, the loss notice by the entry's loss email send time and a Deliver
 // named after the entry, so a redelivery starts and sends nothing twice;
-// MarkLost stores nothing the second time. A mail outage never delays the
-// start of a release or the journey: each durable has its own cursor.
+// MarkLost stores nothing the second time unless the journey changed in
+// between (see [usecase.TicketJourneyUseCase]). A mail outage never delays
+// the start of a release or the journey: each durable has its own cursor.
 type LotteryEntryResultConsumer struct {
 	orderUC         usecase.OrderUseCase
 	notificationUC  usecase.NotificationUseCase
