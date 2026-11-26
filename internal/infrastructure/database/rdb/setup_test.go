@@ -31,7 +31,13 @@ func newTestDB(t *testing.T) *rdb.Database {
 // newTestDBWithPool is newTestDB with a pool of at most maxConns connections.
 func newTestDBWithPool(t *testing.T, maxConns int) *rdb.Database {
 	t.Helper()
-	clone := testutil.NewDatabase(t)
+	return openTestDB(t, testutil.NewDatabase(t), maxConns)
+}
+
+// openTestDB connects to the test's database clone with a pool of at most
+// maxConns connections, closed when the test ends.
+func openTestDB(t *testing.T, clone testutil.TestDatabase, maxConns int) *rdb.Database {
+	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	db, err := rdb.New(context.Background(), config.DatabaseConfig{

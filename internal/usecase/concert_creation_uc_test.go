@@ -387,6 +387,48 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		assert.Equal(t, "place-x", *staged.ResolvedPlaceID, "only the place id of the map catalog's answer is kept")
 	})
 
+	t.Run("a staged collision keeps only the place id of the map catalog's answer", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/concert-candidate "Resolved venue"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		h.resolvesPlace("Zepp Haneda(TOKYO)", &entity.VenuePlace{
+			ProviderUserID: "P", Name: "Zepp Haneda (TOKYO)",
+			Coordinates: &entity.Coordinates{Latitude: 35.55, Longitude: 139.78},
+		})
+		h.storedVenue("P", "venue-1")
+		h.slotHolds("venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: startTime})
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Series: []*entity.DiscoveredSeries{{
+				Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+				Events: []*entity.DiscoveredEvent{{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Zepp Haneda(TOKYO)", LocalDate: localDate, StartTime: startTime}},
+			}},
+		}))
+
+		require.Len(t, h.staged, 1)
+		require.Len(t, h.createdSeries, 1)
+		// The whole candidate is compared, so no field holds the catalog's
+		// name "Zepp Haneda (TOKYO)" or its coordinates.
+		assert.Equal(t, &entity.ConcertCandidate{
+			ID:              h.staged[0].ID,
+			ArtistID:        "artist-1",
+			SeriesID:        h.createdSeries[0].ID,
+			Title:           "Concert A",
+			LocalDate:       localDate,
+			StartTime:       startTime,
+			ListedVenueName: "Zepp Haneda(TOKYO)",
+			AdminArea:       new("JP-13"),
+			TimeZone:        new("Asia/Tokyo"),
+			SourceURL:       new("https://example.com/a"),
+			ResolvedPlaceID: new("P"),
+		}, h.staged[0])
+	})
+
 	t.Run("stages an unknown start next to an Event with a known start", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Unknown start next to a known start"
@@ -442,6 +484,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 	t.Run("stages an unresolved venue without creating a venue or publishing", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/entity/concert-candidate "Unresolved venue"
 		h := newCreationHarness(t)
 		h.findsNoArtistEvents(1)
 		h.createsSeries(1)
@@ -1038,6 +1081,7 @@ func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
 	t.Run("New venue takes the listed name", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "New venue takes the listed name"
+		// @spec components/entity/venue "Discovered venue with a resolved place"
 		h := newCreationHarness(t)
 		h.findsNoArtistEvents(1)
 		h.createsSeries(1)

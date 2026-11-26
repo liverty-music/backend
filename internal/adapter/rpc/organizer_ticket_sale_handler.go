@@ -55,12 +55,13 @@ func (h *OrganizerTicketSaleHandler) Create(
 	ctx context.Context,
 	req *ticketsalev1.CreateRequest,
 ) (*ticketsalev1.CreateResponse, error) {
-	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
+	// The request is read first: a time that cannot be read is refused before
+	// any use case runs.
+	in, err := pb.CreateTicketSaleInputFromProto(req)
 	if err != nil {
 		return nil, err
 	}
-
-	in, err := pb.CreateTicketSaleInputFromProto(req)
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
@@ -99,12 +100,11 @@ func (h *OrganizerTicketSaleHandler) SetWindow(
 	ctx context.Context,
 	req *ticketsalev1.SetWindowRequest,
 ) (*ticketsalev1.SetWindowResponse, error) {
-	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
+	zone, start, end, err := pb.SaleWindowFromProto(req.GetSaleStartTime(), req.GetSaleEndTime())
 	if err != nil {
 		return nil, err
 	}
-
-	zone, start, end, err := pb.SaleWindowFromProto(req.GetSaleStartTime(), req.GetSaleEndTime())
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}

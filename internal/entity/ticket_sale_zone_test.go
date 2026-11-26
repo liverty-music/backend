@@ -99,7 +99,9 @@ func TestTicketSale_WallClockWindow(t *testing.T) {
 
 	t.Run("sale times in whole minutes", func(t *testing.T) {
 		t.Parallel()
-		sale := saleIn(t, "Asia/Tokyo", civil(2026, 11, 1, 10, 0), civil(2026, 11, 5, 10, 0))
+		// @spec components/entity/ticket-sale "Times are whole minutes"
+		sale := saleIn(t, "Asia/Tokyo", civil(2026, 11, 1, 10, 0), civil(2026, 11, 10, 20, 0))
+		require.NoError(t, sale.Validate())
 		sale.SaleEndTime = sale.SaleEndTime.Add(30 * time.Second)
 		assert.ErrorIs(t, sale.Validate(), apperr.ErrInvalidArgument)
 	})

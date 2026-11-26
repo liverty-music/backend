@@ -228,6 +228,7 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 	t.Run("Unresolved concert candidate", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert-candidate/approve "Unresolved concert candidate"
+		// @spec components/entity/venue "Unresolved venue"
 		d := newApprovalTestDeps(t, artist)
 		sc := d.candidate(new("JP-13"), nil, nil)
 		d.createsVenue(nil, "Zepp Haneda(TOKYO)", "JP-13")
@@ -237,11 +238,14 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 
 		require.NoError(t, d.approve(sc, nil, nil))
 
+		require.Len(t, d.createdVenues, 1)
 		v := d.createdVenues[0]
+		assert.Equal(t, "Zepp Haneda(TOKYO)", v.Name, "named by its listed name")
 		assert.Equal(t, "JP-13", *v.AdminArea)
 		assert.Equal(t, "Asia/Tokyo", *v.TimeZone)
 		assert.Nil(t, v.GooglePlaceID)
 		assert.Nil(t, v.Coordinates)
+		assert.Nil(t, v.CoordinatesFetchTime)
 	})
 
 	t.Run("Different place id for a stored venue", func(t *testing.T) {

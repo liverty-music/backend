@@ -283,6 +283,17 @@ func TestTicketSaleSearcher_Checks(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/entity/ticket-sale/search-published-sales "Seconds are cut"
+			name: "Seconds are cut",
+			phases: []map[string]any{
+				phase(spTourA, "抽選", "lottery", "2026-11-10T18:00", "2026-11-19T20:00:30"),
+			},
+			want: []*entity.DiscoveredTicketSale{
+				{SeriesID: spTourA, Name: "抽選", Method: entity.TicketSaleMethodLottery,
+					SaleStartTime: time.Date(2026, 11, 10, 18, 0, 0, 0, jst), SaleEndTime: time.Date(2026, 11, 19, 20, 0, 0, 0, jst)},
+			},
+		},
+		{
 			name: "year mistaken into the past is dropped",
 			phases: []map[string]any{
 				phase(spTourA, "抽選", "lottery", "2025-11-10T18:00", "2025-11-19T23:59"),

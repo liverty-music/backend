@@ -242,10 +242,9 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/ticket-sale "Time skipped by the clock change"
 		// The wall-clock time does not exist in the zone, so no instant can be
-		// computed for it: the call fails with InvalidArgument and the use case,
-		// which carries no expectation here, is not reached.
+		// computed for it: the call fails with InvalidArgument and no use case,
+		// none of which carries an expectation here, is reached.
 		f := newOrganizerTicketSaleFixture(t, asMember(testProviderOrganizerID))
-		f.resolvesTo("org-1")
 
 		_, err := f.client.SetWindow(context.Background(), &ticketsalev1.SetWindowRequest{
 			TicketSaleId:  &entityv1.TicketSaleId{Value: tkSaleID},
@@ -404,6 +403,29 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
 				req := createReq()
 				req.SaleEndTime = localDateTime("Asia/Seoul", 2026, 11, 8, 10, 0)
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Time with seconds or a day that does not exist"
+			name: "create with a start on 30 February",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = localDateTime("Asia/Tokyo", 2027, 2, 30, 12, 0)
+				req.SaleEndTime = localDateTime("Asia/Tokyo", 2027, 3, 5, 12, 0)
+				_, err := c.Create(ctx, req)
+				return err
+			},
+		},
+		{
+			// @spec components/adapter/organizer/api/rpc/ticket-sale "Time with seconds or a day that does not exist"
+			name: "create with an end time carrying seconds",
+			call: func(ctx context.Context, c ticketsalev1connect.TicketSaleServiceClient) error {
+				req := createReq()
+				req.SaleStartTime = localDateTime("Asia/Tokyo", 2027, 2, 20, 12, 0)
+				req.SaleEndTime = localDateTime("Asia/Tokyo", 2027, 3, 1, 12, 0)
+				req.SaleEndTime.Seconds = 30
 				_, err := c.Create(ctx, req)
 				return err
 			},
