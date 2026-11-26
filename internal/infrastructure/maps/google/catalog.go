@@ -175,7 +175,8 @@ func (c *Client) GetPlaceCoordinates(ctx context.Context, placeID string) (*enti
 	return out, nil
 }
 
-// placeDetails reads one place with the given field mask.
+// waitForDetailsSlot blocks until the client may send its next Place Details
+// request.
 func (c *Client) waitForDetailsSlot(ctx context.Context) error {
 	err := c.details.Wait(ctx)
 	if err == nil {
@@ -189,6 +190,7 @@ func (c *Client) waitForDetailsSlot(ctx context.Context) error {
 	return api.FromHTTP(err, nil, "wait for a google maps place details slot")
 }
 
+// placeDetails reads one place with the given field mask.
 func (c *Client) placeDetails(ctx context.Context, placeID, fieldMask string) (*placeDetailsResponse, error) {
 	u := c.detailsBaseURL + "/" + url.PathEscape(placeID) + "?languageCode=" + catalogLanguageCode
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
