@@ -39,10 +39,14 @@ const ticketSaleColumns = `
 
 const (
 	// saleStartInstant and saleEndInstant are the instants of a sale's window
-	// as PostgreSQL computes them, for filtering and ordering rows; the exact
-	// rules are applied in Go.
-	saleStartInstant = `(ts.local_start_time AT TIME ZONE ts.time_zone)`
-	saleEndInstant   = `(ts.local_end_time AT TIME ZONE ts.time_zone)`
+	// as PostgreSQL computes them. A wall-clock time that occurs twice,
+	// because the clocks go back, means the earlier instant, as in
+	// [entity.LocalDateTimeInstant]; AT TIME ZONE alone takes the later one,
+	// so each is the smaller of it and the reading made one hour before.
+	saleStartInstant = `LEAST(ts.local_start_time AT TIME ZONE ts.time_zone,
+		((ts.local_start_time - interval '1 hour') AT TIME ZONE ts.time_zone) + interval '1 hour')`
+	saleEndInstant = `LEAST(ts.local_end_time AT TIME ZONE ts.time_zone,
+		((ts.local_end_time - interval '1 hour') AT TIME ZONE ts.time_zone) + interval '1 hour')`
 )
 
 const (

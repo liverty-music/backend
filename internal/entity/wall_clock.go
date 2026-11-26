@@ -2,6 +2,7 @@ package entity
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	// Embed the IANA zone database so every binary that computes an instant
 	// from a wall-clock time has it; distroless images carry none.
@@ -80,13 +81,15 @@ func (t TimeOfDay) String() string {
 }
 
 // LoadZone returns the time zone named name from the binary's embedded zone
-// data. It fails with InvalidArgument when name is empty or not an IANA name.
+// data. It fails with InvalidArgument when name is empty or not an IANA
+// Area/Location name: an abbreviation such as EST, "UTC" or "Local" is not a
+// zone a page or a Venue can have.
 func LoadZone(name string) (*time.Location, error) {
 	if name == "" {
 		return nil, apperr.New(codes.InvalidArgument, "a time zone is required")
 	}
 	loc, err := time.LoadLocation(name)
-	if err != nil {
+	if err != nil || !strings.Contains(name, "/") {
 		return nil, apperr.New(codes.InvalidArgument, fmt.Sprintf("%q is not an IANA time zone", name))
 	}
 	return loc, nil

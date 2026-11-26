@@ -57,6 +57,10 @@ UPDATE ticket_sales SET
   local_start_time = date_trunc('minute', sale_start_time AT TIME ZONE time_zone),
   local_end_time = date_trunc('minute', sale_end_time AT TIME ZONE time_zone);
 
+-- A result date earlier than the day its sale ends in its new zone can no
+-- longer be kept, as when a later end time arrives.
+UPDATE ticket_sales SET result_date = NULL WHERE result_date < local_end_time::date;
+
 -- Require and constrain what is filled.
 ALTER TABLE ticket_sales
   ALTER COLUMN time_zone SET NOT NULL,

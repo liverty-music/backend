@@ -311,6 +311,12 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	open := lottery(t, closedAt.Add(time.Minute), entered)
 	drawn := lottery(t, closedAt.Add(-2*time.Minute), won, lost)
 	empty := lottery(t, closedAt.Add(-2*time.Minute))
+	// 01:30 occurs twice in New York on 1 November 2026: the sale closes at
+	// the earlier one, 05:30 UTC.
+	repeatedHour := lottery(t, closedAt, entered)
+	_, err := db.Pool.Exec(ctx, `UPDATE ticket_sales SET time_zone = 'America/New_York',
+		local_start_time = '2026-10-30 12:00', local_end_time = '2026-11-01 01:30' WHERE id = $1`, string(repeatedHour))
+	require.NoError(t, err)
 	discoveredID, _, err := repo.UpsertDiscovered(ctx, &entity.DiscoveredTicketSale{
 		TimeZone: "Asia/Tokyo",
 		SeriesID: seedSeriesOnly(t, db, "Discovered Tour"), Name: "オフィシャル先行", Method: entity.TicketSaleMethodLottery,
@@ -332,6 +338,15 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 		for _, s := range got {
 			assert.Len(t, s.EventIDs, 1, "each sale comes with its events")
 		}
+	})
+
+	t.Run("an end in the repeated hour is the earlier instant", func(t *testing.T) {
+		due, err := repo.ListDueForDraw(ctx, time.Date(2026, 11, 1, 5, 45, 0, 0, time.UTC))
+		require.NoError(t, err)
+		assert.Contains(t, saleIDs(due), repeatedHour)
+		before, err := repo.ListDueForDraw(ctx, time.Date(2026, 11, 1, 5, 15, 0, 0, time.UTC))
+		require.NoError(t, err)
+		assert.NotContains(t, saleIDs(before), repeatedHour)
 	})
 
 	t.Run("just closed", func(t *testing.T) {
@@ -360,7 +375,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	})
 
 	t.Run("only the due sales", func(t *testing.T) {
-		assert.ElementsMatch(t, []entity.TicketSaleID{closed, closedAMinuteAgo}, ids)
+		assert.ElementsMatch(t, []entity.TicketSaleID{closed, closedAMinuteAgo, repeatedHour}, ids)
 	})
 }
 

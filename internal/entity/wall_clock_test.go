@@ -97,8 +97,10 @@ func TestLoadZone(t *testing.T) {
 
 	_, err := entity.LoadZone("")
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	_, err = entity.LoadZone("Mars/Olympus")
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	for _, name := range []string{"Mars/Olympus", "EST", "UTC", "Local", "JST", "+09:00"} {
+		_, err = entity.LoadZone(name)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument, name)
+	}
 	loc, err := entity.LoadZone("Asia/Taipei")
 	require.NoError(t, err)
 	assert.Equal(t, "Asia/Taipei", loc.String())
