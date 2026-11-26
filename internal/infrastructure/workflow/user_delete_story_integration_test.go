@@ -150,6 +150,7 @@ func TestDeleteMyAccountStory_FailureHalfway(t *testing.T) {
 // deadline passes 8 seconds after it starts.
 //
 // @spec stories/delete-my-account "Deletion that cannot complete"
+// @spec components/usecase/user/delete "Still failing after 24 hours"
 func TestDeleteMyAccountStory_CannotComplete(t *testing.T) {
 	ctx := context.Background()
 	s := newDeletionStory(t, func() time.Time { return time.Now().Add(-24*time.Hour + 8*time.Second) })
