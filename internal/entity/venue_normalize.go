@@ -2,7 +2,6 @@ package entity
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -157,16 +156,15 @@ func ListedVenueKey(listedVenueName string) string {
 
 // SelectVenuePlace picks the place of the venue listed as listedVenueName
 // among the places a search returned, most relevant first. When adminArea is
-// the venue's first-level Area, only the places inside it count (see
-// [placeInArea]): a search also returns places of the same name elsewhere.
-// Among those it picks the first whose name is the same venue under
-// [ListedVenueKey], otherwise the most relevant. It returns nil when no place
-// counts.
+// the venue's first-level Area, only the places that can be inside it count,
+// since a search also returns places of the same name elsewhere: the places
+// whose address stands for that Area, or, when there is none, the places in
+// its country whose address tells no Area. Among the counted places it picks
+// the first whose name is the same venue under [ListedVenueKey], otherwise the
+// most relevant. It returns nil when no place counts.
 func SelectVenuePlace(listedVenueName string, adminArea *string, places []*VenuePlace) *VenuePlace {
 	if adminArea != nil {
-		places = slices.DeleteFunc(slices.Clone(places), func(p *VenuePlace) bool {
-			return !placeInArea(p, *adminArea)
-		})
+		places = placesInArea(places, *adminArea)
 	}
 	if len(places) == 0 {
 		return nil
@@ -181,13 +179,24 @@ func SelectVenuePlace(listedVenueName string, adminArea *string, places []*Venue
 	return places[0]
 }
 
-// placeInArea reports whether a place lies in the first-level Area of code
-// area: the Area its address stands for equals it, or, when the address does
-// not tell the Area, its country is the Area's country.
-func placeInArea(p *VenuePlace, area string) bool {
-	if p.AdminArea != nil {
-		return *p.AdminArea == area
-	}
+// placesInArea returns, in their order, the places whose address stands for
+// the first-level Area of code area, or, when there is none, those in the
+// Area's country whose address tells no Area.
+func placesInArea(places []*VenuePlace, area string) []*VenuePlace {
 	country, _, _ := strings.Cut(area, "-")
-	return p.CountryCode == country
+	var inArea, inCountry []*VenuePlace
+	for _, p := range places {
+		switch {
+		case p.AdminArea != nil:
+			if *p.AdminArea == area {
+				inArea = append(inArea, p)
+			}
+		case p.CountryCode == country:
+			inCountry = append(inCountry, p)
+		}
+	}
+	if len(inArea) > 0 {
+		return inArea
+	}
+	return inCountry
 }

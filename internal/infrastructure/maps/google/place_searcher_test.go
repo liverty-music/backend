@@ -91,7 +91,7 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 	t.Parallel()
 
-	areas := resolvingAreas(t, map[string]map[string]string{"US": {"California": "US-CA"}})
+	areas := resolvingAreas(t, map[string]map[string]string{"US": {"California": "US-CA"}, "HK": {"HK": "HK"}})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Contains(t, r.Header.Get("X-Goog-FieldMask"), "places.addressComponents")
 		w.Header().Set("Content-Type", "application/json")
@@ -99,6 +99,8 @@ func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 			{"id":"sf","displayName":{"text":"The Independent"},"addressComponents":[
 				{"longText":"California","shortText":"CA","types":["administrative_area_level_1"]},
 				{"longText":"United States","shortText":"US","types":["country"]}]},
+			{"id":"hk","displayName":{"text":"The Independent"},"addressComponents":[
+				{"longText":"Hong Kong","shortText":"HK","types":["country"]}]},
 			{"id":"nowhere","displayName":{"text":"The Independent"}}]}`))
 	}))
 	defer server.Close()
@@ -110,10 +112,15 @@ func TestPlaceSearcher_SearchPlace_Area(t *testing.T) {
 	places, err := google.NewPlaceSearcher(client).SearchPlace(context.Background(), "The Independent", "US-CA")
 
 	require.NoError(t, err)
-	require.Len(t, places, 2)
+	require.Len(t, places, 3)
 	assert.Equal(t, "US", places[0].CountryCode)
 	require.NotNil(t, places[0].AdminArea)
 	assert.Equal(t, "US-CA", *places[0].AdminArea)
-	assert.Empty(t, places[1].CountryCode)
-	assert.Nil(t, places[1].AdminArea)
+	// @spec components/entity/venue/search-place "Territory without subdivisions"
+	assert.Equal(t, "HK", places[1].CountryCode)
+	require.NotNil(t, places[1].AdminArea)
+	assert.Equal(t, "HK", *places[1].AdminArea)
+	// @spec components/entity/venue/search-place "Address without a country"
+	assert.Empty(t, places[2].CountryCode)
+	assert.Nil(t, places[2].AdminArea)
 }

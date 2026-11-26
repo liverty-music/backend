@@ -198,6 +198,14 @@ func TestSelectVenuePlace(t *testing.T) {
 			want:   noRegionUS,
 		},
 		{
+			// @spec components/entity/venue/select-place "A place in the area beats one known only by country"
+			name:   "a place in the area beats an earlier one known only by country",
+			listed: "The Independent",
+			area:   &californiaArea,
+			places: []*entity.VenuePlace{{ProviderUserID: "p-country", Name: "The Independent", CountryCode: "US"}, independentSF},
+			want:   independentSF,
+		},
+		{
 			// @spec components/entity/venue/select-place "A place whose country is unknown"
 			name:   "a place whose country is unknown does not count",
 			listed: "The Independent",
