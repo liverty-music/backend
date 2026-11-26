@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,16 +30,6 @@ const (
 
 func main() {
 	logger := di.NewBootstrapLogger()
-	// `backfill-venue-areas` is a one-off run of this image (OpenSpec change
-	// globalize-venues, task 12): it writes a CSV of the answered areas and
-	// zones to stdout for the owner's review and stores nothing.
-	if len(os.Args) > 1 && os.Args[1] == "backfill-venue-areas" {
-		if err := runVenueAreaBackfill(logger); err != nil {
-			logger.Error(context.Background(), "venue area backfill failed", err)
-			os.Exit(1)
-		}
-		return
-	}
 	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "concert discovery job failed", err)
 		// Exit non-zero so the Job is recorded as failed. The CronJob's
@@ -175,34 +164,4 @@ func searchArtists(ctx context.Context, logger *logging.Logger, artists []*entit
 	}
 
 	return result
-}
-
-// runVenueAreaBackfill writes the backfill's CSV to stdout, between marker
-// lines so it can be cut out of the Pod's log.
-func runVenueAreaBackfill(bootLogger *logging.Logger) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	var app *di.VenueAreaBackfillApp
-	defer func() {
-		timeout := fallbackShutdownTimeout
-		if app != nil {
-			timeout = app.ShutdownTimeout
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		if err := shutdown.Shutdown(ctx); err != nil {
-			bootLogger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
-
-	var err error
-	app, err = di.InitializeVenueAreaBackfillApp(ctx)
-	if err != nil {
-		return err
-	}
-	fmt.Println("--- venue-area-backfill.csv begin ---")
-	runErr := app.Backfill.Run(ctx, os.Stdout)
-	fmt.Println("--- venue-area-backfill.csv end ---")
-	return runErr
 }

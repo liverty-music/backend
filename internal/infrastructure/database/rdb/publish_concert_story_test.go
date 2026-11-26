@@ -51,7 +51,7 @@ func newPublishStory(t *testing.T, db *rdb.Database) *publishStory {
 	}
 	_, err = db.Pool.Exec(s.ctx, `INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, s.orgID, s.artistID)
 	require.NoError(t, err)
-	_, err = db.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', $2)`,
+	_, err = db.Pool.Exec(s.ctx, `INSERT INTO venues (id, name, admin_area, time_zone, google_place_id) VALUES ($1, 'Zepp Haneda (TOKYO)', 'JP-13', 'Asia/Tokyo', $2)`,
 		entity.NewID(), s.placeID)
 	require.NoError(t, err)
 

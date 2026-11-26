@@ -9,9 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// renameReceptionLinksPrevious is the last migration before
-// 20261012220000_rename_reception_links_to_scanners.sql.
-const renameReceptionLinksPrevious = "20261012100000"
+const (
+	// renameReceptionLinksPrevious is the last migration before
+	// 20261012220000_rename_reception_links_to_scanners.sql.
+	renameReceptionLinksPrevious = "20261012100000"
+	// renameReceptionLinksRead is the version the renamed rows are read back
+	// at: the later renames included, before Venues require an area, which
+	// the seeded Venue has none of.
+	renameReceptionLinksRead = "20261126010000"
+)
 
 // TestMigration_RenameReceptionLinksToScanners loads an Unused and an InUse
 // reception link and a rejected scan in the old shape, applies
@@ -49,7 +55,7 @@ func TestMigration_RenameReceptionLinksToScanners(t *testing.T) {
 	mustExec(`INSERT INTO rejected_scans (id, event_id, reception_link_id, reason, scanned_at) VALUES ($1, $2, $3, 1, $4)`,
 		scanID, eventID, inUseID, at)
 
-	apply("")
+	apply(renameReceptionLinksRead)
 
 	t.Run("an Unused scanner keeps its link token", func(t *testing.T) {
 		var gotID string
