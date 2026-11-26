@@ -233,7 +233,7 @@ func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg
 		logger.Warn(ctx, "GCP_PROJECT_ID is not set; create-from-discovered is not run")
 		return nil
 	}
-	placeSearcher, err := newPlaceSearcher(ctx, cfg.GCPProjectID, logger)
+	placeSearcher, err := newPlaceSearcher(ctx, cfg.GCPProjectID, rdb.NewAreaRepository(db), logger)
 	if err != nil {
 		return err
 	}

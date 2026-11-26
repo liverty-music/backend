@@ -28,7 +28,17 @@ func (s *PlaceSearcher) SearchPlace(ctx context.Context, name, adminArea string)
 		if place.Latitude != nil && place.Longitude != nil {
 			coords = &entity.Coordinates{Latitude: *place.Latitude, Longitude: *place.Longitude}
 		}
-		result = append(result, &entity.VenuePlace{ProviderUserID: place.PlaceID, Name: place.Name, Coordinates: coords})
+		area, err := s.client.suggestArea(ctx, place.CountryCode, place.Region)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &entity.VenuePlace{
+			ProviderUserID: place.PlaceID,
+			Name:           place.Name,
+			Coordinates:    coords,
+			CountryCode:    place.CountryCode,
+			AdminArea:      area,
+		})
 	}
 	return result, nil
 }

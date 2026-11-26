@@ -155,10 +155,17 @@ func ListedVenueKey(listedVenueName string) string {
 }
 
 // SelectVenuePlace picks the place of the venue listed as listedVenueName
-// among the places a search returned, most relevant first: the first place
-// whose name is the same venue under [ListedVenueKey], otherwise the most
-// relevant place. It returns nil when there is no place.
-func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace {
+// among the places a search returned, most relevant first. When adminArea is
+// the venue's first-level Area, only the places that can be inside it count,
+// since a search also returns places of the same name elsewhere: the places
+// whose address stands for that Area, or, when there is none, the places in
+// its country whose address tells no Area. Among the counted places it picks
+// the first whose name is the same venue under [ListedVenueKey], otherwise the
+// most relevant. It returns nil when no place counts.
+func SelectVenuePlace(listedVenueName string, adminArea *string, places []*VenuePlace) *VenuePlace {
+	if adminArea != nil {
+		places = placesInArea(places, *adminArea)
+	}
 	if len(places) == 0 {
 		return nil
 	}
@@ -170,4 +177,26 @@ func SelectVenuePlace(listedVenueName string, places []*VenuePlace) *VenuePlace 
 		}
 	}
 	return places[0]
+}
+
+// placesInArea returns, in their order, the places whose address stands for
+// the first-level Area of code area, or, when there is none, those in the
+// Area's country whose address tells no Area.
+func placesInArea(places []*VenuePlace, area string) []*VenuePlace {
+	country, _, _ := strings.Cut(area, "-")
+	var inArea, inCountry []*VenuePlace
+	for _, p := range places {
+		switch {
+		case p.AdminArea != nil:
+			if *p.AdminArea == area {
+				inArea = append(inArea, p)
+			}
+		case p.CountryCode == country:
+			inCountry = append(inCountry, p)
+		}
+	}
+	if len(inArea) > 0 {
+		return inArea
+	}
+	return inCountry
 }

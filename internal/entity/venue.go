@@ -48,14 +48,21 @@ type VenuePlace struct {
 	// Coordinates is the WGS 84 geographic position returned by the external service.
 	// Nil when the external service did not provide coordinate data.
 	Coordinates *Coordinates
+	// CountryCode is the ISO 3166-1 alpha-2 code of the place's country, ""
+	// when the service gives none.
+	CountryCode string
+	// AdminArea is the code of the first-level Area the place's address
+	// stands for within its country; nil when it cannot be told.
+	AdminArea *string
 }
 
 // VenuePlaceSearcher defines the interface for external place search services used in venue resolution.
 type VenuePlaceSearcher interface {
 	// SearchPlace looks up a venue by name and optional administrative area
 	// and returns the places the service found, most relevant first, or an
-	// empty slice when it found none. [SelectVenuePlace] picks the venue's
-	// place among them.
+	// empty slice when it found none. The adminArea words the search and its
+	// language, and does not restrict the results: [SelectVenuePlace] keeps
+	// only the places inside it and picks the venue's place among them.
 	//
 	// # Possible errors
 	//

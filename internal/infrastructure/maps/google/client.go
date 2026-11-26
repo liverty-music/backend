@@ -37,6 +37,11 @@ type Place struct {
 	PlaceID string
 	// Name is the name of the place as returned by Google Maps.
 	Name string
+	// CountryCode is the ISO 3166-1 alpha-2 code of the place's country.
+	CountryCode string
+	// Region holds the full and short names of the first-level area of the
+	// place's address; nil when it names none.
+	Region []string
 	// Latitude is the WGS 84 latitude of the place.
 	Latitude *float64
 	// Longitude is the WGS 84 longitude of the place.
@@ -60,6 +65,7 @@ type textSearchResponse struct {
 			Latitude  float64 `json:"latitude"`
 			Longitude float64 `json:"longitude"`
 		} `json:"location"`
+		AddressComponents []addressComponent `json:"addressComponents"`
 	} `json:"places"`
 }
 
@@ -74,7 +80,7 @@ type Client struct {
 	// detailsBaseURL is the Places resource collection used by GetPlace.
 	detailsBaseURL string
 	// areas resolves the region of a place's address to the first-level
-	// Area GetPlace suggests; nil for a client that never reads a place.
+	// Area it stands for; nil for a client that never needs it.
 	areas  entity.AreaRepository
 	logger *logging.Logger
 }
@@ -82,7 +88,7 @@ type Client struct {
 // NewClient creates a new Google Maps Places client using the provided OAuth2
 // TokenSource for authentication. The projectID is sent in the X-Goog-User-Project
 // header for billing attribution. areas resolves the region of a place's
-// address in GetPlace; it may be nil when GetPlace is never called.
+// address in GetPlace and the searcher; it may be nil when neither is used.
 func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client, areas entity.AreaRepository, logger *logging.Logger) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
@@ -131,7 +137,7 @@ func (c *Client) SearchText(ctx context.Context, name, adminArea string) ([]Plac
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Goog-FieldMask", "places.id,places.displayName,places.location")
+	req.Header.Set("X-Goog-FieldMask", "places.id,places.displayName,places.location,places.addressComponents")
 	req.Header.Set("X-Goog-User-Project", c.projectID)
 
 	resp, err := c.httpClient.Do(req)
@@ -152,8 +158,13 @@ func (c *Client) SearchText(ctx context.Context, name, adminArea string) ([]Plac
 		return nil, apperr.Wrap(err, codes.Internal, "failed to decode google maps response")
 	}
 
-	places := make([]Place, 0, len(data.Places))
-	for _, p := range data.Places {
+	return data.places(), nil
+}
+
+// places returns the places of a Text Search response, in its order.
+func (r *textSearchResponse) places() []Place {
+	places := make([]Place, 0, len(r.Places))
+	for _, p := range r.Places {
 		place := Place{PlaceID: p.ID, Name: p.DisplayName.Text}
 		if p.Location.Latitude != 0 || p.Location.Longitude != 0 {
 			lat := p.Location.Latitude
@@ -161,9 +172,10 @@ func (c *Client) SearchText(ctx context.Context, name, adminArea string) ([]Plac
 			place.Latitude = &lat
 			place.Longitude = &lng
 		}
+		place.CountryCode, place.Region = countryAndRegion(p.AddressComponents)
 		places = append(places, place)
 	}
-	return places, nil
+	return places
 }
 
 // SetBaseURL overrides the API base URL. Intended for tests.

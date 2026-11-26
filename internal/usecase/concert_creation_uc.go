@@ -516,7 +516,8 @@ func buildConcertCandidate(id, artistID, seriesID string, series *entity.Discove
 // It uses a batch-local cache to avoid redundant API calls within one
 // CreateFromDiscovered invocation.
 //
-// The search returns candidates and entity.SelectVenuePlace picks one. It
+// The search returns candidates and entity.SelectVenuePlace picks one inside
+// adminArea. It
 // returns (place, nil) on success, (nil, nil) when the search found no place, or
 // (nil, err) on error. A nil place is NOT a skip signal: the concert is still
 // staged for review with its resolved-venue preview absent, so a developer can
@@ -541,7 +542,7 @@ func (uc *concertCreationUseCase) resolvePlace(
 	if err != nil {
 		return nil, fmt.Errorf("search place %q: %w", name, err)
 	}
-	return entity.SelectVenuePlace(name, places), nil
+	return entity.SelectVenuePlace(name, adminArea, places), nil
 }
 
 // resolveSeriesForGroup resolves the series_id shared by a whole discovered

@@ -137,9 +137,18 @@ func TestSelectVenuePlace(t *testing.T) {
 	budokan := &entity.VenuePlace{ProviderUserID: "p-budokan", Name: "Nippon Budokan"}
 	park := &entity.VenuePlace{ProviderUserID: "p-park", Name: "北の丸公園"}
 
+	tokyoArea := "JP-13"
+	californiaArea := "US-CA"
+	osaka := "JP-27"
+	independentOsaka := &entity.VenuePlace{ProviderUserID: "p-osaka", Name: "The Independent", CountryCode: "JP", AdminArea: &osaka}
+	independentSF := &entity.VenuePlace{ProviderUserID: "p-sf", Name: "The Independent", CountryCode: "US", AdminArea: &californiaArea}
+	noRegionUS := &entity.VenuePlace{ProviderUserID: "p-us", Name: "Some Hall", CountryCode: "US"}
+	unknown := &entity.VenuePlace{ProviderUserID: "p-unknown", Name: "The Independent"}
+
 	tests := []struct {
 		name   string
 		listed string
+		area   *string
 		places []*entity.VenuePlace
 		want   *entity.VenuePlace
 	}{
@@ -165,6 +174,46 @@ func TestSelectVenuePlace(t *testing.T) {
 			want:   nil,
 		},
 		{
+			// @spec components/entity/venue/select-place "A place of the same name elsewhere"
+			name:   "a place of the same name elsewhere is passed over",
+			listed: "The Independent",
+			area:   &californiaArea,
+			places: []*entity.VenuePlace{independentOsaka, independentSF},
+			want:   independentSF,
+		},
+		{
+			// @spec components/entity/venue/select-place "Every place is elsewhere"
+			name:   "every place is elsewhere",
+			listed: "The Independent",
+			area:   &tokyoArea,
+			places: []*entity.VenuePlace{independentOsaka, independentSF},
+			want:   nil,
+		},
+		{
+			// @spec components/entity/venue/select-place "A place whose area is unknown counts by its country"
+			name:   "a place whose area is unknown counts by its country",
+			listed: "Some Hall",
+			area:   &californiaArea,
+			places: []*entity.VenuePlace{noRegionUS},
+			want:   noRegionUS,
+		},
+		{
+			// @spec components/entity/venue/select-place "A place in the area beats one known only by country"
+			name:   "a place in the area beats an earlier one known only by country",
+			listed: "The Independent",
+			area:   &californiaArea,
+			places: []*entity.VenuePlace{{ProviderUserID: "p-country", Name: "The Independent", CountryCode: "US"}, independentSF},
+			want:   independentSF,
+		},
+		{
+			// @spec components/entity/venue/select-place "A place whose country is unknown"
+			name:   "a place whose country is unknown does not count",
+			listed: "The Independent",
+			area:   &californiaArea,
+			places: []*entity.VenuePlace{unknown},
+			want:   nil,
+		},
+		{
 			name:   "the first of several places with the listed name",
 			listed: "Zepp Haneda",
 			places: []*entity.VenuePlace{station, zepp, {ProviderUserID: "p-zepp-2", Name: "Zepp Haneda"}},
@@ -182,7 +231,7 @@ func TestSelectVenuePlace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := entity.SelectVenuePlace(tt.listed, tt.places)
+			got := entity.SelectVenuePlace(tt.listed, tt.area, tt.places)
 
 			assert.Same(t, tt.want, got)
 		})

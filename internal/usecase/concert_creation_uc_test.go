@@ -131,8 +131,12 @@ func (h *creationHarness) sweepsOrphans() {
 }
 
 // resolvesPlace expects Google Places to be asked once for the listed venue
-// name and to resolve it to place.
+// name and to resolve it to place, which lies in Japan unless it says
+// otherwise.
 func (h *creationHarness) resolvesPlace(name string, place *entity.VenuePlace) {
+	if place.CountryCode == "" {
+		place.CountryCode = "JP"
+	}
 	h.place.EXPECT().SearchPlace(mock.Anything, name, "JP-13").Return([]*entity.VenuePlace{place}, nil).Once()
 }
 
@@ -1067,7 +1071,7 @@ func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
 		h.findsNoArtistEvents(1)
 		h.createsSeries(1)
 		h.place.EXPECT().SearchPlace(mock.Anything, "Arkéa Arena", "FR-NAQ").
-			Return([]*entity.VenuePlace{{ProviderUserID: "place-b", Name: "Arkéa Arena"}}, nil).Once()
+			Return([]*entity.VenuePlace{{ProviderUserID: "place-b", Name: "Arkéa Arena", CountryCode: "FR", AdminArea: new("FR-NAQ")}}, nil).Once()
 		h.venue.EXPECT().GetByPlaceID(mock.Anything, "place-b").Return(nil, notFound("venue")).Once()
 		h.venue.EXPECT().GetByListedName(mock.Anything, "Arkéa Arena", "FR-NAQ").Return(nil, notFound("venue")).Once()
 		h.venue.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, v *entity.Venue) (string, error) {
@@ -1084,6 +1088,26 @@ func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
 
 		assert.Equal(t, "FR-NAQ", *h.createdVenues[0].AdminArea)
 		assert.Equal(t, "Europe/Paris", *h.createdVenues[0].TimeZone)
+	})
+
+	t.Run("Only places elsewhere", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Only places elsewhere"
+		h := newCreationHarness(t)
+		h.findsNoArtistEvents(1)
+		h.createsSeries(1)
+		osaka := "JP-27"
+		h.place.EXPECT().SearchPlace(mock.Anything, "The Independent", "US-CA").
+			Return([]*entity.VenuePlace{{ProviderUserID: "place-osaka", Name: "The Independent", CountryCode: "JP", AdminArea: &osaka}}, nil).Once()
+		h.candidate.EXPECT().Upsert(mock.Anything, mock.MatchedBy(func(c *entity.ConcertCandidate) bool {
+			return c.ResolvedPlaceID == nil && c.ListedVenueName == "The Independent"
+		})).Return(nil).Once()
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), batch(&entity.DiscoveredEvent{
+			AdminArea: new("US-CA"), TimeZone: new("America/Los_Angeles"), ListedVenueName: "The Independent", LocalDate: localDate,
+		})))
+		assert.Empty(t, h.createdVenues)
 	})
 
 	t.Run("Area unknown", func(t *testing.T) {
