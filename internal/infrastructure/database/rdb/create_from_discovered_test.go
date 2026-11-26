@@ -15,12 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// knownPlaces resolves the venues it lists and no other.
+// knownPlaces resolves the venues it lists, all of them in Japan, and no
+// other.
 type knownPlaces map[string]*entity.VenuePlace
 
 func (p knownPlaces) SearchPlace(_ context.Context, name, _ string) ([]*entity.VenuePlace, error) {
 	if place, ok := p[name]; ok {
-		return []*entity.VenuePlace{place}, nil
+		found := *place
+		found.CountryCode = "JP"
+		return []*entity.VenuePlace{&found}, nil
 	}
 	return nil, nil
 }
