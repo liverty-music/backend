@@ -437,3 +437,20 @@ func TestClient_GetPlaceCoordinates(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 }
+
+func TestClient_PlaceDetailsPaced(t *testing.T) {
+	t.Parallel()
+
+	c := catalogServer(t, http.StatusOK, []byte(`{"id":"p","location":{"latitude":35,"longitude":139}}`), nil)
+	start := time.Now()
+	for range 3 {
+		_, err := c.GetPlaceCoordinates(context.Background(), "p")
+		require.NoError(t, err)
+	}
+	assert.GreaterOrEqual(t, time.Since(start), 380*time.Millisecond, "two waits of 200ms")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.GetPlaceCoordinates(ctx, "p")
+	assert.ErrorIs(t, err, apperr.ErrCanceled)
+}

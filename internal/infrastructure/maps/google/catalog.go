@@ -182,6 +182,10 @@ func (c *Client) placeDetails(ctx context.Context, placeID, fieldMask string) (*
 		return nil, apperr.Wrap(err, codes.Internal, "failed to create google maps place details request")
 	}
 
+	if err := c.details.Wait(ctx); err != nil {
+		return nil, api.FromHTTP(err, nil, "wait for a google maps place details slot")
+	}
+
 	var data placeDetailsResponse
 	err = c.doCatalogRequest(ctx, req, fieldMask, "google maps place details failed", &data)
 	// The catalog answers an unknown place id with 400 INVALID_ARGUMENT

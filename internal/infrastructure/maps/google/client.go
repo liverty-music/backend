@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+	"golang.org/x/time/rate"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/api"
@@ -69,6 +70,11 @@ type textSearchResponse struct {
 	} `json:"places"`
 }
 
+// placeDetailsInterval spaces the Place Details requests of one client. The
+// project may make 600 a minute; the daily coordinate refresh reads hundreds
+// at once, so it keeps to half of that and leaves the rest to the console.
+const placeDetailsInterval = 200 * time.Millisecond
+
 // Client is a Google Maps Places API (New) client.
 type Client struct {
 	httpClient  *http.Client
@@ -81,8 +87,10 @@ type Client struct {
 	detailsBaseURL string
 	// areas resolves the region of a place's address to the first-level
 	// Area it stands for; nil for a client that never needs it.
-	areas  entity.AreaRepository
-	logger *logging.Logger
+	areas entity.AreaRepository
+	// details paces the Place Details requests of this client.
+	details *rate.Limiter
+	logger  *logging.Logger
 }
 
 // NewClient creates a new Google Maps Places client using the provided OAuth2
@@ -103,6 +111,7 @@ func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client,
 		autocompleteURL: defaultAutocompleteURL,
 		detailsBaseURL:  defaultDetailsBaseURL,
 		areas:           areas,
+		details:         rate.NewLimiter(rate.Every(placeDetailsInterval), 1),
 		logger:          logger.With(slog.String("component", "googlemaps")),
 	}
 }
