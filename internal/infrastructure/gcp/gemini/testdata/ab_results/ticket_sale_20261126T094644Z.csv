@@ -1,0 +1,4 @@
+model,thinking,case,rep,found,missed,extra,wrong,missed_sales,requests,search_queries,search_query_count,prompt_tokens,candidates_tokens,thinking_tokens,tool_use_tokens,cost_usd_2027,latency_ms,dropped,empty,error_kind,error
+gemini-4-hydrogen,low,kinggnu,1,1,0,0,0,,1,site:kinggnu.jp KICKOFF; King Gnu 10th Anniversary Opening Live KICKOFF チケット; King Gnu KICKOFF 先行 一般発売,3,1836,351,776,0,0.053207,11778,,false,,
+gemini-4-hydrogen,low,zutomayo,1,3,0,0,0,,1,"ずっと真夜中でいいのに ""LÚ.NIM.LÀL"" チケット; site:zutomayo.net アピクラ電機; ""アピクラ電機"" チケット 先行",3,1835,804,1182,0,0.059648,15000,,false,,
+gemini-4-hydrogen,low,creepynuts,1,2,0,0,0,,1,"site:creepynuts.com ONEMAN TOUR 2027; Creepy Nuts ONEMAN TOUR 2027 チケット; ""Creepy Nuts"" ""オフィシャル4次先行"" 2027; ""Creepy Nuts"" ""Pre-sale for non-residence"" 2027",4,1829,850,1130,0,0.073594,21645,,false,,

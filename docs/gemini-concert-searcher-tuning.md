@@ -716,6 +716,14 @@ Without the completion criterion, `gemini-4-hydrogen` returned only one of WurtS
 
 Fixture bias shared by both models: Google Search is limited to the 30 days before the frozen time, so an announcement published after 2026-11-06 is reachable only through URL context, and the pages already mark these sales 受付中 or 受付終了. A first `gemini-4-hydrogen` run found WurtS's ぴあプレリザーブ, which the fixture had missed; it was added and both models were run again.
 
+### 10.10 Evaluation log: wall-clock time formats, globalize-venues (2026-11-26)
+
+- **Change**: `start_time` / `open_time` are `HH:MM` at the venue instead of RFC 3339 with an offset; `apply_start_time` / `apply_end_time` are local `YYYY-MM-DDTHH:MM` with a new `time_zone` per sale; neither is converted.
+- **Scope**: format check, one repetition (go!go!vanillas; ticket sale cases kinggnu, zutomayo, creepynuts). Recall was not compared: the search scope and procedure did not change.
+- **Result**: every returned time had the new format; start and open time accuracy 1.00; 6/6 sales found with no wrong value; the Taipei show kept its local time. Details and tables: `testdata/README.md`; raw files `testdata/ab_results/20261126T094109Z.*` and `ticket_sale_20261126T094644Z.*`.
+- **Flex tier** (Preview): works with URL context, Google Search and structured output on `gemini-4-hydrogen`, but most calls got 503 "high demand" in this window (18:39-18:46 JST). Not adopted here; the current 1-60 s retry backoff and the call timeouts are too short for it.
+- **Documentation**: <https://ai.google.dev/gemini-api/docs/flex-inference> (read 2026-11-26 through Context7).
+
 ## 11. References
 
 ### Google 公式ドキュメント
