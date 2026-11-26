@@ -35,6 +35,8 @@ const (
 	taipeiEvent      = "01a21600-0000-7000-8000-000000000002"
 	taipeiSeries     = "01a21600-0000-7000-8000-000000000003"
 	candidateID      = "01a21600-0000-7000-8000-000000000004"
+	// A second candidate of the same artist, date and name without a place.
+	unresolvedCandidateID = "01a21600-0000-7000-8000-000000000005"
 )
 
 // TestMigration_BackfillVenueAreas applies
@@ -90,6 +92,10 @@ func TestMigration_BackfillVenueAreas(t *testing.T) {
 	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, listed_venue_name, resolved_place_id)
 		VALUES ($1, $2, $3, 'Tour', '2026-12-01', 'Capitol Theatre', 'p-capitol-sydney')`, candidateID, id(900), taipeiSeries)
 
+	// A candidate that lost its place and one without a place share a name and date.
+	mustExec(`INSERT INTO concert_candidates (id, artist_id, series_id, title, local_date, listed_venue_name)
+		VALUES ($1, $2, $3, 'Tour', '2026-12-01', 'Capitol Theatre')`, unresolvedCandidateID, id(900), taipeiSeries)
+
 	apply(backfillVenueAreasVersion)
 
 	count := func(sql string, args ...any) int {
@@ -111,7 +117,8 @@ func TestMigration_BackfillVenueAreas(t *testing.T) {
 	assert.Equal(t, 1, count(`SELECT count(*) FROM events WHERE id = $1 AND venue_id = $2`, milkBoyEvent, milkBoy))
 	assert.Equal(t, 1, count(`SELECT count(*) FROM events WHERE id = $1 AND venue_id = $2`, taipeiEvent, taipeiArenaAgain))
 	assert.Zero(t, count(`SELECT count(*) FROM venues WHERE id = $1`, taipeiArena))
-	assert.Equal(t, 1, count(`SELECT count(*) FROM concert_candidates WHERE id = $1 AND resolved_place_id IS NULL`, candidateID))
+	assert.Zero(t, count(`SELECT count(*) FROM concert_candidates WHERE id = $1`, candidateID), "the row that would collide is removed")
+	assert.Equal(t, 1, count(`SELECT count(*) FROM concert_candidates WHERE id = $1`, unresolvedCandidateID))
 	_, area, zone, place := read(capitolTheatre)
 	assert.Equal(t, "SG-01", *area)
 	assert.Equal(t, "Asia/Singapore", *zone)

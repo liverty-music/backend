@@ -118,15 +118,19 @@ DELETE FROM series s WHERE s.id IN (
 ) AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
   AND NOT EXISTS (SELECT 1 FROM concert_candidates c WHERE c.series_id = s.id);
 
--- Two rows of one venue: move the Events to the row that has the area.
+-- Two rows of one venue: move the Events to the row that has the area. An
+-- Event whose slot both rows hold stays, and so does its row, which then has no
+-- area for the next migration's check to find.
 
 -- Grand Theatre at The Grand Sierra Resort
-UPDATE events SET venue_id = '01a1347e-e9eb-7d6a-b6cd-eb95bc4941df' WHERE venue_id = '01a05c4e-c104-7791-b8d2-8b453f5bcd9a';
-DELETE FROM venues WHERE id = '01a05c4e-c104-7791-b8d2-8b453f5bcd9a';
+UPDATE events AS e SET venue_id = '01a1347e-e9eb-7d6a-b6cd-eb95bc4941df' WHERE e.venue_id = '01a05c4e-c104-7791-b8d2-8b453f5bcd9a'
+  AND NOT EXISTS (SELECT 1 FROM events f WHERE f.venue_id = '01a1347e-e9eb-7d6a-b6cd-eb95bc4941df' AND f.local_event_date = e.local_event_date AND f.start_time IS NOT DISTINCT FROM e.start_time);
+DELETE FROM venues WHERE id = '01a05c4e-c104-7791-b8d2-8b453f5bcd9a' AND NOT EXISTS (SELECT 1 FROM events e WHERE e.venue_id = '01a05c4e-c104-7791-b8d2-8b453f5bcd9a');
 
 -- MilkBoy
-UPDATE events SET venue_id = '01a14e3d-e07f-7a54-9349-5a3f44708702' WHERE venue_id = '01a05c51-2089-7c71-917b-e49f9363c708';
-DELETE FROM venues WHERE id = '01a05c51-2089-7c71-917b-e49f9363c708';
+UPDATE events AS e SET venue_id = '01a14e3d-e07f-7a54-9349-5a3f44708702' WHERE e.venue_id = '01a05c51-2089-7c71-917b-e49f9363c708'
+  AND NOT EXISTS (SELECT 1 FROM events f WHERE f.venue_id = '01a14e3d-e07f-7a54-9349-5a3f44708702' AND f.local_event_date = e.local_event_date AND f.start_time IS NOT DISTINCT FROM e.start_time);
+DELETE FROM venues WHERE id = '01a05c51-2089-7c71-917b-e49f9363c708' AND NOT EXISTS (SELECT 1 FROM events e WHERE e.venue_id = '01a05c51-2089-7c71-917b-e49f9363c708');
 
 DELETE FROM venues WHERE id IN (
     '019e3433-265b-7494-86c0-db9ee468a9ab',
@@ -185,7 +189,82 @@ DELETE FROM venues v WHERE v.id IN (
 ) AND NOT EXISTS (SELECT 1 FROM events e WHERE e.venue_id = v.id);
 
 -- A candidate that resolved to one of those places loses it too, so approving
--- it cannot give the place back.
+-- it cannot give the place back. A candidate that would then collide with
+-- another of the same artist, date and listed name without a place (only one
+-- such row can exist) is removed first.
+DELETE FROM concert_candidates AS c
+WHERE c.resolved_place_id IN (
+  SELECT google_place_id FROM venues WHERE google_place_id IS NOT NULL AND id IN (
+    '019e3939-1296-7e42-8b05-0e7856b20248',
+    '019e4633-0d88-7d5b-9479-7ea13cd56582',
+    '01a05c58-44f7-7b48-b295-f9647a40ba34',
+    '01a05c58-46c0-70e4-81c2-fd1d607d1f83',
+    '01a05c58-4ea9-7d51-9aed-ffba0daf3428',
+    '01a05c58-5059-7258-8e1a-59160b92f541',
+    '01a05c5c-5d5d-780e-a4da-1337f3197192',
+    '01a05c5c-669b-7c22-8695-9cc4cde5ae6f',
+    '01a05c5c-69f9-7c02-82ce-6c422a914e97',
+    '01a05c5c-6e60-764d-b1a2-8fa0cc3c7252',
+    '01a05c5c-6fd8-7fea-b069-05efd25741db',
+    '01a05c5c-7110-766f-a678-d68ab202749a',
+    '01a05c5c-740d-71ef-95e2-d5f537957366',
+    '01a05c5e-d627-7cdc-b572-8ebf334cf73e',
+    '01a05c5e-dafc-7ea8-aa5e-6d7397ac8d9f',
+    '01a05c64-3bfa-7ca6-800c-ab48275e248f',
+    '01a05c64-3d9f-7e96-839c-8d58b9dd1aae',
+    '01a05c6c-9942-782f-b355-0fa8cf5126f6',
+    '01a05c6c-9be4-753e-812b-7f69d8ed39e5',
+    '01a05c7e-e9c5-7dc8-abbb-92d27e647918',
+    '01a05c80-b567-78cf-933a-23c6c8a5d787',
+    '01a0610f-d79e-701d-af64-fda58f1c92e6',
+    '01a10f24-dd38-775a-add4-125aef8206cc',
+    '01a11b3d-1f8d-7423-bcce-15bf5679b1e6',
+    '01a11b3d-2077-747b-99f6-2c99fbe90fa6',
+    '01a11b3d-2257-71e5-a9f4-5b7dd44fef64',
+    '01a1251d-e9ed-7bad-8782-0eaca65e2807',
+    '01a1347e-fdca-7704-b916-478a9a312f9d',
+    '01a14e3d-dc4f-7e81-9532-ad829ff6d39f',
+    '01a1de80-d750-758d-a120-142047446825'
+  )
+) AND EXISTS (
+  SELECT 1 FROM concert_candidates o
+  WHERE o.artist_id = c.artist_id AND o.local_date = c.local_date AND o.listed_venue_name = c.listed_venue_name
+    AND (o.resolved_place_id IS NULL OR (o.id < c.id AND o.resolved_place_id IN (
+  SELECT google_place_id FROM venues WHERE google_place_id IS NOT NULL AND id IN (
+    '019e3939-1296-7e42-8b05-0e7856b20248',
+    '019e4633-0d88-7d5b-9479-7ea13cd56582',
+    '01a05c58-44f7-7b48-b295-f9647a40ba34',
+    '01a05c58-46c0-70e4-81c2-fd1d607d1f83',
+    '01a05c58-4ea9-7d51-9aed-ffba0daf3428',
+    '01a05c58-5059-7258-8e1a-59160b92f541',
+    '01a05c5c-5d5d-780e-a4da-1337f3197192',
+    '01a05c5c-669b-7c22-8695-9cc4cde5ae6f',
+    '01a05c5c-69f9-7c02-82ce-6c422a914e97',
+    '01a05c5c-6e60-764d-b1a2-8fa0cc3c7252',
+    '01a05c5c-6fd8-7fea-b069-05efd25741db',
+    '01a05c5c-7110-766f-a678-d68ab202749a',
+    '01a05c5c-740d-71ef-95e2-d5f537957366',
+    '01a05c5e-d627-7cdc-b572-8ebf334cf73e',
+    '01a05c5e-dafc-7ea8-aa5e-6d7397ac8d9f',
+    '01a05c64-3bfa-7ca6-800c-ab48275e248f',
+    '01a05c64-3d9f-7e96-839c-8d58b9dd1aae',
+    '01a05c6c-9942-782f-b355-0fa8cf5126f6',
+    '01a05c6c-9be4-753e-812b-7f69d8ed39e5',
+    '01a05c7e-e9c5-7dc8-abbb-92d27e647918',
+    '01a05c80-b567-78cf-933a-23c6c8a5d787',
+    '01a0610f-d79e-701d-af64-fda58f1c92e6',
+    '01a10f24-dd38-775a-add4-125aef8206cc',
+    '01a11b3d-1f8d-7423-bcce-15bf5679b1e6',
+    '01a11b3d-2077-747b-99f6-2c99fbe90fa6',
+    '01a11b3d-2257-71e5-a9f4-5b7dd44fef64',
+    '01a1251d-e9ed-7bad-8782-0eaca65e2807',
+    '01a1347e-fdca-7704-b916-478a9a312f9d',
+    '01a14e3d-dc4f-7e81-9532-ad829ff6d39f',
+    '01a1de80-d750-758d-a120-142047446825'
+  )
+  )))
+);
+
 UPDATE concert_candidates SET resolved_place_id = NULL WHERE resolved_place_id IN (
   SELECT google_place_id FROM venues WHERE google_place_id IS NOT NULL AND id IN (
     '019e3939-1296-7e42-8b05-0e7856b20248',
