@@ -2,12 +2,14 @@ package rdb_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/pannpers/go-apperr/apperr"
@@ -99,4 +101,25 @@ func TestUserRepository_Delete_StoreUnreachable(t *testing.T) {
 	}
 	_, err = rdb.NewUserRepository(direct, testOutbox).Get(ctx, user.ID)
 	assert.NoError(t, err, "nothing was removed")
+}
+
+// A database that accepts the connection and never answers: the connection
+// attempt times out while the caller's context goes on.
+//
+// @spec components/entity/user/delete "Store unreachable"
+func TestUserRepository_Delete_StoreNotAnswering(t *testing.T) {
+	t.Parallel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	cfg, err := pgxpool.ParseConfig(fmt.Sprintf("postgres://test-user@%s/db?sslmode=disable&connect_timeout=1", listener.Addr()))
+	require.NoError(t, err)
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	repo := rdb.NewUserRepository(&rdb.Database{Pool: rdb.NewTracedPool(pool, "db", "127.0.0.1")}, testOutbox)
+
+	err = repo.Delete(context.Background(), "019e3029-8044-75fc-a662-2ddfce51178e")
+
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 }

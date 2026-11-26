@@ -47,14 +47,18 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 
 // isConnectionFailure reports whether err comes from failing to reach the
 // database: the connection could not be made, or it broke while in use. A
-// context that ended is not one, although its error looks like a network
-// timeout.
+// call its caller cancelled is not one. A query the context ended is not one
+// either, although its error looks like a network timeout; a connection
+// attempt that timed out is.
 func isConnectionFailure(err error) bool {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
 	}
 	// pgconn.ErrConnClosed is a pooled connection that already broke; the two
 	// EOFs are one that breaks during a call.

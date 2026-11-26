@@ -160,7 +160,7 @@ func TestIdentityRemover_RecoversWhenSignInServiceReturns(t *testing.T) {
 	assert.Empty(t, issuerHandler.requestPaths(), "building the client must make no request")
 
 	err = r.DeleteIdentity(context.Background(), "zitadel-user-1")
-	assert.ErrorIs(t, err, apperr.ErrInternal, "the call fails as delete-identity specifies")
+	assert.ErrorIs(t, err, apperr.ErrUnavailable, "the call fails as delete-identity specifies for an unreachable provider")
 
 	err = r.DeleteIdentity(context.Background(), "zitadel-user-1")
 	assert.NoError(t, err, "the next call after recovery succeeds")
