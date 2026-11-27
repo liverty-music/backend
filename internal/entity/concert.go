@@ -691,33 +691,22 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the ids slice is empty.
 	ListByIDs(ctx context.Context, ids []string) ([]*Concert, error)
-	// FindEventsByVenueAndDate returns existing events occurring at any of the
-	// given (venue_id, local_event_date) pairs. The two slices are zipped
-	// element-wise into pairs; an event matches when its (venue_id,
-	// local_event_date) equals any supplied pair. Used by the discovery write
-	// path to (1) adopt a parent series from already-persisted member events and
-	// (2) detect a row first seen without a start_time so a later-announced time
-	// fills it instead of inserting a duplicate.
+	// FindEventsByVenueAndDate returns each event whose Venue and local date
+	// equal one of the given (venue_id, local_event_date) pairs, once. The two
+	// slices are zipped element-wise into pairs.
 	//
-	// Only physical-identity and parentage fields are populated (ID, SeriesID,
-	// VenueID, LocalDate, StartTime); Venue and Artists are not hydrated.
-	// A DRAFT event is not a Concert and is never returned. Returns an empty
-	// slice (no error) when the inputs are empty or no event matches.
-	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Event, error)
-	// FindEventsByArtistAndDate returns existing events on any of the given local
-	// event dates at which the artist already performs (joined through
-	// concert_artists). Used by the discovery write path to resolve a whole
-	// discovered series' identity BEFORE any Places API call: a full
-	// local_event_date makes an (artist, exact-date) collision across two
-	// different series practically impossible, so any matching event already
-	// belongs to this tour and its series_id is adopted for the group.
-	//
-	// Only physical-identity and parentage fields are populated (ID, SeriesID,
-	// VenueID, ListedVenueName, LocalDate, StartTime); Venue and Artists are
-	// not hydrated. A DRAFT event is not a Concert and is never returned.
-	// Returns an empty slice (no error) when the inputs are empty or no event
-	// matches.
-	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
+	// Each is returned with its id, Series id, Venue id, listed venue name,
+	// other listed venue names, local date, start and open time, publish state
+	// and performing Artists (ids only); Venue and Series are not resolved. A
+	// DRAFT event is not a Concert and is never returned. It returns an empty
+	// list (no error) when the inputs are empty or no event matches.
+	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Concert, error)
+	// FindEventsByArtistAndDate returns each event on one of the given local
+	// dates whose performers include the artist, once, with the fields of
+	// [ConcertRepository.FindEventsByVenueAndDate]. A DRAFT event is never
+	// returned. It returns an empty list (no error) when no artist or no date
+	// is given or no event matches.
+	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Concert, error)
 	// ListEventsBySeries retrieves every event belonging to the given series,
 	// ordered by local_event_date ascending and, for equal dates, by start_time
 	// ascending with a NULL start_time ordered last. Used to resolve which event
@@ -729,19 +718,52 @@ type ConcertRepository interface {
 	// Concert and is never returned. Returns an empty slice (no error) when
 	// the series has no such event.
 	ListEventsBySeries(ctx context.Context, seriesID string) ([]*Event, error)
-	// FillEventStartTimes sets start_time / open_time on existing events identified
-	// by eventIDs, only where the column is currently NULL (COALESCE), for the
-	// case where a later discovery supplies a time the first discovery lacked.
-	// The three slices are zipped element-wise; a nil time leaves the column
-	// unchanged. An unknown event id is ignored, and so is the id of a DRAFT
-	// event, which is not a Concert: its times are not filled. Idempotent: a
-	// no-op when eventIDs is empty.
+	// FillEventStartTimes sets each given event's start and open time only
+	// where it is unknown, for a later discovery that supplies a time the
+	// first one lacked. The three slices are zipped element-wise; a known time
+	// is never overwritten and a nil time leaves the event unchanged. An
+	// unknown event id is ignored, and so is the id of a DRAFT event, which is
+	// not a Concert. An empty request changes nothing.
+	//
+	// # Possible errors
+	//
+	//  - AlreadyExists: filling a start time would give an event the Venue,
+	//    local date and start time of another event that is not DRAFT. None
+	//    of the given events is changed.
 	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*TimeOfDay) error
-	// UpdateEventListedVenueName overwrites the listed_venue_name display field of
-	// an existing event. Used by the admin approval "adopt the candidate" reconciliation
-	// to replace the stored display name with the concert candidate's, leaving venue_id
-	// and google_place_id untouched. Idempotent on a missing id (no-op success).
+	// UpdateEventListedVenueName sets the event's listed venue name to the
+	// given name and keeps the name it replaces among the event's other listed
+	// venue names, leaving its Venue, the Venue's place id, its Series and its
+	// times unchanged. Giving the name the event already lists changes
+	// nothing. An unknown event id is a success that changes nothing.
 	UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error
+	// AddOtherListedVenueName adds the listed venue name, normalized
+	// ([NormalizeVenueName]), to the event's other listed venue names, leaving
+	// every other attribute unchanged. It changes nothing when the event is
+	// already listed under the name ([Event.ListedUnder]).
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the name names no venue (it normalizes to "").
+	//  - NotFound: no event that is not DRAFT has the id.
+	AddOtherListedVenueName(ctx context.Context, eventID, listedVenueName string) error
+	// Merge merges the source event into the target event, all together or
+	// not at all: every performer of the source is added to the target; every
+	// fan's TicketJourney of the source moves to the target, except that a fan
+	// who already has one for the target keeps that one; the source's links
+	// to TicketSales move to the target; the source's listed venue name and
+	// other listed venue names are added to the target's other listed venue
+	// names where the target is not already listed under them; and the source
+	// is removed, leaving its Series in place. Nothing is announced.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the two are the same event, or are at different
+	//    Venues or local dates.
+	//  - NotFound: either is not an event that is not DRAFT.
+	//  - FailedPrecondition: either has a publish state (an Organizer's
+	//    event).
+	Merge(ctx context.Context, sourceID, targetID string) error
 	// List retrieves every published concert with Series, Venue, and Artists
 	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /
 	// ListByFollower it applies no audience filter — it returns the whole

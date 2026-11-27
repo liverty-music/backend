@@ -1,5 +1,11 @@
 package usecase
 
+import (
+	"time"
+
+	"github.com/liverty-music/backend/internal/entity"
+)
+
 // ExportedScheduledFireTime exposes scheduledFireTime for black-box tests.
 var ExportedScheduledFireTime = scheduledFireTime
 
@@ -43,4 +49,30 @@ func RunPasskeyRecoverySynchronously(uc UserUseCase) {
 // announcement of RequestPasskeyRecovery to run.
 func RunPasskeyRecoveryWith(uc UserUseCase, run func(task func())) {
 	uc.(*userUseCase).background = run
+}
+
+// FoundEvent is a found event for ExportedDecideFoundEvent.
+type FoundEvent struct {
+	ArtistID        string
+	ListedVenueName string
+	VenueID         string
+	LocalDate       time.Time
+	StartTime       *entity.TimeOfDay
+}
+
+// ExportedDecideFoundEvent exposes decideFoundEvent for black-box tests. It
+// returns the outcome's name, the id of the event it is about and, for a
+// merge, the id of the event merged away.
+func ExportedDecideFoundEvent(found FoundEvent, artistEvents, venueEvents []*entity.Concert, claimed map[string]bool) (outcome, eventID, sourceID string) {
+	d := decideFoundEvent(foundEvent{
+		artistID: found.ArtistID, listedVenueName: found.ListedVenueName, venueID: found.VenueID,
+		localDate: found.LocalDate, startTime: found.StartTime,
+	}, artistEvents, venueEvents, claimed)
+	if d.event != nil {
+		eventID = d.event.ID
+	}
+	if d.source != nil {
+		sourceID = d.source.ID
+	}
+	return d.outcome.String(), eventID, sourceID
 }

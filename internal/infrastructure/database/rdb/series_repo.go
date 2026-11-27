@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
@@ -367,6 +368,59 @@ func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []strin
 		return 0, toAppErr(err, "failed to delete orphaned series", slog.Int("count", len(seriesIDs)))
 	}
 	return tag.RowsAffected(), nil
+}
+
+// listUpcomingToursByArtistQuery returns the discovered TOUR series the
+// artist performs at an event of, with the local date of each such event and
+// its Venue's time zone. It selects from one day before the current date at
+// the Venue, as listUpcomingConcertsByArtistQuery does, and
+// ListUpcomingToursByArtist applies the exact rule.
+const listUpcomingToursByArtistQuery = `
+	SELECT s.id, s.title, e.local_event_date, v.time_zone
+	FROM series s
+	JOIN events e ON e.series_id = s.id
+	JOIN venues v ON v.id = e.venue_id
+	WHERE s.organizer_id IS NULL
+	  AND s.type = 'TOUR'
+	  AND EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.event_id = e.id AND ca.artist_id = $1)
+	  AND e.local_event_date >= (($2::timestamptz) AT TIME ZONE v.time_zone)::date - 1
+	  AND ` + catalogEventCondition + `
+	ORDER BY s.id
+`
+
+// ListUpcomingToursByArtist implements entity.SeriesRepository. The title
+// comparison of a joining tour is done by the caller
+// ([entity.SameTourTitle]).
+func (r *SeriesRepository) ListUpcomingToursByArtist(ctx context.Context, artistID string, now time.Time) ([]*entity.Series, error) {
+	rows, err := r.db.Pool.Query(ctx, listUpcomingToursByArtistQuery, artistID, now)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list upcoming tours by artist", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var tours []*entity.Series
+	for rows.Next() {
+		var (
+			s        entity.Series
+			date     time.Time
+			timeZone *string
+		)
+		if err := rows.Scan(&s.ID, &s.Title, &date, &timeZone); err != nil {
+			return nil, toAppErr(err, "failed to scan upcoming tour")
+		}
+		if date.Before(entity.CurrentDateAtVenue(now, &entity.Venue{TimeZone: timeZone})) {
+			continue
+		}
+		if n := len(tours); n > 0 && tours[n-1].ID == s.ID {
+			continue
+		}
+		s.Type = entity.SeriesTypeTour
+		tours = append(tours, &s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "upcoming tours iteration ended with error")
+	}
+	return tours, nil
 }
 
 // Get retrieves a series by its ID. Returns apperr.ErrNotFound if no row exists.

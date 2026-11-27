@@ -34,12 +34,17 @@ const (
 	// ApproveResolutionUnspecified makes Approve return a DuplicateConflict
 	// (without mutating state) when it detects a duplicate; otherwise it publishes.
 	ApproveResolutionUnspecified ApproveResolution = iota
-	// ApproveResolutionKeepExisting logs the concert candidate to the rejection log with a
-	// duplicate reason and clears it, leaving the existing event unchanged.
+	// ApproveResolutionKeepExisting logs the concert candidate to the rejection
+	// log with a duplicate reason, keeps its listed venue name among the
+	// existing event's other listed venue names, makes its Artist a performer
+	// of the event (unless it is an Organizer's event) and clears it, leaving
+	// the event's listed venue name, Venue and times unchanged.
 	ApproveResolutionKeepExisting
-	// ApproveResolutionAdoptCandidate overwrites the existing event's display fields
-	// from the concert candidate (listed venue name, and NULL-only start/open fill) and
-	// clears the concert candidate.
+	// ApproveResolutionAdoptCandidate replaces the existing event's listed
+	// venue name with the concert candidate's, keeping the replaced one among
+	// its other listed venue names, fills its unknown start and open time,
+	// makes the candidate's Artist a performer of the event (unless it is an
+	// Organizer's event) and clears the concert candidate.
 	ApproveResolutionAdoptCandidate
 )
 
@@ -104,18 +109,32 @@ type ConcertCandidateUseCase interface {
 	// idempotent: if the concert candidate is already gone (e.g. double-click) the method
 	// returns a non-conflict success without duplicating.
 	//
-	// When the concert candidate maps onto an already-published event at the resolved
-	// (venue, date, start time), the behavior depends on resolution:
+	// Collision is decided with the Events at the resolved Venue and date and
+	// the Artist's Events on the date (decideFoundEvent, shared with
+	// discovery): the candidate collides with an Event there with the same
+	// start time (or both unknown), with any timed Event there when it has no
+	// start time, and with its Artist's Event on the date with the same start
+	// time at another Venue. A non-colliding candidate fills its Artist's
+	// unknown-start Event there, or is published under its Series. A
+	// colliding one depends on resolution:
 	//   - ApproveResolutionUnspecified: returns an ApproveResult whose Conflict is
 	//     set to the existing event's display fields plus the candidate preview; NO
 	//     state is mutated.
-	//   - ApproveResolutionKeepExisting: records the concert candidate in the rejection log
-	//     (attributed to reviewerID) with a duplicate reason and clears it, leaving
-	//     the existing event unchanged.
-	//   - ApproveResolutionAdoptCandidate: overwrites the existing event's listed venue
-	//     name and fills its start/open time only where currently NULL, leaving
-	//     venue identity and the shared series title unchanged, then clears the
-	//     concert candidate.
+	//   - ApproveResolutionKeepExisting: records the concert candidate in the
+	//     rejection log (attributed to reviewerID) with a duplicate reason,
+	//     keeps its listed venue name among the event's other listed venue
+	//     names, makes its Artist a performer of the event and clears it.
+	//   - ApproveResolutionAdoptCandidate: replaces the event's listed venue
+	//     name with the candidate's, keeping the replaced one, fills its start
+	//     and open time only where unknown, makes the Artist a performer of
+	//     the event, leaving venue identity and the shared series title
+	//     unchanged, then clears the concert candidate.
+	//
+	// Making the Artist a performer of another Artist's Event merges the
+	// Artist's unknown-start Event at the Venue and date into it when there is
+	// one (Concert.Merge, which tells nobody again), and stores the Artist's
+	// concert in its slot otherwise (Concert.Create, which tells the Artist's
+	// followers). An Organizer's Event keeps its performers.
 	//
 	// reviewerID is the calling reviewer's identity (used only by KeepExisting).
 	//
@@ -187,32 +206,6 @@ func (uc *concertCandidateUseCase) List(ctx context.Context) ([]*ConcertCandidat
 	return reviews, nil
 }
 
-// publishCandidate stores the candidate's event with no duplicate at its
-// venue, date and start time: under the series_id carried on the concert
-// candidate (the series row already exists, created at discovery when the
-// group's series_id was resolved). Approval never mints a series, adopts
-// identity, or re-derives grouping. A known-start concert candidate that fills
-// an existing unknown-start row legitimately inserts nothing; that is a
-// success, not a conflict. It returns the ids of the events it inserted.
-func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueID string, existing []*entity.Event) ([]string, error) {
-	ev := candidateToEvent(sc)
-	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
-		if err := uc.concertRepo.FillEventStartTimes(ctx,
-			[]string{match.ID},
-			[]*entity.TimeOfDay{sc.StartTime},
-			[]*entity.TimeOfDay{sc.OpenTime},
-		); err != nil {
-			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", sc.ID, err)
-		}
-		return nil, nil
-	}
-	insertedIDs, err := insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
-	if err != nil {
-		return nil, fmt.Errorf("insert event under series for concert candidate %q: %w", sc.ID, err)
-	}
-	return insertedIDs, nil
-}
-
 // dropSkippedTimes returns the candidate without a start or open time that
 // does not exist on its date at the Venue it is approved at, because the
 // clocks skip it there: such a discovered time is unknown. The zone the
@@ -276,54 +269,76 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 		return nil, err
 	}
 
-	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for
-	// both duplicate detection and the fill-vs-insert decision.
-	existing, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
+	venueEvents, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
 	if err != nil {
-		return nil, fmt.Errorf("find existing events for concert candidate %q: %w", concertCandidateID, err)
+		return nil, fmt.Errorf("find events at the venue of concert candidate %q: %w", concertCandidateID, err)
 	}
-
-	// Detect a duplicate existing event at the resolved (venue, date, start time)
-	// BEFORE any event mutation, so an unresolved conflict returns without side
-	// effects. Re-checked on every call, so a two-phase reconcile re-validates.
-	if conflictEvent := duplicateEventAmong(existing, sc); conflictEvent != nil {
-		return uc.reconcileDuplicate(ctx, sc, conflictEvent, resolution, reviewerID)
-	}
-
-	insertedIDs, err := uc.publishCandidate(ctx, sc, venueID, existing)
+	artistEvents, err := uc.concertRepo.FindEventsByArtistAndDate(ctx, sc.ArtistID, []time.Time{sc.LocalDate})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find events of the artist of concert candidate %q: %w", concertCandidateID, err)
 	}
 
-	// Concert.Create announces the inserted event (CONCERT.created).
+	// Decided on every call, so a two-phase reconcile re-validates. Nothing
+	// changes before a conflict is returned.
+	found := foundEvent{artistID: sc.ArtistID, listedVenueName: sc.ListedVenueName, venueID: venueID, localDate: sc.LocalDate, startTime: sc.StartTime}
+	d := decideFoundEvent(found, artistEvents, venueEvents, map[string]bool{})
+	switch d.outcome {
+	case outcomeFill, outcomePublish:
+		return uc.publishCandidate(ctx, sc, venueID, d)
+	default:
+		return uc.reconcileDuplicate(ctx, sc, d.event, venueEvents, resolution, reviewerID)
+	}
+}
+
+// publishCandidate stores a candidate that collides with nothing: it fills
+// the Artist's unknown-start event at the Venue and date (outcomeFill), or
+// adds the candidate as a Concert under its Series (Concert.Create, which
+// announces it), never creating a Series. It then removes the candidate and,
+// when nothing was added, its Series if that is left empty.
+func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueID string, d sameConcertDecision) (*ApproveResult, error) {
+	var insertedIDs []string
+	if d.outcome == outcomeFill {
+		if err := uc.concertRepo.FillEventStartTimes(ctx, []string{d.event.ID}, []*entity.TimeOfDay{sc.StartTime}, []*entity.TimeOfDay{sc.OpenTime}); err != nil {
+			return nil, fmt.Errorf("fill event start times for concert candidate %q: %w", sc.ID, err)
+		}
+	} else {
+		ids, err := uc.concertRepo.Create(ctx, candidateToEvent(sc).ToConcertUnderSeries(sc.ArtistID, sc.SeriesID, entity.NewID(), venueID))
+		if err != nil {
+			return nil, fmt.Errorf("create concert for concert candidate %q: %w", sc.ID, err)
+		}
+		insertedIDs = ids
+	}
 
 	// Delete the concert candidate only after a successful publish/fill.
-	if err := uc.concertCandidateRepo.Delete(ctx, concertCandidateID); err != nil {
+	if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
 		return nil, fmt.Errorf("delete concert candidate after approval: %w", err)
 	}
-
-	// When the approval only filled an existing row (no event inserted under
-	// sc.SeriesID) and this concert candidate was the last reference to a discovery-minted
-	// series, that series is now orphaned. Sweep it, mirroring Reject — scoped to
-	// this series so it never races another run's eager series row. A series that
-	// gained an inserted event is not orphaned, so the sweep is a no-op there.
+	// When the approval only filled an existing row and this concert
+	// candidate was the last reference to a discovery-minted series, that
+	// series is now orphaned. A series that gained an event is not, so the
+	// sweep is a no-op there.
 	if len(insertedIDs) == 0 {
-		if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
-			uc.logger.Error(ctx, "failed to clean up orphaned series after fill approval", err,
-				slog.String("concert_candidate_id", concertCandidateID),
-			)
-			// Non-fatal: an orphaned series row is harmless and swept on the next run.
-		}
+		uc.sweepSeries(ctx, sc.SeriesID, sc.ID)
 	}
-
 	uc.logger.Info(ctx, "concert candidate approved and published", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("series_id", sc.SeriesID),
-		slog.String("concert_candidate_id", concertCandidateID),
+		slog.String("concert_candidate_id", sc.ID),
 		slog.Int("inserted", len(insertedIDs)),
 	)...)
-
 	return &ApproveResult{}, nil
+}
+
+// sweepSeries removes the Series if it is left with no event and no
+// concert candidate. A failure is logged, not returned: an orphaned series
+// row is harmless and swept on the next run.
+func (uc *concertCandidateUseCase) sweepSeries(ctx context.Context, seriesID, concertCandidateID string) {
+	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{seriesID}); err != nil {
+		uc.logger.Error(ctx, "failed to clean up orphaned series after approval", err,
+			slog.String("concert_candidate_id", concertCandidateID),
+			slog.String("series_id", seriesID),
+		)
+	}
 }
 
 // decideVenue decides, before any change, the first-level Area and time zone
@@ -398,64 +413,24 @@ func (uc *concertCandidateUseCase) placeCoordinates(placeID string) func(context
 	}
 }
 
-// detectDuplicateEvent returns the already-published event a concert candidate
-// duplicates at the resolved (venue, date, start time), or nil when the concert
-// is genuinely new or merely fills an existing unknown-start row. It mirrors the
-// two zero-insert paths the creation path would otherwise hit:
-//   - an exact-start match (equal StartKey, including both-unknown), and
-//   - an unknown-start concert candidate when a known-start row already covers the slot.
-//
-// The fill case (known-start candidate onto an unknown-start existing row) is NOT a
-// duplicate: it proceeds to the creation path, which fills the existing row.
-func detectDuplicateEvent(ctx context.Context, sc *entity.ConcertCandidate, venueID string, concertRepo entity.ConcertRepository) (*entity.Event, error) {
-	events, err := concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
-	if err != nil {
-		return nil, fmt.Errorf("find existing events: %w", err)
-	}
-	return duplicateEventAmong(events, sc), nil
-}
-
-// duplicateEventAmong is the pure duplicate-detection core of detectDuplicateEvent,
-// operating on already-fetched events so callers that already hold the (venue,
-// date) slice (e.g. Approve) do not re-query.
-func duplicateEventAmong(events []*entity.Event, sc *entity.ConcertCandidate) *entity.Event {
-	ev := candidateToEvent(sc)
-	match, isFill := resolveExistingEvent(events, ev, map[string]bool{})
-	if match != nil && !isFill {
-		// Exact-start duplicate (or both-unknown at the same venue/date).
-		return match
-	}
-	if ev.StartTime == nil {
-		// Unknown-start concert candidate: a duplicate iff any known-start row exists here.
-		for _, e := range events {
-			if e.StartTime != nil {
-				return e
-			}
-		}
-	}
-	return nil
-}
-
-// reconcileDuplicate applies the reviewer's resolution to a detected duplicate.
-func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Event, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+// reconcileDuplicate applies the reviewer's resolution to a candidate that
+// collides with existing; venueEvents are the events at the candidate's
+// Venue and date.
+func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Concert, venueEvents []*entity.Concert, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
 	switch resolution {
 	case ApproveResolutionKeepExisting:
 		reason := fmt.Sprintf("duplicate of existing event %s", existing.ID)
 		if err := uc.appendRejectionLog(ctx, sc, reason, reviewerID); err != nil {
 			return nil, fmt.Errorf("keep-existing: append rejection log: %w", err)
 		}
-		if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
-			return nil, fmt.Errorf("keep-existing: delete concert candidate: %w", err)
+		if err := uc.concertRepo.AddOtherListedVenueName(ctx, existing.ID, sc.ListedVenueName); err != nil {
+			return nil, fmt.Errorf("keep-existing: add other listed venue name: %w", err)
 		}
-		uc.logger.Info(ctx, "duplicate reconciled: kept existing event, concert candidate logged and cleared", analyticslog.Attrs(analyticslog.TopicCatalogReview,
-			slog.String("concert_candidate_id", sc.ID),
-			slog.String("existing_event_id", existing.ID),
-		)...)
-		return &ApproveResult{}, nil
 
 	case ApproveResolutionAdoptCandidate:
-		// Overwrite the display venue name and fill start/open only where NULL
-		// (COALESCE), leaving venue identity and the shared series title untouched.
+		// Replace the display venue name (keeping the replaced one) and fill
+		// start/open only where unknown, leaving venue identity and the shared
+		// series title untouched.
 		if err := uc.concertRepo.UpdateEventListedVenueName(ctx, existing.ID, sc.ListedVenueName); err != nil {
 			return nil, fmt.Errorf("adopt-candidate: update listed venue name: %w", err)
 		}
@@ -466,18 +441,10 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		); err != nil {
 			return nil, fmt.Errorf("adopt-candidate: fill start/open times: %w", err)
 		}
-		if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
-			return nil, fmt.Errorf("adopt-candidate: delete concert candidate: %w", err)
-		}
-		uc.logger.Info(ctx, "duplicate reconciled: adopted the candidate's display fields onto existing event", analyticslog.Attrs(analyticslog.TopicCatalogReview,
-			slog.String("concert_candidate_id", sc.ID),
-			slog.String("existing_event_id", existing.ID),
-		)...)
-		return &ApproveResult{}, nil
 
 	default:
 		// Unspecified: surface the conflict for reviewer choice; do not mutate.
-		conflict, err := uc.buildDuplicateConflict(ctx, sc, existing)
+		conflict, err := uc.buildDuplicateConflict(ctx, sc, &existing.Event)
 		if err != nil {
 			return nil, err
 		}
@@ -487,6 +454,47 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		)
 		return &ApproveResult{Conflict: conflict}, nil
 	}
+
+	if err := uc.shareBill(ctx, sc, existing, venueEvents); err != nil {
+		return nil, err
+	}
+	if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
+		return nil, fmt.Errorf("reconcile: delete concert candidate: %w", err)
+	}
+	uc.logger.Info(ctx, "duplicate reconciled", analyticslog.Attrs(analyticslog.TopicCatalogReview,
+		slog.String("concert_candidate_id", sc.ID),
+		slog.String("existing_event_id", existing.ID),
+		slog.Int("resolution", int(resolution)),
+	)...)
+	return &ApproveResult{}, nil
+}
+
+// shareBill makes the candidate's Artist a performer of existing when the
+// Artist does not perform there and it has no publish state ("Another
+// Artist's Event becomes a shared bill"): it merges the Artist's
+// unknown-start event at the Venue and date into it when there is one,
+// removing that event's Series if it is left empty, and otherwise stores the
+// Artist's concert in its slot, which tells the Artist's followers.
+func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Concert, venueEvents []*entity.Concert) error {
+	if existing.HasPerformer(sc.ArtistID) || existing.PublishState != nil {
+		return nil
+	}
+	own := firstOf(venueEvents, func(e *entity.Concert) bool {
+		return e.ID != existing.ID && e.HasPerformer(sc.ArtistID) && e.StartTime == nil && e.PublishState == nil
+	})
+	if own != nil {
+		if err := uc.concertRepo.Merge(ctx, own.ID, existing.ID); err != nil {
+			return fmt.Errorf("shared bill: merge event %s into %s: %w", own.ID, existing.ID, err)
+		}
+		uc.sweepSeries(ctx, own.SeriesID, sc.ID)
+		return nil
+	}
+	c := candidateToEvent(sc).ToConcertUnderSeries(sc.ArtistID, existing.SeriesID, entity.NewID(), existing.VenueID)
+	c.StartTime = existing.StartTime
+	if _, err := uc.concertRepo.Create(ctx, c); err != nil {
+		return fmt.Errorf("shared bill: add the artist to event %s: %w", existing.ID, err)
+	}
+	return nil
 }
 
 // buildDuplicateConflict assembles the conflict DTO: the existing event's display
@@ -684,11 +692,10 @@ func findOrCreateVenue(ctx context.Context, spec venueSpec, venueRepo entity.Ven
 	return venueID, nil
 }
 
-// candidateToEvent converts a ConcertCandidate into a DiscoveredEvent so the shared
-// resolveExistingEvent / insertEventUnderSeries helpers can process an approved
-// concert candidate without duplicating the fill-detection and insert logic. The
-// series identity is NOT reconstructed here — it is carried separately via
-// ConcertCandidate.SeriesID.
+// candidateToEvent converts a ConcertCandidate into a DiscoveredEvent so an
+// approved concert candidate is turned into a Concert the way discovery turns
+// a found event into one. The series identity is NOT reconstructed here — it
+// is carried separately via ConcertCandidate.SeriesID.
 func candidateToEvent(sc *entity.ConcertCandidate) *entity.DiscoveredEvent {
 	ev := &entity.DiscoveredEvent{
 		ListedVenueName: sc.ListedVenueName,

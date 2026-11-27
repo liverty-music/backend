@@ -140,10 +140,17 @@ func (d *approvalTestDeps) createsVenue(placeID *string, listedName, adminArea s
 		}).Once()
 }
 
-// slotFree expects the lookup at the resolved venue and date to find no
-// stored Event.
+// slotFree expects the lookup at the resolved venue and date, and the
+// lookup of the Artist's events on the date, to find no stored Event.
 func (d *approvalTestDeps) slotFree() {
 	d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+	d.findsArtistEvents()
+}
+
+// findsArtistEvents expects the lookup of the Artist's events on the
+// candidate's date to find events.
+func (d *approvalTestDeps) findsArtistEvents(events ...*entity.Concert) {
+	d.concertRepo.EXPECT().FindEventsByArtistAndDate(mock.Anything, d.artist.ID, mock.Anything).Return(events, nil).Once()
 }
 
 // inserts expects one concert to be created and records it.
@@ -422,10 +429,10 @@ func TestConcertCandidateUseCase_Approve(t *testing.T) {
 	})
 }
 
-// seedConflict wires a pending concert candidate that duplicates an
-// already-published event at the same (venue, date, start time): its listed
-// name resolves to the stored venue-1, where a known-start event of series-1
-// is stored.
+// seedConflict wires a pending concert candidate that duplicates an event
+// of its own Artist at the same (venue, date, start time) under another
+// name: its listed name resolves to the stored venue-1, where a known-start
+// event of series-1 is stored.
 func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
 	d.venueRepo.EXPECT().GetByListedName(mock.Anything, "Venue ABC", "JP-13").Return(&entity.Venue{
 		ID:              "venue-1",
@@ -435,14 +442,15 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate
 	day := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	start := time.Date(2026, 8, 1, 19, 0, 0, 0, time.UTC)
 	d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-1"}, []time.Time{day}).
-		Return([]*entity.Event{{
+		Return(foundAs([]*entity.Event{{
 			ID:              "event-1",
 			SeriesID:        "series-1",
 			VenueID:         "venue-1",
 			LocalDate:       day,
 			StartTime:       tod(start),
 			ListedVenueName: new("Old Listed Name"),
-		}}, nil).Once()
+		}}, artistID), nil).Once()
+	d.findsArtistEvents()
 	sc := &entity.ConcertCandidate{
 		ID:              "candidate-dup",
 		ArtistID:        artistID,
@@ -487,9 +495,10 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
 		d.logsRejection()
+		d.concertRepo.EXPECT().AddOtherListedVenueName(mock.Anything, "event-1", "Venue ABC").Return(nil).Once()
 		d.deletes(sc.ID)
 
-		// The event is untouched: no Create or UpdateEventListedVenueName is expected.
+		// The event keeps its name and times: no Create or UpdateEventListedVenueName is expected.
 		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, nil, nil, "reviewer-1")
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
@@ -522,6 +531,7 @@ func TestConcertCandidateUseCase_Approve_Reconciliation(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		sc := seedConflict(d, artist.ID)
 		d.logsRejection()
+		d.concertRepo.EXPECT().AddOtherListedVenueName(mock.Anything, "event-1", "Venue ABC").Return(nil).Once()
 		d.deletes(sc.ID)
 		// The second read finds the concert candidate already cleared.
 		d.gone(sc.ID)
