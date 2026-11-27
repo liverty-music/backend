@@ -24,8 +24,10 @@ const (
 	ConcertDiscoveryQueueConcurrency = 1
 )
 
-// discoveryQueueDeadline bounds a run on [ConcertDiscoveryQueue], counted from
-// its start and so including its wait in the queue. The queue runs one at a
+// discoveryQueueDeadline bounds a run on [ConcertDiscoveryQueue]. The
+// workflow runtime turns the deadline into a DBOS timeout, which DBOS counts
+// from when the run leaves the queue, so it bounds how long the run runs,
+// retries included, not how long it waits. The queue runs one at a
 // time, so a run that keeps retrying an Unavailable step would hold every
 // other Artist's batch behind it; at the deadline it ends, frees the queue and
 // is reported to an admin. A day's batches take minutes, so 6 hours is far
