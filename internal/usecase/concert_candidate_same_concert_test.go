@@ -260,6 +260,21 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		assert.Equal(t, []string{sim.ID}, d.createdConcerts[0].ArtistIDs())
 	})
 
+	t.Run("Merge cannot run", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Merge cannot run"
+		d := newApprovalTestDeps(t, sim)
+		simUnknown := concertAt(entity.Event{ID: "event-s", SeriesID: "series-s", VenueID: "venue-1", LocalDate: aug1, ListedVenueName: new("ゼップ大阪ベイサイド")}, sim.ID)
+		sc := approvalAt(d, "ゼップ大阪ベイサイド", aug1, at18, []*entity.Concert{simUnknown, horumonEvent(nil)}, []*entity.Concert{simUnknown})
+		d.logsRejection()
+		d.concertRepo.EXPECT().AddOtherListedVenueName(mock.Anything, "event-h", "ゼップ大阪ベイサイド").Return(nil).Once()
+		d.concertRepo.EXPECT().Merge(mock.Anything, "event-s", "event-h").Return(apperr.New(codes.Unavailable, "series locked")).Once()
+
+		// No Create or Delete expectation: the ConcertCandidate is kept.
+		_, err := approveWith(d, sc, usecase.ApproveResolutionKeepExisting)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
 	t.Run("adopting onto an Organizer's event changes nothing", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert-candidate/approve "Organizer's event not adopted onto"
