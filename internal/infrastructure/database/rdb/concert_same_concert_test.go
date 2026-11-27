@@ -661,7 +661,7 @@ func TestConcertRepository_CreateAtFirstPartySlot(t *testing.T) {
 			Artists: []*entity.Artist{{ID: joining}},
 		})
 
-		require.NoError(t, err)
+		require.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		assert.Empty(t, got)
 		assert.Equal(t, []string{organizers}, f.read(id).performers)
 		assert.Equal(t, 0, f.count(`SELECT count(*) FROM events WHERE id = $1 AND local_open_time IS NOT NULL`, id), "the open time stays unknown")

@@ -67,6 +67,7 @@ const (
 		WHERE s.id = ANY($1)
 			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
 			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = s.id)
 	`
 
 	// insertFirstPartySeriesQuery stores a new first-party series. It has no

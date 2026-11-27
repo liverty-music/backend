@@ -441,6 +441,7 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 
 	switch d.outcome {
 	case outcomeNothing:
+		b.claimMatched(d.event, ev.StartTime)
 		return nil
 	case outcomeFill:
 		return uc.fill(ctx, b, candidate, d.event, ev)
@@ -473,6 +474,15 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 	default:
 		b.plan(ev.ToConcertUnderSeries(b.artistID, b.seriesID, entity.NewID(), p.venueID))
 		return nil
+	}
+}
+
+// claimMatched notes that an Organizer's unknown-start event stands for the
+// found start time, as a filled event does: a second found start time of the
+// batch is a new event.
+func (b *seriesBatch) claimMatched(e *entity.Concert, found *entity.TimeOfDay) {
+	if e.StartTime == nil && found != nil {
+		b.claimed[e.ID] = true
 	}
 }
 

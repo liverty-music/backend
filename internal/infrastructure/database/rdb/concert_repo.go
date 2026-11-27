@@ -26,8 +26,6 @@ const (
 	// discovered event never collides with, or fills the times of, a draft. On natural-key conflict the existing row is preserved and only NULL
 	// local_open_time / local_start_time are filled in via COALESCE. The input id is discarded in that case;
 	// callers detect this by re-querying with WHERE EXISTS on the input UUID.
-	// An event with a publish state (an Organizer's) is left as it is; the
-	// conflict still locks its row.
 	upsertEventsQuery = `
 		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, local_start_time, local_open_time)
 		SELECT u.id, u.series_id, u.venue_id, u.listed_venue_name, u.local_event_date, u.local_start_time::time, u.local_open_time::time
@@ -36,7 +34,21 @@ const (
 		ON CONFLICT (venue_id, local_event_date, local_start_time) WHERE ` + notDraftPredicate + ` DO UPDATE SET
 			local_start_time = COALESCE(events.local_start_time, EXCLUDED.local_start_time),
 			local_open_time  = COALESCE(events.local_open_time, EXCLUDED.local_open_time)
-		WHERE events.publish_state IS NULL
+	`
+
+	// firstPartySlotTakenQuery reports whether an event with a publish state
+	// holds one of the (venue_id, local_event_date, start_time) slots.
+	firstPartySlotTakenQuery = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM unnest($1::uuid[], $2::date[], $3::text[]) AS s(venue_id, local_event_date, start_time)
+			JOIN events e
+				ON e.venue_id = s.venue_id
+				AND e.local_event_date = s.local_event_date
+				AND e.local_start_time IS NOT DISTINCT FROM s.start_time::time
+				AND ` + catalogEventCondition + `
+			WHERE e.publish_state IS NOT NULL
+		)
 	`
 
 	// insertConcertsQuery inserts placeholder concerts rows only for events that
@@ -60,10 +72,6 @@ const (
 	// to an already-known event still attaches the new performer to that
 	// event's actual id. Idempotent via ON CONFLICT DO NOTHING.
 	//
-	// An event with a publish state gets no performer here: this statement
-	// runs after upsertEventsQuery in one transaction, which holds the lock of
-	// a conflicting row, so an Organizer cannot publish it in between.
-	//
 	// RETURNING event_id surfaces ONLY the genuinely new performer links
 	// (re-deliveries hit ON CONFLICT and are not returned). Callers use this
 	// to drive notification: an artist's followers must be notified whenever
@@ -82,7 +90,6 @@ const (
 			AND e.local_event_date = perf.local_event_date
 			AND e.local_start_time IS NOT DISTINCT FROM perf.start_time::time
 			AND ` + catalogEventCondition + `
-			AND e.publish_state IS NULL
 		ON CONFLICT DO NOTHING
 		RETURNING event_id, artist_id
 	`
@@ -1027,6 +1034,16 @@ func (b *concertBatch) insertEventsAndConcerts(ctx context.Context, tx pgx.Tx) (
 		b.eventIDs, b.seriesIDs, b.venueIDs, b.listedVenueNames, b.eventDates, timeOfDayTexts(b.startTimes), timeOfDayTexts(b.openTimes),
 	); err != nil {
 		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
+	}
+
+	// The upsert locked every row it conflicted with, so an Organizer cannot
+	// publish one between this check and the commit.
+	var firstParty bool
+	if err := tx.QueryRow(ctx, firstPartySlotTakenQuery, b.venueIDs, b.eventDates, timeOfDayTexts(b.startTimes)).Scan(&firstParty); err != nil {
+		return nil, toAppErr(err, "failed to check the slots", slog.Int("count", n))
+	}
+	if firstParty {
+		return nil, apperr.New(codes.FailedPrecondition, "a slot is held by a first-party event", slog.Int("count", n))
 	}
 
 	rows, err := tx.Query(ctx, insertConcertsQuery, b.eventIDs)

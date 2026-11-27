@@ -657,8 +657,8 @@ type ConcertRepository interface {
 	// unknown, never overwrites a known time, and adds the Concert's
 	// performers to it. Concerts in one call that share a slot are stored
 	// once. A DRAFT event holds no slot and is never merged into. An event
-	// with a publish state (an Organizer's event) is left unchanged: no time
-	// is filled, no performer added, and its id is not returned.
+	// with a publish state (an Organizer's event) is never merged into
+	// either: Create fails instead.
 	//
 	// Nil elements in the input slice are skipped.
 	//
@@ -673,7 +673,8 @@ type ConcertRepository interface {
 	//  - InvalidArgument: A Concert has no id, no Venue, no Series or no
 	//    performer. Nothing is stored.
 	//  - FailedPrecondition: A referenced Series, Venue or Artist does not
-	//    exist. Nothing is stored.
+	//    exist, or an event with a publish state holds a slot. Nothing is
+	//    stored.
 	//  - Unavailable: An announcement could not be recorded; nothing is
 	//    stored.
 	//

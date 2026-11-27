@@ -500,8 +500,8 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 		case errors.Is(err, apperr.ErrFailedPrecondition):
 			// The Artist's event is the last of a Series with ticket sales:
 			// it stays, and the Artist joins the event below instead. Merge
-			// also refuses an event an Organizer published meanwhile, which
-			// Create leaves unchanged.
+			// also refuses an event an Organizer published meanwhile, for which
+			// Create fails too, keeping the candidate.
 		default:
 			return fmt.Errorf("shared bill: merge event %s into %s: %w", own.ID, existing.ID, err)
 		}

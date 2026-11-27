@@ -584,6 +584,27 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		require.Len(t, h.staged, 1)
 	})
 
+	t.Run("Two start times beside an Organizer's unknown-start event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Two start times beside an Organizer's unknown-start event"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		own.ListedVenueName, own.PublishState = &zepp, published()
+		h.findsArtistEvents(a, own)
+		h.createsSeries(1)
+		h.venueHolds("venue-v", dec31, own)
+		h.venueHolds("venue-v", dec31, own)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(),
+			discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, todAt(13, 0)), found(zepp, dec31, at18))))
+
+		require.Len(t, h.createdConcerts, 1, "only the second start time is a new event")
+		assert.Equal(t, at18, h.createdConcerts[0].StartTime)
+		assert.Empty(t, h.staged)
+	})
+
 	t.Run("Slot taken meanwhile", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Slot taken meanwhile"
