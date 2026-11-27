@@ -186,6 +186,7 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		// @spec components/usecase/concert-candidate/approve "Shared bill approved"
 		d := newApprovalTestDeps(t, sim)
 		sc := approvalAt(d, "ゼップ大阪ベイサイド", aug1, at18, []*entity.Concert{horumonEvent(nil)}, nil)
+		sc.OpenTime = todAt(17, 0)
 		d.logsRejection()
 		d.concertRepo.EXPECT().AddOtherListedVenueName(mock.Anything, "event-h", "ゼップ大阪ベイサイド").Return(nil).Once()
 		d.inserts()
@@ -202,6 +203,7 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		assert.Equal(t, at18, c.StartTime)
 		assert.Equal(t, "series-h", c.SeriesID)
 		assert.Equal(t, []string{sim.ID}, c.ArtistIDs())
+		assert.Nil(t, c.OpenTime, "keep existing leaves the Event's unknown open time unknown")
 	})
 
 	t.Run("Organizer's event kept as it is", func(t *testing.T) {

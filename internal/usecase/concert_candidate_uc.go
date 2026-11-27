@@ -489,8 +489,10 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 		uc.sweepSeries(ctx, own.SeriesID, sc.ID)
 		return nil
 	}
+	// The Concert takes the Event's own times, so storing it in the slot
+	// changes neither of them.
 	c := candidateToEvent(sc).ToConcertUnderSeries(sc.ArtistID, existing.SeriesID, entity.NewID(), existing.VenueID)
-	c.StartTime = existing.StartTime
+	c.StartTime, c.OpenTime = existing.StartTime, existing.OpenTime
 	if _, err := uc.concertRepo.Create(ctx, c); err != nil {
 		return fmt.Errorf("shared bill: add the artist to event %s: %w", existing.ID, err)
 	}

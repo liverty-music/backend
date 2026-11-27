@@ -75,12 +75,14 @@ type sameConcertDecision struct {
 //  3. with no found start, a timed event of the Artist at the Venue → Stage;
 //  4. an event of the Artist at the Venue with the same start time (or both
 //     unknown) → Stage;
-//  5. with a found start, an unknown-start event of the Artist at the Venue
+//  5. with a found start, an event of the Artist on the date with that start
+//     time at another Venue → Stage, since one Artist cannot play two
+//     venues at once (checked before a fill, so an approval reports it as a
+//     collision and a discovery never fills such a time);
+//  6. with a found start, an unknown-start event of the Artist at the Venue
 //     not yet claimed → Fill, unless another event holds the slot: MergeInto
 //     it when it is listed under the found name and neither has a publish
 //     state, Stage otherwise;
-//  6. with a found start, an event of the Artist on the date with that start
-//     time at another Venue → Stage;
 //  7. another Artist's event at the Venue with no publish state, the same
 //     known start time and listed under the found name → AddPerformer;
 //  8. another Artist's event at the Venue with the same start time (or both
@@ -98,32 +100,41 @@ func decideFoundEvent(found foundEvent, artistEvents, venueEvents []*entity.Conc
 			others = append(others, e)
 		}
 	}
-	if d, ok := decideAgainstOwn(found, own, others, claimed); ok {
+	if d, ok := decideAgainstOwn(found, own); ok {
 		return d
 	}
 	if found.startTime != nil {
-		for _, e := range artistEvents {
-			if e.VenueID != found.venueID && e.LocalDate.Equal(found.localDate) && e.HasStartTime(found.startTime) {
-				return sameConcertDecision{outcome: outcomeStage, event: e}
-			}
+		if e := firstOf(artistEvents, func(e *entity.Concert) bool {
+			return e.VenueID != found.venueID && e.LocalDate.Equal(found.localDate) && e.HasStartTime(found.startTime)
+		}); e != nil {
+			return sameConcertDecision{outcome: outcomeStage, event: e}
 		}
+	}
+	if d, ok := decideFill(found, own, others, claimed); ok {
+		return d
 	}
 	return decideAgainstOthers(found, others)
 }
 
-// decideAgainstOwn applies rules 1 to 5 of decideFoundEvent to the Artist's
+// decideAgainstOwn applies rules 1 to 4 of decideFoundEvent to the Artist's
 // events at the Venue; ok is false when none applies.
-func decideAgainstOwn(found foundEvent, own, others []*entity.Concert, claimed map[string]bool) (sameConcertDecision, bool) {
-	sameStart := func(e *entity.Concert) bool { return e.HasStartTime(found.startTime) }
-	timed := func(e *entity.Concert) bool { return found.startTime == nil && e.StartTime != nil }
-	listed := func(e *entity.Concert) bool { return e.ListedUnder(found.listedVenueName) }
-
-	if e := firstOf(own, func(e *entity.Concert) bool { return (sameStart(e) || timed(e)) && listed(e) }); e != nil {
+func decideAgainstOwn(found foundEvent, own []*entity.Concert) (sameConcertDecision, bool) {
+	sameOrTimed := func(e *entity.Concert) bool {
+		return e.HasStartTime(found.startTime) || (found.startTime == nil && e.StartTime != nil)
+	}
+	if e := firstOf(own, func(e *entity.Concert) bool { return sameOrTimed(e) && e.ListedUnder(found.listedVenueName) }); e != nil {
 		return sameConcertDecision{outcome: outcomeNothing, event: e}, true
 	}
-	if e := firstOf(own, func(e *entity.Concert) bool { return sameStart(e) || timed(e) }); e != nil {
+	if e := firstOf(own, sameOrTimed); e != nil {
 		return sameConcertDecision{outcome: outcomeStage, event: e}, true
 	}
+	return sameConcertDecision{}, false
+}
+
+// decideFill applies rule 6 of decideFoundEvent: a found start time for the
+// Artist's unknown-start event at the Venue; ok is false when it does not
+// apply.
+func decideFill(found foundEvent, own, others []*entity.Concert, claimed map[string]bool) (sameConcertDecision, bool) {
 	if found.startTime == nil {
 		return sameConcertDecision{}, false
 	}
@@ -131,11 +142,11 @@ func decideAgainstOwn(found foundEvent, own, others []*entity.Concert, claimed m
 	if unknown == nil {
 		return sameConcertDecision{}, false
 	}
-	holder := firstOf(others, sameStart)
+	holder := firstOf(others, func(e *entity.Concert) bool { return e.HasStartTime(found.startTime) })
 	switch {
 	case holder == nil:
 		return sameConcertDecision{outcome: outcomeFill, event: unknown}, true
-	case listed(holder) && holder.PublishState == nil && unknown.PublishState == nil:
+	case holder.ListedUnder(found.listedVenueName) && holder.PublishState == nil && unknown.PublishState == nil:
 		return sameConcertDecision{outcome: outcomeMergeInto, event: holder, source: unknown}, true
 	default:
 		return sameConcertDecision{outcome: outcomeStage, event: holder}, true

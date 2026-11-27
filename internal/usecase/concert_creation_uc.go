@@ -360,15 +360,16 @@ func (uc *concertCreationUseCase) chooseSeries(
 	return row.ID, true, nil
 }
 
-// seriesOfSameShow returns the smallest Series id among the events the
-// Artist performs at alone that are on the date of one of the placed events
+// seriesOfSameShow returns the smallest Series id among the discovered events
+// the Artist performs at alone that are on the date of one of the placed events
 // and listed under its name or at its Venue; "" when there is none. An event
 // the Artist shares with another Artist may be in that Artist's Series, so it
 // never pulls the series in.
 func seriesOfSameShow(placed []placedEvent, artistEvents []*entity.Concert) string {
 	seriesID := ""
 	for _, e := range artistEvents {
-		if len(e.Artists) != 1 || e.SeriesID == "" {
+		// An Organizer's Series holds only the Organizer's events.
+		if len(e.Artists) != 1 || e.SeriesID == "" || e.PublishState != nil {
 			continue
 		}
 		matches := slices.ContainsFunc(placed, func(p placedEvent) bool {
@@ -401,9 +402,11 @@ func (uc *concertCreationUseCase) upcomingTourOfSameTitle(ctx context.Context, a
 
 // seriesBatch is what deciding the events of one series accumulates.
 type seriesBatch struct {
-	artistID     string
-	seriesID     string
-	series       *entity.DiscoveredSeries
+	artistID string
+	seriesID string
+	series   *entity.DiscoveredSeries
+	// artistEvents are the Artist's events on the series' dates, kept
+	// current with what the series filled, merged and plans to publish.
 	artistEvents []*entity.Concert
 	// claimed are the unknown-start events this series already filled, so
 	// one is filled by at most one of its events.
@@ -446,6 +449,7 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 			return fmt.Errorf("merge event %s into %s: %w", d.source.ID, d.event.ID, err)
 		}
 		b.mergedSeries = append(b.mergedSeries, d.source.SeriesID)
+		b.artistEvents = append(b.artistEvents, d.event)
 		uc.logger.Info(ctx, "merged the artist's event into another artist's event at the same slot",
 			slog.String("artist_id", b.artistID),
 			slog.String("merged_event_id", d.source.ID),
@@ -457,12 +461,20 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 	case outcomeAddPerformer:
 		c := ev.ToConcertUnderSeries(b.artistID, d.event.SeriesID, entity.NewID(), p.venueID)
 		c.StartTime = d.event.StartTime
-		b.toPublish = append(b.toPublish, c)
+		b.plan(c)
 		return nil
 	default:
-		b.toPublish = append(b.toPublish, ev.ToConcertUnderSeries(b.artistID, b.seriesID, entity.NewID(), p.venueID))
+		b.plan(ev.ToConcertUnderSeries(b.artistID, b.seriesID, entity.NewID(), p.venueID))
 		return nil
 	}
+}
+
+// plan collects a Concert to publish. It also counts among the Artist's
+// events, so a later event of the series at the same time at another Venue
+// is staged.
+func (b *seriesBatch) plan(c *entity.Concert) {
+	b.toPublish = append(b.toPublish, c)
+	b.artistEvents = append(b.artistEvents, c)
 }
 
 // collidingPlanned returns the Concert already decided for publication in
@@ -487,6 +499,11 @@ func (uc *concertCreationUseCase) fill(ctx context.Context, b *seriesBatch, cand
 	}
 	if err != nil {
 		return fmt.Errorf("fill event start times: %w", err)
+	}
+	for _, e := range b.artistEvents {
+		if e.ID == target.ID {
+			e.StartTime = ev.StartTime
+		}
 	}
 	b.tally.filled++
 	uc.logger.Info(ctx, "filled existing event start time on re-discovery (no new concert)",

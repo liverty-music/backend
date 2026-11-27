@@ -159,6 +159,24 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		assert.NotEqual(t, "series-b", h.createdConcerts[0].SeriesID)
 	})
 
+	t.Run("an Organizer's event at the same venue does not pull the series in", func(t *testing.T) {
+		t.Parallel()
+		h := newCreationHarness(t)
+		organizers := concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-v", LocalDate: dec19, StartTime: todAt(13, 0),
+			ListedVenueName: new("Hall V"), PublishState: published()}, a)
+		h.findsArtistEvents(a, organizers)
+		h.createsSeries(1)
+		h.resolvesTo("ホールV", "venue-v")
+		h.venueHolds("venue-v", dec19, organizers)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Evening", entity.SeriesTypeSingle, found("ホールV", dec19, todAt(19, 0)))))
+
+		require.Len(t, h.createdConcerts, 1)
+		assert.NotEqual(t, "series-o", h.createdConcerts[0].SeriesID, "a discovered event never goes under an Organizer's Series")
+	})
+
 	t.Run("Standalone show is not joined by title", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Standalone show is not joined by title"
@@ -511,6 +529,54 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))),
 			"the batch does not fail")
 		require.Len(t, h.staged, 1)
+	})
+}
+
+func TestCreateFromDiscovered_SameTimeAtTwoVenuesInOneSeries(t *testing.T) {
+	t.Parallel()
+	const a = "artist-a"
+	dec19 := time.Date(2026, 12, 19, 0, 0, 0, 0, time.UTC)
+	at18 := todAt(18, 0)
+
+	t.Run("a time filled earlier in the series stages the same time at another venue", func(t *testing.T) {
+		t.Parallel()
+		h := newCreationHarness(t)
+		own := concertAt(entity.Event{ID: "event-a", SeriesID: "series-a", VenueID: "venue-v", LocalDate: dec19, ListedVenueName: new("Hall V")}, a)
+		h.findsArtistEvents(a, own)
+		h.resolvesTo("Hall W", "venue-w")
+		h.venueHolds("venue-v", dec19, own)
+		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-a"}, mock.Anything, mock.Anything).Return(nil).Once()
+		h.slotsFree(1)
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
+			found("Hall V", dec19, at18), found("Hall W", dec19, at18))))
+
+		require.Len(t, h.staged, 1)
+		assert.Equal(t, "Hall W", h.staged[0].ListedVenueName)
+		assert.Empty(t, h.createdConcerts)
+	})
+
+	t.Run("a time planned earlier in the series stages the same time at another venue", func(t *testing.T) {
+		t.Parallel()
+		h := newCreationHarness(t)
+		h.findsArtistEvents(a)
+		h.createsSeries(1)
+		h.resolvesTo("Hall V", "venue-v")
+		h.resolvesTo("Hall W", "venue-w")
+		h.slotsFree(2)
+		h.stages(1)
+		h.publishes(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
+			found("Hall V", dec19, at18), found("Hall W", dec19, at18))))
+
+		require.Len(t, h.createdConcerts, 1)
+		assert.Equal(t, "venue-v", h.createdConcerts[0].VenueID)
+		require.Len(t, h.staged, 1)
+		assert.Equal(t, "Hall W", h.staged[0].ListedVenueName)
 	})
 }
 

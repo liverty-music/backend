@@ -145,6 +145,13 @@ func TestDecideFoundEvent(t *testing.T) {
 			wantOutcome:  "stage", wantEvent: "e9",
 		},
 		{
+			name:         "own unknown-start event, but the same Artist at another venue at the found time: stage, not fill",
+			found:        found(zeppHa, at18),
+			artistEvents: []*entity.Concert{stored("e9", other, "18:00", "Arena", nil, "", a)},
+			venueEvents:  []*entity.Concert{stored("e1", venue, "", zeppHa, nil, "", a)},
+			wantOutcome:  "stage", wantEvent: "e9",
+		},
+		{
 			name:         "same Artist at another venue at the same time on another date: a new event",
 			found:        found("Hall", at18),
 			artistEvents: []*entity.Concert{{Event: entity.Event{ID: "e9", VenueID: other, LocalDate: sameConcertDate.AddDate(0, 0, 1), StartTime: at18}}},
