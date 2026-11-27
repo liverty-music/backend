@@ -648,8 +648,8 @@ func TestConcertRepository_CreateAtFirstPartySlot(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 
-	t.Run("First-party event left unchanged", func(t *testing.T) {
-		// @spec components/entity/concert/create "First-party event left unchanged"
+	t.Run("Slot held by a first-party event", func(t *testing.T) {
+		// @spec components/entity/concert/create "Slot held by a first-party event"
 		f := newVisibilityFixture(t, db)
 		organizers, joining, v := f.artist(), f.artist(), f.venue("JP-13", nil, nil)
 		id := f.store(slotEvent{series: f.firstPartySeries(entity.SeriesVisibilityPublic), venue: v, date: slotDate, start: "18:00", state: "PUBLISHED", artists: []string{organizers}})
@@ -661,7 +661,7 @@ func TestConcertRepository_CreateAtFirstPartySlot(t *testing.T) {
 			Artists: []*entity.Artist{{ID: joining}},
 		})
 
-		require.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Empty(t, got)
 		assert.Equal(t, []string{organizers}, f.read(id).performers)
 		assert.Equal(t, 0, f.count(`SELECT count(*) FROM events WHERE id = $1 AND local_open_time IS NOT NULL`, id), "the open time stays unknown")

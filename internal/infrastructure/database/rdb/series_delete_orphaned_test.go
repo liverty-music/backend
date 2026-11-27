@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func TestSeriesRepository_DeleteOrphaned_Requirements(t *testing.T) {
 	remove := func(f *visibilityFixture, ids ...string) int64 {
 		f.t.Helper()
 		n, err := rdb.NewSeriesRepository(db, testOutbox).DeleteOrphaned(f.ctx, ids)
-		require.NoError(f.t, err)
+		assert.NoError(f.t, err)
 		return n
 	}
 	kept := func(f *visibilityFixture, id string) bool {
@@ -54,6 +55,27 @@ func TestSeriesRepository_DeleteOrphaned_Requirements(t *testing.T) {
 			VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), s)
 
 		assert.Equal(t, int64(0), remove(f, s))
+		assert.True(t, kept(f, s))
+	})
+
+	t.Run("a ticket sale committed while the sweep waits keeps the series", func(t *testing.T) {
+		f := newVisibilityFixture(t, db)
+		s := f.discoveredSeries()
+		sale, err := db.Pool.Begin(f.ctx)
+		require.NoError(t, err)
+		defer func() { _ = sale.Rollback(f.ctx) }()
+		_, err = sale.Exec(f.ctx, `INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time, find_time)
+			VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), s)
+		require.NoError(t, err)
+
+		removed := make(chan int64, 1)
+		go func() { removed <- remove(f, s) }()
+		require.Eventually(t, func() bool {
+			return f.count(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE 'SELECT id FROM series%'`) > 0
+		}, 5*time.Second, 10*time.Millisecond, "the sweep waits for the sale's key-share lock")
+		require.NoError(t, sale.Commit(f.ctx))
+
+		assert.Equal(t, int64(0), <-removed)
 		assert.True(t, kept(f, s))
 	})
 

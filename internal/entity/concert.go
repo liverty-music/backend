@@ -673,10 +673,11 @@ type ConcertRepository interface {
 	//  - InvalidArgument: A Concert has no id, no Venue, no Series or no
 	//    performer. Nothing is stored.
 	//  - FailedPrecondition: A referenced Series, Venue or Artist does not
-	//    exist, or an event with a publish state holds a slot. Nothing is
-	//    stored.
-	//  - Unavailable: An announcement could not be recorded; nothing is
-	//    stored.
+	//    exist. Nothing is stored.
+	//  - Unavailable: An announcement could not be recorded, or an event with
+	//    a publish state holds a slot, taken since the caller looked it up.
+	//    Nothing is stored; a caller that looks the slots up again decides
+	//    anew.
 	//
 	// # Announces
 	//

@@ -1043,7 +1043,8 @@ func (b *concertBatch) insertEventsAndConcerts(ctx context.Context, tx pgx.Tx) (
 		return nil, toAppErr(err, "failed to check the slots", slog.Int("count", n))
 	}
 	if firstParty {
-		return nil, apperr.New(codes.FailedPrecondition, "a slot is held by a first-party event", slog.Int("count", n))
+		// Unavailable: calling again after looking the slots up decides anew.
+		return nil, apperr.New(codes.Unavailable, "a first-party event took a slot", slog.Int("count", n))
 	}
 
 	rows, err := tx.Query(ctx, insertConcertsQuery, b.eventIDs)

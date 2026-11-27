@@ -62,6 +62,12 @@ const (
 		WHERE s.id = ANY($1)
 	`
 
+	// lockOrphanCandidatesQuery locks the series an orphan sweep looks at, in
+	// id order. Inserting an event, a concert candidate or a ticket sale takes
+	// a key-share lock on its series, so the sweep sees every such row
+	// committed before it and a later one fails its foreign key.
+	lockOrphanCandidatesQuery = `SELECT id FROM series WHERE id = ANY($1) ORDER BY id FOR UPDATE`
+
 	deleteOrphanedSeriesQuery = `
 		DELETE FROM series s
 		WHERE s.id = ANY($1)
@@ -358,15 +364,28 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 }
 
 // DeleteOrphaned removes, from among the given candidate series IDs, every row
-// with no member events and no pending concert candidates referencing it. An empty
+// with no member events, pending concert candidates or ticket sales. An empty
 // slice is a no-op. Returns the number of rows deleted.
 func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
 	if len(seriesIDs) == 0 {
 		return 0, nil
 	}
-	tag, err := r.db.Pool.Exec(ctx, deleteOrphanedSeriesQuery, seriesIDs)
+	count := slog.Int("count", len(seriesIDs))
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return 0, toAppErr(err, "failed to delete orphaned series", slog.Int("count", len(seriesIDs)))
+		return 0, toAppErr(err, "failed to begin transaction", count)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, lockOrphanCandidatesQuery, seriesIDs); err != nil {
+		return 0, toAppErr(err, "failed to lock series", count)
+	}
+	tag, err := tx.Exec(ctx, deleteOrphanedSeriesQuery, seriesIDs)
+	if err != nil {
+		return 0, toAppErr(err, "failed to delete orphaned series", count)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, toAppErr(err, "failed to commit transaction", count)
 	}
 	return tag.RowsAffected(), nil
 }
