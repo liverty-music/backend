@@ -204,7 +204,7 @@ type concertUseCase struct {
 // older one is searched again (self-healing for a search that never ended).
 const pendingTimeout = searchWindow
 
-// statusUpdateTimeout is the context timeout for concert search status updates.
+// statusUpdateTimeout is the context timeout for recording a search's find.
 // Uses a fresh context.Background() to ensure updates succeed even when the
 // parent context (Gemini API call) has expired.
 const statusUpdateTimeout = 5 * time.Second
@@ -556,18 +556,6 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 	return nil
 }
 
-// markSearchCompleted updates the concert search status to completed.
-// It uses context.WithoutCancel to detach from the parent's deadline while
-// preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string, searchTime time.Time) {
-	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
-	defer cancel()
-
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, searchTime, entity.ConcertSearchStatusCompleted); err != nil {
-		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
-	}
-}
-
 // markSearchFound records that the search discovered at least one new concert.
 // Failure is non-fatal and only logged: the new concerts were already handed
 // on, so a missed last_find_time update merely lets the next CronJob tick
@@ -578,18 +566,6 @@ func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) 
 
 	if err := uc.concertSearchRepo.MarkFound(updateCtx, artistID); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as found", err, slog.String("artist_id", artistID))
-	}
-}
-
-// markSearchFailed updates the concert search status to failed.
-// It uses context.WithoutCancel to detach from the parent's deadline while
-// preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string, searchTime time.Time) {
-	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
-	defer cancel()
-
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, searchTime, entity.ConcertSearchStatusFailed); err != nil {
-		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
 }
 

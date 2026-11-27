@@ -821,6 +821,64 @@ func TestRunSearch_Outcome(t *testing.T) {
 		assert.Len(t, d.signals.sent(usecase.EventConcertSearchCompleted), 1)
 	})
 
+	// @spec components/usecase/concert/search-new-concerts "Status write fails for a moment"
+	t.Run("tries a transient failure to write the status again before reporting", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerDaily)
+		expectSearch(d, artist, in, nil, nil)
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, in.SearchTime, entity.ConcertSearchStatusCompleted).
+			Return(apperr.ErrUnavailable).Once()
+		f := newReplayFlow()
+
+		_, err := d.uc.RunSearch(context.Background(), f, in)
+
+		require.ErrorIs(t, err, apperr.ErrUnavailable, "the step's error, which the engine retries")
+		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
+
+		expectStatus(d, artist.ID, entity.ConcertSearchStatusCompleted)
+		_, err = d.uc.RunSearch(context.Background(), f, in)
+
+		require.NoError(t, err)
+		assert.Len(t, d.signals.sent(usecase.EventConcertSearchCompleted), 1)
+	})
+
+	t.Run("a permanent failure to write the status keeps the outcome", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerDaily)
+		expectSearch(d, artist, in, nil, nil)
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, in.SearchTime, entity.ConcertSearchStatusCompleted).
+			Return(apperr.ErrInternal).Once()
+
+		runAttempt(t, d, in)
+
+		assert.Len(t, d.signals.sent(usecase.EventConcertSearchCompleted), 1)
+	})
+
+	// The strict mocks fail the test if the search is recorded as ended.
+	t.Run("a search cut short by the run's cancellation is not an outcome", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerDaily)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		expectCheck(d, artist, in)
+		expectReads(d, artist, nil)
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).
+			RunAndReturn(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.DiscoveredSeries, error) {
+				cancel()
+				return nil, apperr.New(codes.Canceled, "caller's context ended")
+			}).Once()
+
+		_, err := d.uc.RunSearch(ctx, &inlineFlow{}, in)
+
+		assert.ErrorIs(t, err, apperr.ErrCanceled)
+	})
+
 	// A resumed run must not search, hand on or record twice.
 	t.Run("a run resumed after the search step does not call the search again", func(t *testing.T) {
 		t.Parallel()

@@ -233,6 +233,11 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, now)
 	if err != nil {
+		// The run itself was cancelled: not an outcome of the search, so the
+		// engine gets the error and a resumed run searches again.
+		if ctx.Err() != nil {
+			return searchCall{}, err
+		}
 		uc.logger.Warn(ctx, "concert search attempt failed",
 			slog.String("artist_id", in.ArtistID),
 			slog.Int("attempt", in.Attempt),
@@ -240,7 +245,7 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 		)
 		return searchCall{
 			Called:    true,
-			Busy:      errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded),
+			Busy:      isTransient(err),
 			ErrorKind: errorCode(err),
 			EndTime:   uc.clock(),
 		}, nil
@@ -254,10 +259,10 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 }
 
 // readFailed turns the failure of a read before the external search into the
-// search step's outcome: a transient one is the step's error, any other fails
-// the search.
+// search step's outcome: a transient one, and any failure of a cancelled run,
+// is the step's error; any other fails the search.
 func (uc *concertUseCase) readFailed(ctx context.Context, in ConcertSearchAttempt, err error) (searchCall, error) {
-	if errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded) {
+	if isTransient(err) || ctx.Err() != nil {
 		return searchCall{}, err
 	}
 	uc.logger.Error(ctx, "concert search could not read what it needs", err,
@@ -343,21 +348,33 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 }
 
 // endSearch records the end of a search in one step: the ConcertSearch's
-// status, the search metric and, for a search that called the external search,
-// its concert.search.completed signal. The status of a later search that has
-// replaced this one is left alone (ConcertSearch.UpdateStatus). A search that neither called the external
-// search nor failed records no metric. No failure to record changes the
-// outcome.
+// status, then the search metric and, for a search that called the external
+// search, its concert.search.completed signal. The status of a later search
+// that has replaced this one is left alone (ConcertSearch.UpdateStatus). A
+// search that neither called the external search nor failed records no metric.
+//
+// A transient failure to write the status is the step's error, so it is tried
+// again: a ConcertSearch left pending would keep the Artist from being
+// searched for the whole search window. Nothing else is recorded until then,
+// and no failure to record changes the outcome.
 func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearchAttempt, end searchEnd) (struct{}, error) {
 	return Step(ctx, f, "record-end", func(ctx context.Context) (struct{}, error) {
-		outcome, metric, mark := concertSearchOutcomeFound, "success", uc.markSearchCompleted
+		outcome, metric, status := concertSearchOutcomeFound, "success", entity.ConcertSearchStatusCompleted
 		switch {
 		case end.Failed:
-			outcome, metric, mark = concertSearchOutcomeFailed, "error", uc.markSearchFailed
+			outcome, metric, status = concertSearchOutcomeFailed, "error", entity.ConcertSearchStatusFailed
 		case end.EventCount == 0:
 			outcome, metric = concertSearchOutcomeNothingNew, "zero_results"
 		}
-		mark(ctx, in.ArtistID, in.SearchTime)
+		if err := uc.concertSearchRepo.UpdateStatus(ctx, in.ArtistID, in.SearchTime, status); err != nil {
+			if isTransient(err) {
+				return struct{}{}, err
+			}
+			uc.logger.Error(ctx, "failed to update the concert search status", err,
+				slog.String("artist_id", in.ArtistID),
+				slog.String("status", string(status)),
+			)
+		}
 		if end.Called || end.Failed {
 			uc.metrics.RecordConcertSearch(ctx, metric)
 		}
@@ -366,6 +383,12 @@ func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearc
 		}
 		return struct{}{}, nil
 	})
+}
+
+// isTransient reports whether err is a failure that may pass: Unavailable or
+// DeadlineExceeded.
+func isTransient(err error) bool {
+	return errors.Is(err, apperr.ErrUnavailable) || errors.Is(err, apperr.ErrDeadlineExceeded)
 }
 
 // reportSearchOutcome sends the concert.search.completed signal of a search
