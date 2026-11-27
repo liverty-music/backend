@@ -901,14 +901,15 @@ func TestRunSearch_Outcome(t *testing.T) {
 		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
 	})
 
-	// A permanent failure alerts; a busy search that is tried again does not.
+	// A permanent failure alerts; a busy search that is tried again does not
+	// even warn.
 	for _, tt := range []struct {
 		name  string
 		err   error
 		level string
 	}{
 		{name: "logs a permanent failure at ERROR", err: apperr.New(codes.FailedPrecondition, "credits depleted"), level: "ERROR"},
-		{name: "logs a busy answer at WARN", err: apperr.New(codes.Unavailable, "busy"), level: "WARN"},
+		{name: "logs a busy answer at INFO", err: apperr.New(codes.Unavailable, "busy"), level: "INFO"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

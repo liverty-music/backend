@@ -2,7 +2,9 @@ package gemini_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,6 +63,43 @@ func TestSearch_TransientFailureEndsAfterOneRequest(t *testing.T) {
 			reported := reporter.reported()
 			require.Len(t, reported, 1)
 			assert.Equal(t, "transient", reported[0].gen.ErrorKind)
+		})
+	}
+}
+
+// A transient failure is expected while the service is busy, so it is
+// information; a permanent one is a warning.
+func TestSearch_LogLevelOfAFailedCall(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		status int
+		body   string
+		level  string
+	}{
+		{name: "busy", status: http.StatusServiceUnavailable, body: errBody503, level: "INFO"},
+		{name: "rejected", status: http.StatusForbidden, body: `{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}`, level: "WARN"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var logs syncBuffer
+			logger, err := logging.New(logging.WithWriter(&logs), logging.WithFormat(logging.FormatJSON))
+			require.NoError(t, err)
+			s, _ := newTestSearcher(t, gemini.Config{}, logger, func(int32, map[string]any) (int, string) {
+				return tt.status, tt.body
+			})
+
+			_, _ = s.Search(context.Background(), &entity.Artist{Name: "A"}, nil, time.Now())
+
+			var level string
+			for line := range strings.SplitSeq(string(logs.Bytes()), "\n") {
+				var entry struct{ Level, Msg string }
+				if json.Unmarshal([]byte(line), &entry) == nil && entry.Msg == "gemini model call failed" {
+					level = entry.Level
+				}
+			}
+			assert.Equal(t, tt.level, level)
 		})
 	}
 }
