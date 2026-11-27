@@ -166,6 +166,7 @@ configMapGenerator:
   - migrations/20261126060405_wall_clock_times.sql
   - migrations/20261126141736_record_deleted_user_identities.sql
   - migrations/20261126152558_drop_replaced_time_home_and_place_columns.sql
+  - migrations/20261127041852_comment_forget_removed_identities.sql
   - migrations/20261127044913_add_event_other_listed_venue_names.sql
 # The reference data directory (see reference-data-migration.yaml). The keys
 # are the bare file names, as Atlas reads the directory from the ConfigMap.

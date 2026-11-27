@@ -88,7 +88,7 @@ func TestIdentityRemover_ProviderUnreachable(t *testing.T) {
 	t.Parallel()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	r, err := infrazitadel.NewIdentityRemover(context.Background(), "https://auth.liverty-music.invalid", writeMachineKey(t), logger)
+	r, err := infrazitadel.NewIdentityRemover(context.Background(), mustRoute(t, "https://auth.liverty-music.invalid"), writeMachineKey(t), logger)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

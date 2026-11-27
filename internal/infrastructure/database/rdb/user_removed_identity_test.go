@@ -90,3 +90,33 @@ func countRows(t *testing.T, db *rdb.Database, query string, args ...any) int {
 	require.NoError(t, db.Pool.QueryRow(context.Background(), query, args...).Scan(&n))
 	return n
 }
+
+func TestUserRepository_ForgetRemovedIdentity(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewUserRepository(db, testOutbox)
+	ctx := context.Background()
+
+	// @spec components/entity/user/forget-removed-identity "Recorded identity"
+	t.Run("no record of a recorded identity remains", func(t *testing.T) {
+		user, err := repo.Create(ctx, newTestUser("ext-forgotten", "forgotten@example.com", "Forgotten"))
+		require.NoError(t, err)
+		require.NoError(t, repo.Delete(ctx, user.ID))
+
+		require.NoError(t, repo.ForgetRemovedIdentity(ctx, "ext-forgotten"))
+
+		assert.False(t, rowExists(t, db, `SELECT 1 FROM deleted_user_identities WHERE provider_user_id = $1`, "ext-forgotten"))
+		_, err = repo.Create(ctx, newTestUser("ext-forgotten", "forgotten-again@example.com", "Again"))
+		assert.NoError(t, err, "Create no longer refuses the identity")
+	})
+
+	// @spec components/entity/user/forget-removed-identity "No record"
+	t.Run("an identity with no record counts as forgotten", func(t *testing.T) {
+		assert.NoError(t, repo.ForgetRemovedIdentity(ctx, "ext-never-recorded"))
+	})
+
+	// @spec components/entity/user/forget-removed-identity "Empty provider user ID"
+	t.Run("an empty provider user ID is refused", func(t *testing.T) {
+		assert.ErrorIs(t, repo.ForgetRemovedIdentity(ctx, ""), apperr.ErrInvalidArgument)
+	})
+}

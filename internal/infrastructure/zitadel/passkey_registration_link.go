@@ -7,13 +7,12 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/zitadel/oidc/v3/pkg/oidc"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -47,30 +46,12 @@ type PasskeyRegistrationLinkIssuer struct {
 // NewPasskeyRegistrationLinkIssuer creates an issuer that authenticates to
 // the Zitadel API with the machine key at keyPath, like NewEmailVerifier.
 // Construction makes no network request.
-func NewPasskeyRegistrationLinkIssuer(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*PasskeyRegistrationLinkIssuer, error) {
-	apiEndpoint, err := grpcEndpoint(issuerURL)
+func NewPasskeyRegistrationLinkIssuer(ctx context.Context, r route.Route, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*PasskeyRegistrationLinkIssuer, error) {
+	conn, err := dial(ctx, r, keyPath, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("parse zitadel domain: %w", err)
+		return nil, err
 	}
-
-	connOpts := []zitadelconn.Option{
-		zitadelconn.WithJWTProfileTokenSource(jwtProfileFromPath(ctx, keyPath)),
-		zitadelconn.WithDialOptions(grpc.WithStatsHandler(otelgrpc.NewClientHandler())),
-	}
-	connOpts = append(connOpts, opts...)
-
-	conn, err := zitadelconn.NewConnection(
-		ctx,
-		issuerURL,
-		apiEndpoint,
-		[]string{oidc.ScopeOpenID, zitadelconn.ScopeZitadelAPI()},
-		connOpts...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create zitadel connection: %w", err)
-	}
-
-	return NewPasskeyRegistrationLinkIssuerWithClient(userpb.NewUserServiceClient(conn.ClientConn), issuerURL, logger)
+	return NewPasskeyRegistrationLinkIssuerWithClient(userpb.NewUserServiceClient(conn.ClientConn), r.Issuer(), logger)
 }
 
 // NewPasskeyRegistrationLinkIssuerWithClient creates an issuer around the

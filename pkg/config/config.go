@@ -189,8 +189,14 @@ type ServerConfig struct {
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
 	// Project-Granted to each Organizer's Organization and used as the role
-	// container (the `owner` role) when creating the owner identity.
+	// container (the `owner` role) when creating the owner identity. It is
+	// also the audience the organizer API requires in a token. Required
+	// outside local on the admin and organizer workloads.
 	OrganizerConsoleProjectID string `envconfig:"ORGANIZER_CONSOLE_PROJECT_ID"`
+
+	// SignInCheck is what the fan, admin console and organizer API servers
+	// check a sign-in token with.
+	SignInCheck SignInCheckConfig `envconfig:""`
 
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
@@ -674,6 +680,42 @@ type JWTConfig struct {
 
 	// JWKS refresh interval for key rotation
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
+
+	// ZitadelInternalURL is the sign-in service's cluster-internal base URL
+	// (http://zitadel-api.zitadel.svc.cluster.local:80). The key fetches and
+	// the token checks go there with the issuer's host in the instance
+	// headers. Required outside local; local calls the issuer.
+	ZitadelInternalURL string `envconfig:"ZITADEL_INTERNAL_URL"`
+}
+
+// SignInCheckConfig holds the audiences the API servers require in a token
+// and the keys they ask the sign-in service with whether a token is active
+// (introspection). Each key belongs to one API application and is mounted
+// only on that API's deployment; the organizer API's audience is
+// ServerConfig.OrganizerConsoleProjectID.
+type SignInCheckConfig struct {
+	// ProductProjectID is the Zitadel project of the fan app: the audience
+	// the fan API requires. Required outside local on the fan workload.
+	ProductProjectID string `envconfig:"ZITADEL_PRODUCT_PROJECT_ID"`
+
+	// AdminConsoleProjectID is the Zitadel `admin-console` project: the
+	// audience the admin console API requires. Required outside local on the
+	// admin workload.
+	AdminConsoleProjectID string `envconfig:"ZITADEL_ADMIN_CONSOLE_PROJECT_ID"`
+
+	// FanAPIKeyPath is the file path to the fan API's introspection key.
+	// Required outside local on the fan workload, refused on the others.
+	FanAPIKeyPath string `envconfig:"ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH"`
+
+	// AdminConsoleAPIKeyPath is the file path to the admin console API's
+	// introspection key. Required outside local on the admin workload,
+	// refused on the others.
+	AdminConsoleAPIKeyPath string `envconfig:"ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH"`
+
+	// OrganizerConsoleAPIKeyPath is the file path to the organizer API's
+	// introspection key. Required outside local on the organizer workload,
+	// refused on the others.
+	OrganizerConsoleAPIKeyPath string `envconfig:"ZITADEL_INTROSPECTION_KEY_FOR_ORGANIZER_CONSOLE_API_PATH"`
 }
 
 // GoroutineLeakConfig configures goroutine-leak detection (Go 1.27 GA
@@ -826,6 +868,12 @@ type IdentityConfig struct {
 	// management API.
 	IssuerURL string `envconfig:"OIDC_ISSUER_URL"`
 
+	// ZitadelInternalURL is the sign-in service's cluster-internal base URL
+	// (http://zitadel-api.zitadel.svc.cluster.local:80). Every call to the
+	// sign-in service (token, gRPC) goes there with the issuer's host in the
+	// instance headers. Required outside local; local calls the issuer.
+	ZitadelInternalURL string `envconfig:"ZITADEL_INTERNAL_URL"`
+
 	// ZitadelMachineKeyForBackendAppPath is the file path to the `backend-app`
 	// key (ORG_USER_MANAGER on the product org): verification emails and fan
 	// identity removal.
@@ -858,9 +906,8 @@ type IdentityListeners struct {
 	// HealthPort serves the gRPC health check for the kubelet probes.
 	HealthPort int `envconfig:"HEALTH_PORT" default:"8080"`
 
-	// EventConsumerPort serves the workflow worker's procedures; it keeps the
-	// name of the caller it first served.
-	EventConsumerPort int `envconfig:"IDENTITY_EVENT_CONSUMER_PORT" default:"9100"`
+	// WorkflowWorkerPort serves the workflow worker's procedures.
+	WorkflowWorkerPort int `envconfig:"IDENTITY_WORKFLOW_WORKER_PORT" default:"9100"`
 
 	// AdminConsoleAPIPort serves the admin console API's procedures.
 	AdminConsoleAPIPort int `envconfig:"IDENTITY_ADMIN_CONSOLE_API_PORT" default:"9101"`
@@ -879,12 +926,12 @@ func (c *IdentityConfig) Validate() error {
 	if err := validateEnvironmentAndLogging(c.Environment, c.Logging); err != nil {
 		return err
 	}
-	ports := []int{c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort}
+	ports := []int{c.Listeners.HealthPort, c.Listeners.WorkflowWorkerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort}
 	seen := make(map[int]bool, len(ports))
 	for _, p := range ports {
 		if p <= 0 || p > 65535 || seen[p] {
-			return fmt.Errorf("identity ports (health %d, event consumer %d, admin console API %d, fan API %d) must be valid and distinct",
-				c.Listeners.HealthPort, c.Listeners.EventConsumerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort)
+			return fmt.Errorf("identity ports (health %d, workflow worker %d, admin console API %d, fan API %d) must be valid and distinct",
+				c.Listeners.HealthPort, c.Listeners.WorkflowWorkerPort, c.Listeners.AdminConsoleAPIPort, c.Listeners.FanAPIPort)
 		}
 		seen[p] = true
 	}
@@ -896,7 +943,10 @@ func (c *IdentityConfig) Validate() error {
 		{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
 	}
 	if !c.IsLocal() {
-		required = append(required, envVar{"TELEMETRY_OTLP_ENDPOINT", c.Telemetry.OTLPEndpoint})
+		required = append(required,
+			envVar{"TELEMETRY_OTLP_ENDPOINT", c.Telemetry.OTLPEndpoint},
+			envVar{"ZITADEL_INTERNAL_URL", c.ZitadelInternalURL},
+		)
 	}
 	var missing []string
 	for _, v := range required {
@@ -1183,20 +1233,34 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
 		{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
 		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
+		{"ZITADEL_INTERNAL_URL", c.JWT.ZitadelInternalURL},
 	}
+	keys := c.SignInCheck
 	switch c.Workload {
 	case WorkloadAdmin:
 		required = append(required,
 			envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
 			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+			envVar{"ZITADEL_ADMIN_CONSOLE_PROJECT_ID", keys.AdminConsoleProjectID},
+			envVar{"ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH", keys.AdminConsoleAPIKeyPath},
 		)
 	case WorkloadFan:
 		required = append(required,
 			envVar{"FAN_OIDC_CLIENT_ID", c.FanClientID},
 			envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
+			envVar{"ZITADEL_PRODUCT_PROJECT_ID", keys.ProductProjectID},
+			envVar{"ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH", keys.FanAPIKeyPath},
+		)
+	case WorkloadOrganizer:
+		required = append(required,
+			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+			envVar{"ZITADEL_INTROSPECTION_KEY_FOR_ORGANIZER_CONSOLE_API_PATH", keys.OrganizerConsoleAPIKeyPath},
 		)
 	}
 	if err := requireSet(required...); err != nil {
+		return err
+	}
+	if err := c.refuseForeignSignInKeys(); err != nil {
 		return err
 	}
 
@@ -1205,6 +1269,30 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		return fmt.Errorf("invalid STRIPE_ONBOARDING_RETURN_URL: %q (must be an absolute https URL)", c.Stripe.OnboardingReturnURL)
 	}
 
+	return nil
+}
+
+// refuseForeignSignInKeys fails when this workload is given another API's
+// introspection key: each key is mounted only on its own API.
+func (c *ServerConfig) refuseForeignSignInKeys() error {
+	own := map[string]string{
+		WorkloadFan:       "ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH",
+		WorkloadAdmin:     "ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH",
+		WorkloadOrganizer: "ZITADEL_INTROSPECTION_KEY_FOR_ORGANIZER_CONSOLE_API_PATH",
+	}[c.Workload]
+	var foreign []string
+	for _, k := range []envVar{
+		{"ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH", c.SignInCheck.FanAPIKeyPath},
+		{"ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH", c.SignInCheck.AdminConsoleAPIKeyPath},
+		{"ZITADEL_INTROSPECTION_KEY_FOR_ORGANIZER_CONSOLE_API_PATH", c.SignInCheck.OrganizerConsoleAPIKeyPath},
+	} {
+		if k.name != own && strings.TrimSpace(k.value) != "" {
+			foreign = append(foreign, k.name)
+		}
+	}
+	if len(foreign) > 0 {
+		return fmt.Errorf("%s must not be set on the %s workload: each introspection key belongs to its own API", strings.Join(foreign, ", "), c.Workload)
+	}
 	return nil
 }
 

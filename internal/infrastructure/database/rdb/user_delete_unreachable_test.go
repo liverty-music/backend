@@ -103,6 +103,32 @@ func TestUserRepository_Delete_StoreUnreachable(t *testing.T) {
 	assert.NoError(t, err, "nothing was removed")
 }
 
+// @spec components/entity/user/forget-removed-identity "Store unreachable"
+func TestUserRepository_ForgetRemovedIdentity_StoreUnreachable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	clone := testutil.NewDatabase(t)
+	direct := openTestDB(t, clone, 2)
+	user, err := rdb.NewUserRepository(direct, testOutbox).Create(ctx, newTestUser("ext-forget-unreachable", "forget-unreachable@example.com", "Unreachable"))
+	require.NoError(t, err)
+	require.NoError(t, rdb.NewUserRepository(direct, testOutbox).Delete(ctx, user.ID))
+
+	proxy := startProxy(t, clone.Port)
+	through := clone
+	through.Port = proxy.port()
+	repo := rdb.NewUserRepository(openTestDB(t, through, 2), testOutbox)
+	_, err = repo.Get(ctx, "019e3029-8044-75fc-a662-2ddfce51178e")
+	require.ErrorIs(t, err, apperr.ErrNotFound, "the store is reached through the proxy before it stops")
+
+	proxy.stop()
+
+	for range 4 {
+		assert.ErrorIs(t, repo.ForgetRemovedIdentity(ctx, "ext-forget-unreachable"), apperr.ErrUnavailable)
+	}
+	_, err = rdb.NewUserRepository(direct, testOutbox).Create(ctx, newTestUser("ext-forget-unreachable", "forget-unreachable-2@example.com", "Again"))
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the record remains")
+}
+
 // A database that accepts the connection and never answers: the connection
 // attempt times out while the caller's context goes on.
 //

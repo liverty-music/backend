@@ -9,9 +9,6 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// GrpcEndpoint exposes grpcEndpoint for testing.
-var GrpcEndpoint = grpcEndpoint
-
 // IdentityDeleteClient exposes identityDeleteClient for testing.
 type IdentityDeleteClient interface {
 	DeleteUser(ctx context.Context, in *userpb.DeleteUserRequest, opts ...grpc.CallOption) (*userpb.DeleteUserResponse, error)

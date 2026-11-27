@@ -428,3 +428,84 @@ func TestUserUseCase_RunDeleteUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 }
+
+// The 90 seconds are the delay of the run the removal starts; the engine
+// runs it then, and tries a step that fails with Unavailable again until its
+// deadline.
+func TestUserUseCase_ForgetRemovedIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	userID := deletionTestUser.ID
+	request := usecase.UserDeletion{UserID: userID, ProviderUserID: "zitadel-user-1"}
+
+	// @spec components/usecase/user/delete "Identity removed"
+	t.Run("the identity is forgotten 90 seconds after the removal removed it", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(1)
+		d.removes()
+		f := &inlineFlow{}
+
+		_, err := d.uc.RunDeleteUser(ctx, f, request)
+		require.NoError(t, err)
+
+		require.Len(t, f.starts, 1)
+		start := f.starts[0]
+		assert.Equal(t, usecase.WorkflowForgetRemovedIdentity, start.workflow)
+		assert.Equal(t, "forget-removed-identity:zitadel-user-1", start.id, "one run per identity")
+		assert.Equal(t, "zitadel-user-1", start.input)
+		assert.Equal(t, 90*time.Second, start.options.Delay)
+		assert.WithinDuration(t, time.Now().Add(90*time.Second+24*time.Hour), start.options.Deadline, time.Minute)
+
+		d.repo.EXPECT().ForgetRemovedIdentity(mock.Anything, "zitadel-user-1").Return(nil).Once()
+		_, err = d.uc.RunForgetRemovedIdentity(ctx, &inlineFlow{}, "zitadel-user-1")
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/user/delete "Identity not removed"
+	t.Run("a removal that did not remove the identity leaves the record", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(1)
+		d.repo.EXPECT().Delete(mock.Anything, userID).Return(nil).Once()
+		d.identityRemover.EXPECT().DeleteIdentity(mock.Anything, "zitadel-user-1").
+			Return(apperr.New(codes.Internal, "refused")).Once()
+		f := &inlineFlow{}
+
+		_, err := d.uc.RunDeleteUser(ctx, f, request)
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.Empty(t, f.starts, "nothing is forgotten")
+	})
+
+	t.Run("a run started before the forgetting existed ends after the identity", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.found(2)
+		deletionReads{}.expect(ctx, d, 1)
+		d.serialized(1)
+		d.removes()
+		f := &inlineFlow{beforePatch: true}
+
+		_, err := d.uc.RunDeleteUser(ctx, f, request)
+
+		require.NoError(t, err)
+		assert.Empty(t, f.starts)
+	})
+
+	t.Run("forgetting fails with the store's code, for the engine to try again", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().ForgetRemovedIdentity(mock.Anything, "zitadel-user-1").
+			Return(apperr.New(codes.Unavailable, "database down")).Once()
+
+		_, err := d.uc.RunForgetRemovedIdentity(ctx, &inlineFlow{}, "zitadel-user-1")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}

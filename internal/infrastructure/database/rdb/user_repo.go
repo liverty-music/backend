@@ -126,6 +126,8 @@ const (
 
 	identityRemovedQuery = `SELECT EXISTS (SELECT 1 FROM deleted_user_identities WHERE provider_user_id = $1)`
 
+	forgetRemovedIdentityQuery = `DELETE FROM deleted_user_identities WHERE provider_user_id = $1`
+
 	// userDeletionLockQuery and userCreateLockQuery take the user's
 	// transaction-scoped advisory lock, exclusive for a deletion and shared
 	// for a create of a record that blocks one; both are released at commit
@@ -583,5 +585,18 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 		return apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
 	}
 
+	return nil
+}
+
+// ForgetRemovedIdentity implements entity.UserRepository. It checks no
+// condition before the write, so it takes no lock: by the time it runs, no
+// request of the identity is accepted or running.
+func (r *UserRepository) ForgetRemovedIdentity(ctx context.Context, providerUserID string) error {
+	if providerUserID == "" {
+		return apperr.New(codes.InvalidArgument, "provider user ID cannot be empty")
+	}
+	if _, err := r.db.Pool.Exec(ctx, forgetRemovedIdentityQuery, providerUserID); err != nil {
+		return toAppErr(err, "failed to forget a removed identity", slog.String("provider_user_id", providerUserID))
+	}
 	return nil
 }

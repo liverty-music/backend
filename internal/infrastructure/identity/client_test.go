@@ -357,10 +357,16 @@ func TestUserUseCaseThroughIdentityService(t *testing.T) {
 	})
 }
 
-// inlineSteps runs a workflow's steps at once, as a first run does; the
-// removal uses no other part of a Flow.
+// inlineSteps runs a workflow's steps at once, as a first run does, and
+// starts nothing; the removal uses no other part of a Flow.
 type inlineSteps struct{ usecase.Flow }
 
 func (inlineSteps) Step(ctx context.Context, _ string, fn func(context.Context) ([]byte, error)) ([]byte, error) {
 	return fn(ctx)
+}
+
+func (inlineSteps) Patched(context.Context, string) (bool, error) { return true, nil }
+
+func (inlineSteps) Start(context.Context, string, string, any, ...usecase.StartOption) error {
+	return nil
 }
