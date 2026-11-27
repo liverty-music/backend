@@ -113,7 +113,7 @@ func TestVenueRepository_ListCoordinatesDue(t *testing.T) {
 	// @spec components/entity/venue/list-coordinates-due "Coordinates younger than 20 days"
 	// @spec components/entity/venue/list-coordinates-due "Missing coordinates"
 	// @spec components/entity/venue/list-coordinates-due "No place id"
-	t.Run("list missing coordinates first, then those older than 20 days, and no venue without a place id", func(t *testing.T) {
+	t.Run("list those older than 20 days first, then missing coordinates, and no venue without a place id", func(t *testing.T) {
 		t.Parallel()
 		repo := rdb.NewVenueRepository(newTestDB(t))
 		old := createVenueWithCoordinates(t, repo, "ChIJold", new(time.Date(2026, 11, 3, 4, 0, 0, 0, time.UTC)))
@@ -124,8 +124,8 @@ func TestVenueRepository_ListCoordinatesDue(t *testing.T) {
 		got, err := repo.ListCoordinatesDue(ctx, coordinatesInstant, 10)
 
 		require.NoError(t, err)
-		assert.Equal(t, []string{missing, old}, ids(got))
-		assert.Equal(t, "ChIJmissing", *got[0].GooglePlaceID)
+		assert.Equal(t, []string{old, missing}, ids(got))
+		assert.Equal(t, "ChIJold", *got[0].GooglePlaceID)
 	})
 
 	// @spec components/entity/venue/list-coordinates-due "More due than the maximum"

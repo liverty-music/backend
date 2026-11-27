@@ -215,8 +215,9 @@ type VenueRepository interface {
 
 	// ListCoordinatesDue returns at most limit venues with a place id whose
 	// coordinates are missing or were fetched more than
-	// [CoordinatesRefreshAge] before at: those without coordinates first,
-	// then by fetch time, oldest first.
+	// [CoordinatesRefreshAge] before at: those with coordinates first, by
+	// fetch time, oldest first, so that the ones about to expire are not
+	// crowded out by places the catalog gives none for; then those without.
 	//
 	// # Possible errors
 	//
@@ -233,9 +234,10 @@ type VenueRepository interface {
 // again from the map catalog, ahead of [CoordinatesMaxAge].
 const CoordinatesRefreshAge = 20 * 24 * time.Hour
 
-// CoordinatesMaxAge is how long coordinates read from the map catalog may
-// be kept.
-const CoordinatesMaxAge = 30 * 24 * time.Hour
+// CoordinatesMaxAge is the age past which coordinates read from the map
+// catalog are removed. The catalog's terms allow keeping them for 30 days, and
+// removal runs once a day, so it is one day less.
+const CoordinatesMaxAge = 29 * 24 * time.Hour
 
 // CheckArea checks the venue's admin area and time zone against area, what
 // its admin area resolved to, and zones, the time zones of the Area's
