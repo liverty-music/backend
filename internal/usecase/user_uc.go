@@ -310,7 +310,7 @@ type UserUseCase interface {
 }
 
 // PasskeyMailers are the senders of the passkey emails: the registration link
-// of a recovery request and the passkey change email. Only the event consumer
+// of a recovery request and the passkey change email. Only the workflow worker
 // sends them; elsewhere they are nil.
 type PasskeyMailers struct {
 	// RegistrationLinks sends the passkey registration link
@@ -391,9 +391,10 @@ var _ UserUseCase = (*userUseCase)(nil)
 // checked against, the reads that deletion
 // checks for activity in progress, the workflows the resend and recovery
 // requests start, an email verifier for triggering verification emails and an
-// identity remover for deletion (both nil when the Zitadel API client is not
-// configured, e.g. local dev), the passkey email senders (empty outside the
-// event consumer), and a logger. emailCodes confirms addresses with emailed
+// identity remover for the delete-user workflow (both set only in the
+// workflow worker, and nil there without the identity service, e.g. local
+// dev), the passkey email senders (empty outside the workflow worker), and a
+// logger. emailCodes confirms addresses with emailed
 // codes; it is nil outside the fan API.
 func NewUserUseCase(
 	userRepo entity.UserRepository,

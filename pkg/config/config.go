@@ -175,10 +175,9 @@ type ServerConfig struct {
 	VAPID VAPIDConfig `envconfig:""`
 
 	// IdentityServiceURL is the identity service's listener for this
-	// workload (h2c): on the admin workload http://identity:9101, for fan
-	// identity removal and Organization provisioning; on the fan workload
-	// http://identity:9102, for email verification and the removal of the
-	// caller's own identity. No API workload holds an identity-provider
+	// workload (h2c): on the admin workload http://identity:9101, for
+	// Organization provisioning; on the fan workload http://identity:9102,
+	// for email verification. No API workload holds an identity-provider
 	// credential. Required outside local on the admin and fan workloads; unset
 	// elsewhere.
 	IdentityServiceURL string `envconfig:"IDENTITY_SERVICE_URL"`
