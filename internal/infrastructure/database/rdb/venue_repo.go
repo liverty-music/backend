@@ -57,7 +57,7 @@ const (
 		FROM venues
 		WHERE google_place_id IS NOT NULL
 		  AND (coordinates_fetch_time IS NULL OR coordinates_fetch_time < $1)
-		ORDER BY coordinates_fetch_time ASC NULLS FIRST, id
+		ORDER BY coordinates_fetch_time ASC NULLS LAST, id
 		LIMIT $2
 	`
 	clearExpiredVenueCoordinatesQuery = `
