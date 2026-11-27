@@ -14,7 +14,7 @@ import (
 // unknown), listed name, other listed names, publish state ("" for none) and
 // performers.
 func stored(id, venue, start, listed string, others []string, state string, artists ...string) *entity.Concert {
-	c := &entity.Concert{Event: entity.Event{ID: id, VenueID: venue, LocalDate: sameConcertDate, OtherListedVenueNames: others}}
+	c := &entity.Concert{ID: id, VenueID: venue, LocalDate: sameConcertDate, OtherListedVenueNames: others}
 	if start != "" {
 		var h, m int
 		if _, err := fmt.Sscanf(start, "%d:%d", &h, &m); err != nil {
@@ -154,7 +154,7 @@ func TestDecideFoundEvent(t *testing.T) {
 		{
 			name:         "same Artist at another venue at the same time on another date: a new event",
 			found:        found("Hall", at18),
-			artistEvents: []*entity.Concert{{Event: entity.Event{ID: "e9", VenueID: other, LocalDate: sameConcertDate.AddDate(0, 0, 1), StartTime: at18}}},
+			artistEvents: []*entity.Concert{{ID: "e9", VenueID: other, LocalDate: sameConcertDate.AddDate(0, 0, 1), StartTime: at18}},
 			wantOutcome:  "publish",
 		},
 		{
