@@ -546,6 +546,7 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 
 	t.Run("reject appends log entry and deletes concert candidate", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert-candidate/reject "Reject with a reason"
 		d := newApprovalTestDeps(t, artist)
 		sc := d.candidate(new("JP-13"), new("Asia/Tokyo"), new("P"))
 		d.logsRejection()
