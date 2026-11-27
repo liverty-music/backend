@@ -314,7 +314,8 @@ The fixture's `evaluation_from` is frozen at capture time. To re-curate:
 
 Each cell record carries `variant`, `precision`, `recall_public`,
 `recall_all`, `f1_*`, `field_accuracy.*`, token counts, search-query count,
-`linked_pages`, latency, finish reason, `retry_count`, `empty_response` (no
+`linked_pages`, latency, finish reason, `retry_count` (requests sent; the searcher
+does not retry a failure, so a busy answer shows as a failed rep), `empty_response` (no
 candidate, or no text), `grounding_chunks` (backend #772), and USD cost:
 `cost_usd` at the current price and `cost_usd_2027` at the price from
 2027-01-01 (`Pricing2027`), which model decisions compare.

@@ -28,6 +28,8 @@ type modelTransport struct {
 	requests []modelRequest
 	// answer returns the delay, status and body of the n-th request (from 1).
 	answer func(n int) (time.Duration, int, string)
+	// lost ends every request with a connection error instead of an answer.
+	lost bool
 }
 
 // modelRequest is what one request asked for.
@@ -48,6 +50,9 @@ func (m *modelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	n := len(m.requests)
 	m.mu.Unlock()
 
+	if m.lost {
+		return nil, io.ErrUnexpectedEOF
+	}
 	delay, status, resp := m.answer(n)
 	select {
 	case <-req.Context().Done():
@@ -113,8 +118,8 @@ func TestSearch_ServiceTier(t *testing.T) {
 		})
 	})
 
-	// @spec components/entity/concert/search "Busy on every attempt"
-	t.Run("fails with Unavailable when all 3 attempts are refused as busy", func(t *testing.T) {
+	// @spec components/entity/concert/search "Busy"
+	t.Run("fails with Unavailable when the request is refused as busy", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			transport := &modelTransport{answer: func(int) (time.Duration, int, string) {
@@ -126,47 +131,45 @@ func TestSearch_ServiceTier(t *testing.T) {
 
 			assert.ErrorIs(t, err, apperr.ErrUnavailable)
 			assert.Empty(t, got)
-			assert.Len(t, transport.sent(), 3)
+			assert.Len(t, transport.sent(), 1)
 		})
 	})
 
 	// @spec components/entity/concert/search "No answer within 15 minutes"
-	t.Run("sends the next attempt when none answers within 15 minutes", func(t *testing.T) {
+	t.Run("fails with Unavailable when no answer comes within 15 minutes", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			reporter := &recordingReporter{}
-			transport := &modelTransport{answer: func(n int) (time.Duration, int, string) {
-				if n == 1 {
-					return time.Hour, http.StatusOK, geminiResponse(oneShowBody, "STOP")
-				}
-				return time.Second, http.StatusOK, geminiResponse(oneShowBody, "STOP")
-			}}
+			transport := &modelTransport{answer: answer(time.Hour)}
 			s := newTierSearcher(t, gemini.Config{ServiceTier: gemini.ServiceTierFlex, Reporter: reporter}, transport)
 			start := time.Now()
-
-			got, err := s.Search(t.Context(), artist, nil, from)
-
-			require.NoError(t, err)
-			require.Len(t, got, 1)
-			assert.Len(t, transport.sent(), 2)
-			reported := reporter.reported()
-			require.Len(t, reported, 2)
-			assert.Equal(t, "deadline_exceeded", reported[0].gen.ErrorKind)
-			assert.Equal(t, 15*time.Minute, reported[0].gen.Latency, "waited the whole budget")
-			assert.Less(t, time.Since(start), 16*time.Minute)
-		})
-	})
-
-	t.Run("fails with Unavailable when no attempt is answered", func(t *testing.T) {
-		t.Parallel()
-		synctest.Test(t, func(t *testing.T) {
-			transport := &modelTransport{answer: answer(time.Hour)}
-			s := newTierSearcher(t, gemini.Config{ServiceTier: gemini.ServiceTierFlex}, transport)
 
 			_, err := s.Search(t.Context(), artist, nil, from)
 
 			assert.ErrorIs(t, err, apperr.ErrUnavailable)
-			assert.Len(t, transport.sent(), 3)
+			assert.Equal(t, 15*time.Minute, time.Since(start), "waited the whole budget")
+			assert.Len(t, transport.sent(), 1)
+			reported := reporter.reported()
+			require.Len(t, reported, 1)
+			assert.Equal(t, "deadline_exceeded", reported[0].gen.ErrorKind)
+		})
+	})
+
+	// @spec components/entity/concert/search "Connection lost"
+	t.Run("fails with Unavailable when the connection is lost", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			reporter := &recordingReporter{}
+			transport := &modelTransport{lost: true}
+			s := newTierSearcher(t, gemini.Config{Reporter: reporter}, transport)
+
+			_, err := s.Search(t.Context(), artist, nil, from)
+
+			assert.ErrorIs(t, err, apperr.ErrUnavailable)
+			assert.Len(t, transport.sent(), 1)
+			reported := reporter.reported()
+			require.Len(t, reported, 1)
+			assert.Equal(t, "transient", reported[0].gen.ErrorKind)
 		})
 	})
 

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -54,6 +57,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 var apiErrorCodes = map[int]codes.Code{
 	http.StatusBadRequest:   codes.InvalidArgument,
 	http.StatusUnauthorized: codes.Unauthenticated,
+	// Depleted prepaid credits.
+	http.StatusPaymentRequired: codes.FailedPrecondition,
 	// A denial, not missing credentials (AIP-193), such as a spent project
 	// spend cap ("Spend cap breached", PERMISSION_DENIED).
 	http.StatusForbidden:          codes.PermissionDenied,
@@ -74,6 +79,18 @@ func apiErrorCode(status int) codes.Code {
 	return codes.Unknown
 }
 
+// isConnectionError reports whether a request got no complete HTTP answer:
+// it could not be sent, or the connection ended before the answer did.
+func isConnectionError(err error) bool {
+	if _, ok := errors.AsType[*url.Error](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[net.Error](err); ok {
+		return true
+	}
+	return errors.Is(err, io.ErrUnexpectedEOF)
+}
+
 // isRetryable reports whether err is a transient Gemini API error that
 // may succeed on a subsequent attempt.
 //
@@ -92,7 +109,7 @@ func apiErrorCode(status int) codes.Code {
 // NOT retryable:
 //   - 499 (Client Cancelled): Gemini cancelled the operation server-side.
 //   - Context errors (DeadlineExceeded, Canceled). The concert searcher
-//     retries a request whose own budget passed on its own (callFailed).
+//     counts a request whose own budget passed as transient itself.
 func isRetryable(err error) bool {
 	apiErr, ok := errors.AsType[genai.APIError](err)
 	if !ok {

@@ -54,7 +54,7 @@ func spanContext(t *testing.T) (context.Context, string) {
 }
 
 // @spec components/entity/concert/search "Search with a retry"
-func TestSearch_ReportsEveryRequestOfARetry(t *testing.T) {
+func TestSearch_ReportsEveryRequest(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -65,9 +65,10 @@ func TestSearch_ReportsEveryRequestOfARetry(t *testing.T) {
 		{"venue": "Hall B", "country": "JP", "admin_area": "", "local_date": "2026-03-08", "open_time": "", "start_time": ""}]}]}`
 
 	reporter := &recordingReporter{}
-	s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(n int32, _ map[string]any) (int, string) {
+	cfg := gemini.Config{Reporter: reporter, IncludeServerSideToolInvocations: true}
+	s, calls := newTestSearcher(t, cfg, nil, func(n int32, _ map[string]any) (int, string) {
 		if n == 1 {
-			return http.StatusServiceUnavailable, errBody503
+			return http.StatusBadRequest, errBody400
 		}
 		return http.StatusOK, geminiResponse(successBody, "STOP")
 	})
@@ -86,7 +87,7 @@ func TestSearch_ReportsEveryRequestOfARetry(t *testing.T) {
 		assert.Equal(t, posthog.LLMRequest{ArtistID: "artist-1", OfficialSiteURL: "https://example.com", SearchFrom: "2026-02-01"}, r.gen.Request)
 	}
 	first, second := reported[0].gen, reported[1].gen
-	assert.Equal(t, "transient", first.ErrorKind)
+	assert.Equal(t, "invalid_request", first.ErrorKind)
 	assert.Nil(t, first.Concerts, "the failed request parsed nothing")
 	assert.Empty(t, second.ErrorKind)
 	assert.Equal(t, "STOP", second.FinishReason)

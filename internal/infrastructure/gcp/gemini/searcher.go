@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v7"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
@@ -29,22 +28,30 @@ func errInvalidJSON(cause error) error {
 	return apperr.Wrap(cause, codes.Internal, "gemini returned invalid JSON")
 }
 
-// errNoCandidates returns the Unavailable error of an API answer that
-// succeeded with no candidate. It is not retried: the empty response is billed
-// (tens to hundreds of thousands of tool-use tokens) and a repeat of the same
-// request is likely to fail the same way. Failing the Search marks the
-// Artist's ConcertSearch failed so the next daily run searches again.
+// errNoCandidates returns the Internal error of an API answer that
+// succeeded with no candidate, which the API does only when something was
+// wrong with the prompt. It is not a result with no concerts, and not
+// transient: a repeat of the same request is likely to fail the same way.
+// Failing the Search marks the Artist's ConcertSearch failed so the next
+// daily run searches again.
 func errNoCandidates() error {
-	return apperr.New(codes.Unavailable, "gemini returned no candidates")
+	return apperr.New(codes.Internal, "gemini returned no candidates")
 }
 
-// errTooManyToolCalls returns the Unavailable error of a model that stopped
-// with TOO_MANY_TOOL_CALLS. It is not retried: the call has already run its
+// errTooManyToolCalls returns the Internal error of a model that stopped
+// with TOO_MANY_TOOL_CALLS. It is not transient: the call has already run its
 // search queries (40-70 in prod) and a repeat usually falls into the same
-// search-only mode. Failing the Search marks the Artist's ConcertSearch failed
-// so the next daily run searches again.
+// search-only mode.
 func errTooManyToolCalls() error {
-	return apperr.New(codes.Unavailable, "gemini stopped after too many tool calls")
+	return apperr.New(codes.Internal, "gemini stopped after too many tool calls")
+}
+
+// errIncomplete returns the Internal error of a response stopped before the
+// model completed it (MAX_TOKENS, RECITATION and the like). It is not
+// transient: nothing suggests a repeat of the same request ends otherwise.
+func errIncomplete(reason genai.FinishReason) error {
+	return apperr.New(codes.Internal, "gemini response not completed normally",
+		slog.String("finish_reason", string(reason)))
 }
 
 // errNoText returns the Internal error of a response that ends normally
@@ -275,8 +282,8 @@ type PassMetadata struct {
 	FinishReason     string
 	FinishMessage    string
 	AvgLogprobs      float64
-	// RetryCount is the number of requests sent, across both passes when the
-	// request was re-sent without the tool-invocation report.
+	// RetryCount is the number of requests sent: 2 when the request was
+	// re-sent without the tool-invocation report, otherwise 1.
 	RetryCount      int
 	PartsTotal      int
 	ThoughtParts    int
@@ -307,10 +314,10 @@ type PassMetadata struct {
 	// search queries are not visible.
 	ToolReportDropped bool
 
-	// ExhaustedTransient is true when the retry policy ran to the end with
-	// the call still in a transient-error state; SearchExt then fails with
-	// Unavailable.
-	ExhaustedTransient bool
+	// Transient is true when the request ended in a transient failure (a
+	// busy or failing service, a lost connection, no answer in time);
+	// SearchExt then fails with Unavailable.
+	Transient bool
 }
 
 // SearchMetadata captures per-call observation data used by the A/B
@@ -569,10 +576,9 @@ func (s *ConcertSearcher) searchAttrs(artist *entity.Artist, officialSiteURL str
 }
 
 // checkGroundedPass returns the error the outcome of the grounded pass makes
-// of the search: its own permanent failure, Unavailable when every attempt
-// failed transiently (so the caller records the search as failed and searches
-// again on the next run, instead of reading it as "no concerts"), or the end of
-// the caller's context. Each call runs detached from ctx so an in-flight
+// of the search: its own permanent failure, Unavailable when its request
+// failed transiently (so the caller can try again later, instead of reading it
+// as "no concerts"), or the end of the caller's context. Each call runs detached from ctx so an in-flight
 // request is not cut off mid-response; a call that succeeds after the caller's
 // deadline or cancellation must still fail the search: the caller has given up
 // on it.
@@ -583,8 +589,8 @@ func checkGroundedPass(ctx context.Context, pm *PassMetadata, transient bool, er
 		return err
 	}
 	if transient {
-		pm.ExhaustedTransient = true
-		return apperr.New(codes.Unavailable, "gemini concert search failed transiently on every attempt", attrs...)
+		pm.Transient = true
+		return apperr.New(codes.Unavailable, "gemini concert search failed transiently", attrs...)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return toAppErr(ctxErr, "caller's context ended during the gemini concert search", attrs...)
@@ -608,7 +614,7 @@ func (s *ConcertSearcher) groundedPass(
 		// Some pages break the Preview tool-invocation report after URL
 		// context reads them, and the request fails with 400 (backend #542).
 		// Re-send it once without the report.
-		s.logger.Warn(ctx, "grounded call rejected as invalid, retrying once without the tool-invocation report",
+		s.logger.Warn(ctx, "grounded call rejected as invalid, sending it once more without the tool-invocation report",
 			append(attrs, slog.String("error", err.Error()))...)
 		reduced := *cfg
 		reduced.ToolConfig = nil
@@ -648,21 +654,20 @@ func invalidJSONError(err error, rawText string, attrs []slog.Attr) error {
 		)...)
 }
 
-// executePass runs one Gemini call wrapped in exponential backoff
-// (3 attempts, 1s/2s/4s, 60s max; a request not answered within its budget
-// counts as transient). It captures all observable metadata
-// into a fresh PassMetadata. Returns:
+// executePass sends one request to the model and captures all observable
+// metadata into a fresh PassMetadata. It sends no retry: a caller that can
+// wait tries the whole Search again later. Returns:
 //   - (pm, rawText, false, nil) on success
-//   - (pm, "", true, nil) when retries are exhausted with transient errors
-//   - (pm, "", false, err) on permanent error, including a response with no
-//     candidate (errNoCandidates), one stopped by TOO_MANY_TOOL_CALLS
-//     (errTooManyToolCalls) or one that ends normally without text
-//     (errNoText), none retried
+//   - (pm, "", true, nil) on a transient failure: an error status that
+//     [isRetryable] accepts, a lost connection, or no answer within the
+//     request's budget
+//   - (pm, "", false, err) on any other failure, including a response with no
+//     candidate (errNoCandidates), one not completed normally
+//     (errTooManyToolCalls, errIncomplete), one that ends normally without
+//     text (errNoText), and the end of ctx
 //
-// Non-STOP finish_reason is treated as transient and retried.
-//
-// Each request sent is appended to gens as base filled from its response,
-// with its latency and, for a failed one, its error kind.
+// The request is appended to gens as base filled from its response, with its
+// latency and, for a failed one, its error kind.
 func (s *ConcertSearcher) executePass(
 	ctx context.Context,
 	modelName string,
@@ -672,61 +677,15 @@ func (s *ConcertSearcher) executePass(
 	base posthog.LLMGeneration,
 	gens *[]posthog.LLMGeneration,
 ) (*PassMetadata, string, bool, error) {
-	pm := &PassMetadata{}
-	bo := &backoff.ExponentialBackOff{
-		InitialInterval: 1 * time.Second,
-		Multiplier:      2.0,
-		MaxInterval:     60 * time.Second,
-	}
+	pm := &PassMetadata{RetryCount: 1}
 
-	var out passOutcome
-	rawText, err := backoff.Retry(ctx, func() (string, error) {
-		pm.RetryCount++
-		return s.attemptPass(ctx, modelName, prompt, cfg, attrs, base, gens, pm, &out)
-		// The attempt count alone bounds the retries: the default elapsed-time
-		// limit of 15 minutes is one flex-tier request.
-	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3), backoff.WithMaxElapsedTime(0))
-
-	if err != nil {
-		return s.failedPass(ctx, pm, err, attrs, out)
-	}
-	return pm, rawText, false, nil
-}
-
-// passOutcome is what the attempts of one pass have shown so far: whether the
-// last one ended on a non-STOP finish reason, and whether one failed
-// permanently.
-type passOutcome struct {
-	lastWasFinish bool
-	sawPermanent  bool
-}
-
-// attemptPass makes one Gemini call of a pass and reads its response into pm,
-// which lives across the attempts. A permanent failure is returned wrapped in
-// [backoff.Permanent]; out records how the attempt ended.
-func (s *ConcertSearcher) attemptPass(
-	ctx context.Context,
-	modelName string,
-	prompt string,
-	cfg *genai.GenerateContentConfig,
-	attrs []slog.Attr,
-	base posthog.LLMGeneration,
-	gens *[]posthog.LLMGeneration,
-	pm *PassMetadata,
-	out *passOutcome,
-) (string, error) {
-	// Detach from the parent context for the duration of one Gemini call,
-	// then re-impose a per-attempt budget (Config.callTimeout). Parent cancellation
-	// (handler timeout, SIGTERM on the CronJob) still stops `backoff.Retry`
-	// from scheduling another attempt — the outer `ctx` is what backoff
-	// monitors — so cancellation propagation is preserved at the retry
-	// level. We only protect the in-flight `GenerateContent` from mid-
-	// response cancellation, which would otherwise leave Gemini in an
-	// ambiguous state (URLContext fetch partially started, grounding
-	// chunks recorded but not delivered). Worst-case teardown is one
-	// stuck request × that budget on top of the parent's deadline.
-	timeout := s.config.callTimeout()
-	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	// Detach from the parent context for the duration of the Gemini call, then
+	// re-impose the request's budget (Config.callTimeout): cancelling the
+	// in-flight GenerateContent mid-response would leave Gemini in an ambiguous
+	// state (URLContext fetch partially started, grounding chunks recorded but
+	// not delivered). Worst-case teardown is one stuck request × that budget on
+	// top of the parent's deadline.
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.config.callTimeout())
 	defer cancel()
 
 	start := time.Now()
@@ -742,47 +701,50 @@ func (s *ConcertSearcher) attemptPass(
 	}
 	if err != nil {
 		timedOut := errors.Is(reqCtx.Err(), context.DeadlineExceeded)
-		return "", s.callFailed(ctx, err, timedOut, attrs, record, out)
+		transient := timedOut || isRetryable(err) || isConnectionError(err)
+		kind := callErrorKind(ctx, err)
+		if transient && kind == errorKindPermanent {
+			kind = errorKindTransient
+		}
+		record(kind)
+		s.logger.Warn(ctx, "gemini model call failed",
+			append(attrs, slog.String("error", err.Error()), slog.Bool("transient", transient))...)
+		// The caller's own deadline or cancellation decides over the failure.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return pm, "", false, toAppErr(ctxErr, "caller's context ended during the gemini concert search", attrs...)
+		}
+		if transient {
+			return pm, "", true, nil
+		}
+		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
 	}
 
-	// Reset per-attempt accumulators BEFORE we read the new response.
-	// `pm` lives across retries; without this reset the grounding
-	// slices would accumulate URLs/URLRetrievals from every attempt
-	// (including the failed ones), producing inflated counts. Scalar
-	// fields are unconditionally overwritten below, but slice
-	// appends need an explicit reset.
-	pm.GroundingChunkURLs = nil
-	pm.URLContextRetrieved = nil
-	pm.WebSearchQueriesList = nil
-	pm.WebSearchQueries = 0
-	pm.RenderedParts = 0
-	pm.URLContextCalls, pm.URLContextSucceeded = 0, 0
+	text, err := s.readResponse(ctx, pm, resp, attrs, record)
+	if err != nil {
+		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+	}
+	return pm, text, false, nil
+}
 
+// readResponse reads a successful call's response into pm, records the
+// request with record and returns the response's text.
+func (s *ConcertSearcher) readResponse(
+	ctx context.Context,
+	pm *PassMetadata,
+	resp *genai.GenerateContentResponse,
+	attrs []slog.Attr,
+	record func(string),
+) (string, error) {
 	recordUsage(pm, resp)
 
 	respAttrs := usageAttrs(pm, resp)
 	if len(resp.Candidates) == 0 {
-		return "", s.noCandidates(ctx, resp, respAttrs, attrs, record, out)
+		return "", s.noCandidates(ctx, resp, respAttrs, attrs, record)
 	}
 	candidate := resp.Candidates[0]
 	joined, candidateAttrs := recordCandidate(pm, candidate, respAttrs)
 
-	return s.judgeCandidate(ctx, candidate, joined, attrs, candidateAttrs, record, out)
-}
-
-// callFailed records a failed Gemini call and returns its error, wrapped in
-// [backoff.Permanent] when it is not retryable. timedOut reports that the
-// request's own budget passed without an answer, which is transient.
-func (s *ConcertSearcher) callFailed(ctx context.Context, err error, timedOut bool, attrs []slog.Attr, record func(string), out *passOutcome) error {
-	record(callErrorKind(ctx, err))
-	out.lastWasFinish = false
-	s.logger.Warn(ctx, "gemini model call failed",
-		append(attrs, slog.String("error", err.Error()))...)
-	if !timedOut && !isRetryable(err) {
-		out.sawPermanent = true
-		return backoff.Permanent(err)
-	}
-	return err
+	return s.judgeCandidate(ctx, candidate, joined, attrs, candidateAttrs, record)
 }
 
 // usageAttrs returns the log attributes of a response's id and token usage.
@@ -801,59 +763,49 @@ func usageAttrs(pm *PassMetadata, resp *genai.GenerateContentResponse) []slog.At
 
 // noCandidates records a response with no candidate, which is a permanent
 // failure, and returns its error.
-func (s *ConcertSearcher) noCandidates(ctx context.Context, resp *genai.GenerateContentResponse, respAttrs, attrs []slog.Attr, record func(string), out *passOutcome) error {
+func (s *ConcertSearcher) noCandidates(ctx context.Context, resp *genai.GenerateContentResponse, respAttrs, attrs []slog.Attr, record func(string)) error {
 	record(errorKindNoCandidates)
-	out.lastWasFinish = false
-	out.sawPermanent = true
 	if pf := resp.PromptFeedback; pf != nil {
 		respAttrs = append(respAttrs, slog.Group("prompt_feedback",
 			slog.String("block_reason", string(pf.BlockReason)),
 			slog.String("block_reason_message", pf.BlockReasonMessage),
 		))
 	}
-	s.logger.Warn(ctx, "Gemini returned no candidates (permanent, not retrying)", append(attrs, respAttrs...)...)
-	return backoff.Permanent(errNoCandidates())
+	s.logger.Warn(ctx, "Gemini returned no candidates (permanent)", append(attrs, respAttrs...)...)
+	return errNoCandidates()
 }
 
 // judgeCandidate decides what the first candidate's finish reason and text
-// make of the attempt: too many tool calls and an empty text are permanent
-// failures, an incomplete response is retried, and a text is the result.
+// make of the request: a response not completed normally and an empty text
+// are permanent failures, and a text is the result.
 func (s *ConcertSearcher) judgeCandidate(
 	ctx context.Context,
 	candidate *genai.Candidate,
 	joined string,
 	attrs, candidateAttrs []slog.Attr,
 	record func(string),
-	out *passOutcome,
 ) (string, error) {
 	if candidate.FinishReason == genai.FinishReasonTooManyToolCalls {
 		record(errorKindTooManyToolCalls)
-		out.lastWasFinish = false
-		out.sawPermanent = true
-		s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
+		s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent)",
 			append(attrs, candidateAttrs...)...)
-		return "", backoff.Permanent(errTooManyToolCalls())
+		return "", errTooManyToolCalls()
 	}
 
 	// The finish reason is checked before the text: an incomplete response
-	// often carries no text at all and must be retried, not read as
-	// "no concerts".
+	// often carries no text at all and must not be read as "no concerts".
 	if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
 		record(errorKindIncomplete)
-		out.lastWasFinish = true
-		finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
-		s.logger.Warn(ctx, "gemini response not completed normally, retrying",
+		s.logger.Warn(ctx, "gemini response not completed normally (permanent)",
 			append(attrs, candidateAttrs...)...)
-		return "", finishErr
+		return "", errIncomplete(candidate.FinishReason)
 	}
-	out.lastWasFinish = false
 
 	if joined == "" {
 		record(errorKindNoText)
-		out.sawPermanent = true
-		s.logger.Warn(ctx, "candidate has no text parts (permanent, not retrying)",
+		s.logger.Warn(ctx, "candidate has no text parts (permanent)",
 			append(attrs, candidateAttrs...)...)
-		return "", backoff.Permanent(errNoText())
+		return "", errNoText()
 	}
 	record("")
 
@@ -981,34 +933,6 @@ func recordParts(pm *PassMetadata, candidate *genai.Candidate) (string, []string
 	pm.ThoughtParts = thoughtParts
 	pm.TextParts = textParts
 	return textBuf.String(), toolQueries
-}
-
-// failedPass turns the error of an exhausted or permanently failed pass into
-// the result of executePass: a permanent error or a cancellation of the
-// caller is returned as an error; retries exhausted on a transient failure or
-// a non-STOP finish reason are reported as exhausted.
-func (s *ConcertSearcher) failedPass(ctx context.Context, pm *PassMetadata, err error, attrs []slog.Attr, out passOutcome) (*PassMetadata, string, bool, error) {
-	if out.sawPermanent {
-		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
-	}
-	// Parent context cancellation (handler deadline, SIGTERM) is a
-	// caller-driven hard stop, not a remote transient failure — propagate
-	// it as a permanent error so SearchExt surfaces the cancellation
-	// up the stack rather than silently returning an empty result.
-	if ctx.Err() != nil {
-		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
-	}
-	if out.lastWasFinish {
-		s.logger.Warn(ctx, "executePass exhausted retries with non-STOP finish_reason",
-			append(attrs, slog.String("last_error", err.Error()))...)
-		return pm, "", true, nil
-	}
-	// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
-	// per-attempt RPC failed three times without ever reaching a
-	// permanent / non-STOP-FinishReason path. SearchExt fails with Unavailable.
-	s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
-		append(attrs, slog.String("last_error", err.Error()))...)
-	return pm, "", true, nil
 }
 
 // classifySeries classifies each series of the buckets, in order, by its

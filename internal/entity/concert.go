@@ -785,13 +785,21 @@ type ConcertRepository interface {
 // ConcertSearcher defines the interface for searching concerts from external sources.
 type ConcertSearcher interface {
 	// Search uses an external service (e.g., Gemini) to find concerts for an artist.
-	// It relies on the artist's name and official site URL for grounding.
+	// It relies on the artist's name and official site URL for grounding. It
+	// does not retry a failure: Unavailable tells the caller that a later call
+	// may succeed.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the artist or official site is invalid.
-	//  - Unavailable: If the external service is down.
-	//  - Internal: unexpected failure during search processing.
+	//  - Unavailable: the external service is busy, rate-limiting or failing,
+	//    the connection was lost, or no answer came in time.
+	//  - DeadlineExceeded, Canceled: the caller's context ended.
+	//  - PermissionDenied, FailedPrecondition, Unauthenticated: the service
+	//    refuses the account (a spend cap, depleted credits, the key).
+	//  - InvalidArgument: the service rejects the request.
+	//  - Internal: the answer holds no usable result (no candidate, a response
+	//    not completed, broken or empty), or processing failed.
 	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*DiscoveredSeries, error)
 }
 
