@@ -56,8 +56,8 @@ func TestConcertCreationUseCase_RemoveEmptyDiscoveredSeries(t *testing.T) {
 		require.Len(t, f.starts, 1)
 		assert.Equal(t, usecase.WorkflowRemoveEmptyDiscoveredSeries, f.starts[0].workflow)
 		assert.Equal(t, now, f.starts[0].input)
-		assert.Equal(t, usecase.StartOptions{Queue: usecase.ConcertDiscoveryQueue}, f.starts[0].options,
-			"it waits for a batch being processed, which may have emptied a Series it still stores into")
+		assert.Equal(t, usecase.StartOptions{Queue: usecase.ConcertDiscoveryQueue, Deadline: now.Add(6 * time.Hour)}, f.starts[0].options,
+			"it waits for a batch being processed, which may have emptied a Series it still stores into, and gives up after 6 hours")
 	})
 
 	t.Run("the scheduled run removes as of its scheduled time", func(t *testing.T) {

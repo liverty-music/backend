@@ -332,7 +332,7 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 
 	err := f.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(in.ArtistID, in.SearchTime),
 		entity.ConcertDiscoveredData{ArtistID: in.ArtistID, ArtistName: call.ArtistName, Series: call.Series},
-		WithQueue(ConcertDiscoveryQueue))
+		WithQueue(ConcertDiscoveryQueue), WithDeadline(uc.clock().Add(discoveryQueueDeadline)))
 	if err != nil {
 		// A conflict or a cancellation of this run is the engine's to handle.
 		if errors.Is(err, apperr.ErrAborted) || errors.Is(err, apperr.ErrCanceled) {

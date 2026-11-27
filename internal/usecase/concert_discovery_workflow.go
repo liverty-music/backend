@@ -24,6 +24,14 @@ const (
 	ConcertDiscoveryQueueConcurrency = 1
 )
 
+// discoveryQueueDeadline bounds a run on [ConcertDiscoveryQueue], counted from
+// its start and so including its wait in the queue. The queue runs one at a
+// time, so a run that keeps retrying an Unavailable step would hold every
+// other Artist's batch behind it; at the deadline it ends, frees the queue and
+// is reported to an admin. A day's batches take minutes, so 6 hours is far
+// more than a healthy run needs.
+const discoveryQueueDeadline = 6 * time.Hour
+
 // WorkflowRemoveEmptyDiscoveredSeries is the registered name of
 // ConcertCreationUseCase.RunRemoveEmptyDiscoveredSeries. It runs on
 // [ConcertDiscoveryQueue], so it never overlaps a batch: a batch may choose an
@@ -76,7 +84,8 @@ func (uc *concertCreationUseCase) RemoveEmptyDiscoveredSeries(ctx context.Contex
 // ScheduleEmptySeriesRemoval implements [ConcertCreationUseCase].
 func (uc *concertCreationUseCase) ScheduleEmptySeriesRemoval(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error) {
 	id := WorkflowRemoveEmptyDiscoveredSeries + ":" + strconv.FormatInt(scheduled.Unix(), 10)
-	return struct{}{}, f.Start(ctx, WorkflowRemoveEmptyDiscoveredSeries, id, scheduled, WithQueue(ConcertDiscoveryQueue))
+	return struct{}{}, f.Start(ctx, WorkflowRemoveEmptyDiscoveredSeries, id, scheduled,
+		WithQueue(ConcertDiscoveryQueue), WithDeadline(scheduled.Add(discoveryQueueDeadline)))
 }
 
 // RunRemoveEmptyDiscoveredSeries implements [ConcertCreationUseCase]. A
