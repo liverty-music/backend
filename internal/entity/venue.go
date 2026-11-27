@@ -235,9 +235,10 @@ type VenueRepository interface {
 const CoordinatesRefreshAge = 20 * 24 * time.Hour
 
 // CoordinatesMaxAge is the age past which coordinates read from the map
-// catalog are removed. The catalog's terms allow keeping them for 30 days, and
-// removal runs once a day, so it is one day less.
-const CoordinatesMaxAge = 29 * 24 * time.Hour
+// catalog are removed. The catalog's terms allow keeping them for 30 days.
+// Removal runs once a day, at the end of the refresh run and by the instant the
+// run started, so two days less leave room for the interval and the run.
+const CoordinatesMaxAge = 28 * 24 * time.Hour
 
 // CheckArea checks the venue's admin area and time zone against area, what
 // its admin area resolved to, and zones, the time zones of the Area's

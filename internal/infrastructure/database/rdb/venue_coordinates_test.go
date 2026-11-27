@@ -199,7 +199,7 @@ func TestVenueRepository_ClearExpiredCoordinates(t *testing.T) {
 	t.Run("change no venue when nothing has expired", func(t *testing.T) {
 		t.Parallel()
 		repo := rdb.NewVenueRepository(newTestDB(t))
-		id := createVenueWithCoordinates(t, repo, "ChIJfresh", fetchedDaysBefore(29))
+		id := createVenueWithCoordinates(t, repo, "ChIJfresh", fetchedDaysBefore(28))
 
 		n, err := repo.ClearExpiredCoordinates(ctx, coordinatesInstant)
 
