@@ -656,7 +656,9 @@ type ConcertRepository interface {
 	// event and its id, fills its start and open time only where they are
 	// unknown, never overwrites a known time, and adds the Concert's
 	// performers to it. Concerts in one call that share a slot are stored
-	// once. A DRAFT event holds no slot and is never merged into.
+	// once. A DRAFT event holds no slot and is never merged into. An event
+	// with a publish state (an Organizer's event) is left unchanged: no time
+	// is filled, no performer added, and its id is not returned.
 	//
 	// Nil elements in the input slice are skipped.
 	//

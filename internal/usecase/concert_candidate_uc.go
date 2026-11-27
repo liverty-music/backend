@@ -501,11 +501,7 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 			// The Artist's event is the last of a Series with ticket sales:
 			// it stays, and the Artist joins the event below instead. Merge
 			// also refuses an event an Organizer published meanwhile, which
-			// keeps its performers.
-			published, err := uc.publishedMeanwhile(ctx, existing)
-			if err != nil || published {
-				return err
-			}
+			// Create leaves unchanged.
 		default:
 			return fmt.Errorf("shared bill: merge event %s into %s: %w", own.ID, existing.ID, err)
 		}
@@ -518,16 +514,6 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 		return fmt.Errorf("shared bill: add the artist to event %s: %w", existing.ID, err)
 	}
 	return nil
-}
-
-// publishedMeanwhile reports whether the event has a publish state now.
-func (uc *concertCandidateUseCase) publishedMeanwhile(ctx context.Context, event *entity.Concert) (bool, error) {
-	events, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{event.VenueID}, []time.Time{event.LocalDate})
-	if err != nil {
-		return false, fmt.Errorf("shared bill: look event %s up again: %w", event.ID, err)
-	}
-	e := firstOf(events, func(e *entity.Concert) bool { return e.ID == event.ID })
-	return e != nil && e.PublishState != nil, nil
 }
 
 // buildDuplicateConflict assembles the conflict DTO: the existing event's display

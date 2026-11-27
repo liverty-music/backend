@@ -643,3 +643,110 @@ func TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries(t *testing.T) {
 	require.ErrorIs(t, <-merged, apperr.ErrFailedPrecondition)
 	assert.True(t, f.read(source).exists)
 }
+
+func TestConcertRepository_CreateAtFirstPartySlot(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+
+	t.Run("First-party event left unchanged", func(t *testing.T) {
+		// @spec components/entity/concert/create "First-party event left unchanged"
+		f := newVisibilityFixture(t, db)
+		organizers, joining, v := f.artist(), f.artist(), f.venue("JP-13", nil, nil)
+		id := f.store(slotEvent{series: f.firstPartySeries(entity.SeriesVisibilityPublic), venue: v, date: slotDate, start: "18:00", state: "PUBLISHED", artists: []string{organizers}})
+		mark := outboxMark(t, db)
+
+		got, err := f.repo.Create(f.ctx, &entity.Concert{
+			ID: entity.NewID(), SeriesID: f.discoveredSeries(), VenueID: v, LocalDate: slotDate,
+			StartTime: &entity.TimeOfDay{Hour: 18}, OpenTime: &entity.TimeOfDay{Hour: 17},
+			Artists: []*entity.Artist{{ID: joining}},
+		})
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Equal(t, []string{organizers}, f.read(id).performers)
+		assert.Equal(t, 0, f.count(`SELECT count(*) FROM events WHERE id = $1 AND local_open_time IS NOT NULL`, id), "the open time stays unknown")
+		assert.Equal(t, 1, f.count(`SELECT count(*) FROM events WHERE venue_id = $1`, v), "no second event is stored")
+		assert.Empty(t, concertsAnnouncedFor(t, db, mark, joining))
+	})
+}
+
+func TestConcertRepository_CreateSlots(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	at18, at17 := &entity.TimeOfDay{Hour: 18}, &entity.TimeOfDay{Hour: 17}
+
+	// create stores one Concert of the artist at the venue's slot.
+	create := func(f *visibilityFixture, series, venue, artist string, start, open *entity.TimeOfDay) (string, []string) {
+		f.t.Helper()
+		id := entity.NewID()
+		got, err := f.repo.Create(f.ctx, &entity.Concert{ID: id, SeriesID: series, VenueID: venue, LocalDate: slotDate,
+			StartTime: start, OpenTime: open, Artists: []*entity.Artist{{ID: artist}}})
+		require.NoError(f.t, err)
+		return id, got
+	}
+	openTime := func(f *visibilityFixture, id string) string {
+		f.t.Helper()
+		var open string
+		require.NoError(f.t, db.Pool.QueryRow(f.ctx, `SELECT coalesce(to_char(local_open_time, 'HH24:MI'), '') FROM events WHERE id = $1`, id).Scan(&open))
+		return open
+	}
+
+	t.Run("New slot", func(t *testing.T) {
+		// @spec components/entity/concert/create "New slot"
+		f := newVisibilityFixture(t, db)
+		a, v := f.artist(), f.venue("JP-13", nil, nil)
+
+		id, got := create(f, f.discoveredSeries(), v, a, at18, nil)
+
+		assert.Equal(t, []string{id}, got)
+		assert.Equal(t, []string{a}, f.read(id).performers)
+	})
+
+	t.Run("Existing slot keeps its id", func(t *testing.T) {
+		// @spec components/entity/concert/create "Existing slot keeps its id"
+		f := newVisibilityFixture(t, db)
+		a, b, s, v := f.artist(), f.artist(), f.discoveredSeries(), f.venue("JP-13", nil, nil)
+		existing := f.store(slotEvent{series: s, venue: v, date: slotDate, start: "18:00", artists: []string{a}})
+
+		id, got := create(f, s, v, b, at18, nil)
+
+		assert.Equal(t, []string{existing}, got)
+		assert.False(t, f.read(id).exists)
+		assert.Equal(t, 1, f.count(`SELECT count(*) FROM events WHERE venue_id = $1`, v))
+	})
+
+	t.Run("Known open time is not overwritten", func(t *testing.T) {
+		// @spec components/entity/concert/create "Known open time is not overwritten"
+		f := newVisibilityFixture(t, db)
+		a, s, v := f.artist(), f.discoveredSeries(), f.venue("JP-13", nil, nil)
+		existing := f.store(slotEvent{series: s, venue: v, date: slotDate, start: "18:00", artists: []string{a}})
+		f.exec(`UPDATE events SET local_open_time = '17:00' WHERE id = $1`, existing)
+
+		create(f, s, v, a, at18, nil)
+
+		assert.Equal(t, "17:00", openTime(f, existing))
+	})
+
+	t.Run("Unknown open time is filled", func(t *testing.T) {
+		// @spec components/entity/concert/create "Unknown open time is filled"
+		f := newVisibilityFixture(t, db)
+		a, s, v := f.artist(), f.discoveredSeries(), f.venue("JP-13", nil, nil)
+		existing := f.store(slotEvent{series: s, venue: v, date: slotDate, start: "18:00", artists: []string{a}})
+
+		create(f, s, v, a, at18, at17)
+
+		assert.Equal(t, "17:00", openTime(f, existing))
+	})
+
+	t.Run("Different start time is a new event", func(t *testing.T) {
+		// @spec components/entity/concert/create "Different start time is a new event"
+		f := newVisibilityFixture(t, db)
+		a, s, v := f.artist(), f.discoveredSeries(), f.venue("JP-13", nil, nil)
+		f.store(slotEvent{series: s, venue: v, date: slotDate, artists: []string{a}})
+
+		id, got := create(f, s, v, a, at18, nil)
+
+		assert.Equal(t, []string{id}, got)
+		assert.Equal(t, 2, f.count(`SELECT count(*) FROM events WHERE venue_id = $1`, v))
+	})
+}
