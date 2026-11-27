@@ -2,11 +2,13 @@ package gemini_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"testing/synctest"
 	"time"
 
@@ -28,8 +30,9 @@ type modelTransport struct {
 	requests []modelRequest
 	// answer returns the delay, status and body of the n-th request (from 1).
 	answer func(n int) (time.Duration, int, string)
-	// lost ends every request with a connection error instead of an answer.
-	lost bool
+	// lost ends every request with a connection error instead of an answer;
+	// cut ends it while the answer is read.
+	lost, cut bool
 }
 
 // modelRequest is what one request asked for.
@@ -52,6 +55,15 @@ func (m *modelTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	if m.lost {
 		return nil, io.ErrUnexpectedEOF
+	}
+	if m.cut {
+		// As an HTTP/2 stream reset: an error of no exported type.
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(iotest.ErrReader(errors.New("stream error: stream ID 1; INTERNAL_ERROR"))),
+			Request:    req,
+		}, nil
 	}
 	delay, status, resp := m.answer(n)
 	select {
@@ -155,23 +167,31 @@ func TestSearch_ServiceTier(t *testing.T) {
 		})
 	})
 
-	// @spec components/entity/concert/search "Connection lost"
-	t.Run("fails with Unavailable when the connection is lost", func(t *testing.T) {
-		t.Parallel()
-		synctest.Test(t, func(t *testing.T) {
-			reporter := &recordingReporter{}
-			transport := &modelTransport{lost: true}
-			s := newTierSearcher(t, gemini.Config{Reporter: reporter}, transport)
+	for _, tt := range []struct {
+		name      string
+		lost, cut bool
+	}{
+		// @spec components/entity/concert/search "Connection lost"
+		{name: "the request cannot be sent", lost: true},
+		{name: "the answer is cut off", cut: true},
+	} {
+		t.Run("fails with Unavailable when "+tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				reporter := &recordingReporter{}
+				transport := &modelTransport{lost: tt.lost, cut: tt.cut}
+				s := newTierSearcher(t, gemini.Config{Reporter: reporter}, transport)
 
-			_, err := s.Search(t.Context(), artist, nil, from)
+				_, err := s.Search(t.Context(), artist, nil, from)
 
-			assert.ErrorIs(t, err, apperr.ErrUnavailable)
-			assert.Len(t, transport.sent(), 1)
-			reported := reporter.reported()
-			require.Len(t, reported, 1)
-			assert.Equal(t, "transient", reported[0].gen.ErrorKind)
+				assert.ErrorIs(t, err, apperr.ErrUnavailable)
+				assert.Len(t, transport.sent(), 1)
+				reported := reporter.reported()
+				require.Len(t, reported, 1)
+				assert.Equal(t, "transient", reported[0].gen.ErrorKind)
+			})
 		})
-	})
+	}
 
 	tiers := []struct {
 		name         string

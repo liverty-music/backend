@@ -4,11 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
-	"net/url"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -77,18 +74,6 @@ func apiErrorCode(status int) codes.Code {
 		return code
 	}
 	return codes.Unknown
-}
-
-// isConnectionError reports whether a request got no complete HTTP answer:
-// it could not be sent, or the connection ended before the answer did.
-func isConnectionError(err error) bool {
-	if _, ok := errors.AsType[*url.Error](err); ok {
-		return true
-	}
-	if _, ok := errors.AsType[net.Error](err); ok {
-		return true
-	}
-	return errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // isRetryable reports whether err is a transient Gemini API error that

@@ -793,10 +793,11 @@ type ConcertSearcher interface {
 	//
 	//  - InvalidArgument: If the artist or official site is invalid.
 	//  - Unavailable: the external service is busy, rate-limiting or failing,
-	//    the connection was lost, or no answer came in time.
+	//    refused authorization for the moment (401), the connection was lost,
+	//    or no answer came in time.
 	//  - DeadlineExceeded, Canceled: the caller's context ended.
-	//  - PermissionDenied, FailedPrecondition, Unauthenticated: the service
-	//    refuses the account (a spend cap, depleted credits, the key).
+	//  - PermissionDenied, FailedPrecondition: the service refuses the account
+	//    (a spend cap, depleted credits).
 	//  - InvalidArgument: the service rejects the request.
 	//  - Internal: the answer holds no usable result (no candidate, a response
 	//    not completed, broken or empty), or processing failed.

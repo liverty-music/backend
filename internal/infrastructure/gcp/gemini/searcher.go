@@ -371,7 +371,7 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient 
 	}
 
 	cc := &genai.ClientConfig{
-		HTTPClient: httpClient,
+		HTTPClient: markConnectionErrors(httpClient),
 		Backend:    genai.BackendGeminiAPI,
 		APIKey:     cfg.APIKey,
 	}
