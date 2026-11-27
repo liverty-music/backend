@@ -14,8 +14,8 @@ import (
 var _ backenduserv1connect.UserServiceHandler = (*BackendUserHandler)(nil)
 
 // BackendUserHandler implements the identity service's UserService, which the
-// event consumer, the fan API and the admin console API call to change a fan's identity at
-// the identity provider. The identity service holds the identity-provider
+// workflow worker and the fan API call to change a fan's identity at the
+// identity provider. The identity service holds the identity-provider
 // credentials and has no business rules of its own, so each method calls the
 // IdentityUserUseCase, which passes it to one identity-provider port, and
 // maps its result. Which caller may call which
