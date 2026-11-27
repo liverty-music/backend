@@ -676,7 +676,7 @@ func TestRunSearch_Outcome(t *testing.T) {
 		// The discovery queue runs one batch at a time, so a second Artist's
 		// batch waits for this one and sees what it stored.
 		assert.Equal(t, usecase.ConcertDiscoveryQueue, f.starts[0].options.Queue)
-		assert.False(t, f.starts[0].options.Deadline.IsZero(), "a run stuck retrying ends and frees the queue")
+		assert.Greater(t, f.starts[0].options.Deadline.Year(), 2000, "a run stuck retrying ends and frees the queue")
 		assert.Equal(t, 1, usecase.ConcertDiscoveryQueueConcurrency)
 		data := f.starts[0].input.(entity.ConcertDiscoveredData)
 		assert.Equal(t, artist.ID, data.ArtistID)
