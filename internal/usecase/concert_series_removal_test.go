@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 func TestConcertCreationUseCase_RemoveEmptyDiscoveredSeries(t *testing.T) {
@@ -40,6 +42,22 @@ func TestConcertCreationUseCase_RemoveEmptyDiscoveredSeries(t *testing.T) {
 		err := h.uc.RemoveEmptyDiscoveredSeries(context.Background(), now)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable, "the run fails; the next day's run removes them")
+	})
+
+	t.Run("the schedule starts the removal on the discovery queue", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/remove-empty-discovered-series "Batch being processed"
+		h := newCreationHarness(t)
+		f := &inlineFlow{}
+
+		_, err := h.uc.ScheduleEmptySeriesRemoval(context.Background(), f, now)
+
+		require.NoError(t, err)
+		require.Len(t, f.starts, 1)
+		assert.Equal(t, usecase.WorkflowRemoveEmptyDiscoveredSeries, f.starts[0].workflow)
+		assert.Equal(t, now, f.starts[0].input)
+		assert.Equal(t, usecase.StartOptions{Queue: usecase.ConcertDiscoveryQueue}, f.starts[0].options,
+			"it waits for a batch being processed, which may have emptied a Series it still stores into")
 	})
 
 	t.Run("the scheduled run removes as of its scheduled time", func(t *testing.T) {

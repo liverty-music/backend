@@ -321,7 +321,8 @@ func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg
 		return err
 	}
 	workflow.Register(rt, usecase.WorkflowCreateFromDiscovered, concerts.RunCreateFromDiscovered)
-	workflow.RegisterSchedule(rt, usecase.WorkflowRemoveEmptyDiscoveredSeries, usecase.RemoveEmptyDiscoveredSeriesSchedule, concerts.RunRemoveEmptyDiscoveredSeries)
+	workflow.Register(rt, usecase.WorkflowRemoveEmptyDiscoveredSeries, concerts.RunRemoveEmptyDiscoveredSeries)
+	workflow.RegisterSchedule(rt, usecase.WorkflowScheduleEmptySeriesRemoval, usecase.RemoveEmptyDiscoveredSeriesSchedule, concerts.ScheduleEmptySeriesRemoval)
 	return nil
 }
 

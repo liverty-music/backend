@@ -25,11 +25,19 @@ const (
 )
 
 // WorkflowRemoveEmptyDiscoveredSeries is the registered name of
-// ConcertCreationUseCase.RunRemoveEmptyDiscoveredSeries.
+// ConcertCreationUseCase.RunRemoveEmptyDiscoveredSeries. It runs on
+// [ConcertDiscoveryQueue], so it never overlaps a batch: a batch may choose an
+// old Series and empty it with a Merge before it stores the rest of its
+// events there.
 const WorkflowRemoveEmptyDiscoveredSeries = "remove-empty-discovered-series"
 
+// WorkflowScheduleEmptySeriesRemoval is the registered name of
+// ConcertCreationUseCase.ScheduleEmptySeriesRemoval, the scheduled workflow
+// that starts [WorkflowRemoveEmptyDiscoveredSeries].
+const WorkflowScheduleEmptySeriesRemoval = "schedule-empty-series-removal"
+
 // RemoveEmptyDiscoveredSeriesSchedule runs
-// [WorkflowRemoveEmptyDiscoveredSeries] once a day, at 04:00 UTC (13:00 JST,
+// [WorkflowScheduleEmptySeriesRemoval] once a day, at 04:00 UTC (13:00 JST,
 // away from the 09:00 JST discovery run), as a cron expression with seconds.
 const RemoveEmptyDiscoveredSeriesSchedule = "0 0 4 * * *"
 
@@ -63,6 +71,12 @@ func (uc *concertCreationUseCase) RemoveEmptyDiscoveredSeries(ctx context.Contex
 	}
 	uc.logger.Info(ctx, "removed empty discovered series", slog.Int64("removed", removed))
 	return nil
+}
+
+// ScheduleEmptySeriesRemoval implements [ConcertCreationUseCase].
+func (uc *concertCreationUseCase) ScheduleEmptySeriesRemoval(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error) {
+	id := WorkflowRemoveEmptyDiscoveredSeries + ":" + strconv.FormatInt(scheduled.Unix(), 10)
+	return struct{}{}, f.Start(ctx, WorkflowRemoveEmptyDiscoveredSeries, id, scheduled, WithQueue(ConcertDiscoveryQueue))
 }
 
 // RunRemoveEmptyDiscoveredSeries implements [ConcertCreationUseCase]. A

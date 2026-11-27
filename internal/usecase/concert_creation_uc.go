@@ -51,7 +51,14 @@ type ConcertCreationUseCase interface {
 	//    the Series.
 	RemoveEmptyDiscoveredSeries(ctx context.Context, now time.Time) error
 
-	// RunRemoveEmptyDiscoveredSeries is the scheduled workflow
+	// ScheduleEmptySeriesRemoval is the scheduled workflow
+	// [WorkflowScheduleEmptySeriesRemoval]: it starts
+	// [WorkflowRemoveEmptyDiscoveredSeries] for the scheduled time on
+	// [ConcertDiscoveryQueue], so the removal waits for any batch being
+	// processed.
+	ScheduleEmptySeriesRemoval(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error)
+
+	// RunRemoveEmptyDiscoveredSeries is the workflow
 	// [WorkflowRemoveEmptyDiscoveredSeries]: it runs
 	// RemoveEmptyDiscoveredSeries as one step.
 	RunRemoveEmptyDiscoveredSeries(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error)

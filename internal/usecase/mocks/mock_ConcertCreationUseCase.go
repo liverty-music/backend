@@ -306,3 +306,75 @@ func (_c *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call) RunAnd
 	_c.Call.Return(run)
 	return _c
 }
+
+// ScheduleEmptySeriesRemoval provides a mock function for the type MockConcertCreationUseCase
+func (_mock *MockConcertCreationUseCase) ScheduleEmptySeriesRemoval(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error) {
+	ret := _mock.Called(ctx, f, scheduled)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScheduleEmptySeriesRemoval")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) (struct{}, error)); ok {
+		return returnFunc(ctx, f, scheduled)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) struct{}); ok {
+		r0 = returnFunc(ctx, f, scheduled)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, time.Time) error); ok {
+		r1 = returnFunc(ctx, f, scheduled)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScheduleEmptySeriesRemoval'
+type MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call struct {
+	*mock.Call
+}
+
+// ScheduleEmptySeriesRemoval is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - scheduled time.Time
+func (_e *MockConcertCreationUseCase_Expecter) ScheduleEmptySeriesRemoval(ctx any, f any, scheduled any) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	return &MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call{Call: _e.mock.On("ScheduleEmptySeriesRemoval", ctx, f, scheduled)}
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) Run(run func(ctx context.Context, f usecase.Flow, scheduled time.Time)) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) Return(val struct{}, err error) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error)) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	_c.Call.Return(run)
+	return _c
+}
