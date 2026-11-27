@@ -224,6 +224,7 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 
 	t.Run("adopting onto an Organizer's event changes nothing", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Organizer's event not adopted onto"
 		d := newApprovalTestDeps(t, sim)
 		organizers := concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-1", LocalDate: aug1,
 			ListedVenueName: new("Zepp Osaka Bayside"), PublishState: published()}, sim.ID)
