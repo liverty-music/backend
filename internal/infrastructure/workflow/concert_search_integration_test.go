@@ -49,7 +49,7 @@ func startSearchWorker(t *testing.T, search func(ctx context.Context, artistID s
 	searches.EXPECT().GetByArtistID(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, id string) (*entity.ConcertSearch, error) {
 		return &entity.ConcertSearch{ArtistID: id, SearchTime: w.searchTime, Status: entity.ConcertSearchStatusPending}, nil
 	}).Maybe()
-	searches.EXPECT().UpdateStatus(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	searches.EXPECT().UpdateStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	concerts := mocks.NewMockConcertRepository(t)
 	concerts.EXPECT().ListUpcomingByArtist(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	candidates := mocks.NewMockConcertCandidateRepository(t)

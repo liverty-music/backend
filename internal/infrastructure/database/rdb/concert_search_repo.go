@@ -27,8 +27,8 @@ const (
 	`
 	updateConcertSearchStatusQuery = `
 		UPDATE concert_searches
-		SET status = $2
-		WHERE artist_id = $1
+		SET status = $3
+		WHERE artist_id = $1 AND search_time = $2
 	`
 	markConcertSearchFoundQuery = `
 		UPDATE concert_searches
@@ -73,9 +73,10 @@ func (r *ConcertSearchRepository) Upsert(ctx context.Context, artistID string, s
 	return searchTime, nil
 }
 
-// UpdateStatus updates the status for an existing concert search.
-func (r *ConcertSearchRepository) UpdateStatus(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error {
-	_, err := r.db.Pool.Exec(ctx, updateConcertSearchStatusQuery, artistID, string(status))
+// UpdateStatus sets the status of the artist's concert search whose search
+// time is searchTime.
+func (r *ConcertSearchRepository) UpdateStatus(ctx context.Context, artistID string, searchTime time.Time, status entity.ConcertSearchStatus) error {
+	_, err := r.db.Pool.Exec(ctx, updateConcertSearchStatusQuery, artistID, searchTime, string(status))
 	if err != nil {
 		return toAppErr(err, "failed to update concert search status", slog.String("artist_id", artistID))
 	}

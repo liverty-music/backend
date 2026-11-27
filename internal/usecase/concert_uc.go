@@ -559,11 +559,11 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 // markSearchCompleted updates the concert search status to completed.
 // It uses context.WithoutCancel to detach from the parent's deadline while
 // preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string) {
+func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string, searchTime time.Time) {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusCompleted); err != nil {
+	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, searchTime, entity.ConcertSearchStatusCompleted); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
 	}
 }
@@ -584,11 +584,11 @@ func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) 
 // markSearchFailed updates the concert search status to failed.
 // It uses context.WithoutCancel to detach from the parent's deadline while
 // preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {
+func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string, searchTime time.Time) {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusFailed); err != nil {
+	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, searchTime, entity.ConcertSearchStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
 }

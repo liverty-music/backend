@@ -231,16 +231,16 @@ func (_c *MockConcertSearchRepository_MarkFound_Call) RunAndReturn(run func(ctx 
 }
 
 // UpdateStatus provides a mock function for the type MockConcertSearchRepository
-func (_mock *MockConcertSearchRepository) UpdateStatus(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error {
-	ret := _mock.Called(ctx, artistID, status)
+func (_mock *MockConcertSearchRepository) UpdateStatus(ctx context.Context, artistID string, searchTime time.Time, status entity.ConcertSearchStatus) error {
+	ret := _mock.Called(ctx, artistID, searchTime, status)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateStatus")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, entity.ConcertSearchStatus) error); ok {
-		r0 = returnFunc(ctx, artistID, status)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time, entity.ConcertSearchStatus) error); ok {
+		r0 = returnFunc(ctx, artistID, searchTime, status)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -255,12 +255,13 @@ type MockConcertSearchRepository_UpdateStatus_Call struct {
 // UpdateStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artistID string
+//   - searchTime time.Time
 //   - status entity.ConcertSearchStatus
-func (_e *MockConcertSearchRepository_Expecter) UpdateStatus(ctx any, artistID any, status any) *MockConcertSearchRepository_UpdateStatus_Call {
-	return &MockConcertSearchRepository_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", ctx, artistID, status)}
+func (_e *MockConcertSearchRepository_Expecter) UpdateStatus(ctx any, artistID any, searchTime any, status any) *MockConcertSearchRepository_UpdateStatus_Call {
+	return &MockConcertSearchRepository_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", ctx, artistID, searchTime, status)}
 }
 
-func (_c *MockConcertSearchRepository_UpdateStatus_Call) Run(run func(ctx context.Context, artistID string, status entity.ConcertSearchStatus)) *MockConcertSearchRepository_UpdateStatus_Call {
+func (_c *MockConcertSearchRepository_UpdateStatus_Call) Run(run func(ctx context.Context, artistID string, searchTime time.Time, status entity.ConcertSearchStatus)) *MockConcertSearchRepository_UpdateStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -270,14 +271,19 @@ func (_c *MockConcertSearchRepository_UpdateStatus_Call) Run(run func(ctx contex
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 entity.ConcertSearchStatus
+		var arg2 time.Time
 		if args[2] != nil {
-			arg2 = args[2].(entity.ConcertSearchStatus)
+			arg2 = args[2].(time.Time)
+		}
+		var arg3 entity.ConcertSearchStatus
+		if args[3] != nil {
+			arg3 = args[3].(entity.ConcertSearchStatus)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -288,7 +294,7 @@ func (_c *MockConcertSearchRepository_UpdateStatus_Call) Return(err error) *Mock
 	return _c
 }
 
-func (_c *MockConcertSearchRepository_UpdateStatus_Call) RunAndReturn(run func(ctx context.Context, artistID string, status entity.ConcertSearchStatus) error) *MockConcertSearchRepository_UpdateStatus_Call {
+func (_c *MockConcertSearchRepository_UpdateStatus_Call) RunAndReturn(run func(ctx context.Context, artistID string, searchTime time.Time, status entity.ConcertSearchStatus) error) *MockConcertSearchRepository_UpdateStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -344,8 +344,8 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 
 // endSearch records the end of a search in one step: the ConcertSearch's
 // status, the search metric and, for a search that called the external search,
-// its concert.search.completed signal. The status is left alone when a later
-// search has replaced this one. A search that neither called the external
+// its concert.search.completed signal. The status of a later search that has
+// replaced this one is left alone (ConcertSearch.UpdateStatus). A search that neither called the external
 // search nor failed records no metric. No failure to record changes the
 // outcome.
 func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearchAttempt, end searchEnd) (struct{}, error) {
@@ -357,9 +357,7 @@ func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearc
 		case end.EventCount == 0:
 			outcome, metric = concertSearchOutcomeNothingNew, "zero_results"
 		}
-		if !uc.isReplaced(ctx, in) {
-			mark(ctx, in.ArtistID)
-		}
+		mark(ctx, in.ArtistID, in.SearchTime)
 		if end.Called || end.Failed {
 			uc.metrics.RecordConcertSearch(ctx, metric)
 		}
@@ -368,23 +366,6 @@ func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearc
 		}
 		return struct{}{}, nil
 	})
-}
-
-// isReplaced reports whether a later search of the Artist has taken this one's
-// place. The last call of a search can end after the search window, when the
-// next daily run may already have requested a new search, whose status this one
-// must not overwrite. A ConcertSearch that cannot be read counts as not
-// replaced.
-func (uc *concertUseCase) isReplaced(ctx context.Context, in ConcertSearchAttempt) bool {
-	search, err := uc.concertSearchRepo.GetByArtistID(ctx, in.ArtistID)
-	if err != nil {
-		uc.logger.Warn(ctx, "failed to check whether the concert search was replaced",
-			slog.String("artist_id", in.ArtistID),
-			slog.Any("error", err),
-		)
-		return false
-	}
-	return search.SearchTime.UnixMicro() != in.SearchTime.UnixMicro()
 }
 
 // reportSearchOutcome sends the concert.search.completed signal of a search

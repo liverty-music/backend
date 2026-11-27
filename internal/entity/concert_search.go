@@ -72,12 +72,15 @@ type ConcertSearchRepository interface {
 	//  - Internal: If the upsert fails.
 	Upsert(ctx context.Context, artistID string, status ConcertSearchStatus) (time.Time, error)
 
-	// UpdateStatus updates the status for an existing concert search.
+	// UpdateStatus sets the status of the artist's concert search whose
+	// search time is searchTime. When the artist has no concert search, or a
+	// later search has replaced that one, it changes nothing and succeeds, so
+	// a search that ends late cannot end its successor.
 	//
 	// # Possible errors
 	//
 	//  - Internal: If the update fails.
-	UpdateStatus(ctx context.Context, artistID string, status ConcertSearchStatus) error
+	UpdateStatus(ctx context.Context, artistID string, searchTime time.Time, status ConcertSearchStatus) error
 
 	// MarkFound records that a search discovered at least one new concert by
 	// setting the artist's last_find_time to the current time. It assumes the

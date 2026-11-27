@@ -138,10 +138,10 @@ func TestConcertSearchRepository_GetByArtistID(t *testing.T) {
 	t.Run("returns status fields", func(t *testing.T) {
 		artistID := seedArtist(t, db, "GetByArtistID Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d2")
 
-		_, err := concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+		searchTime, err := concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 		require.NoError(t, err)
 
-		err = concertSearchRepo.UpdateStatus(ctx, artistID, entity.ConcertSearchStatusFailed)
+		err = concertSearchRepo.UpdateStatus(ctx, artistID, searchTime, entity.ConcertSearchStatusFailed)
 		require.NoError(t, err)
 
 		log, err := concertSearchRepo.GetByArtistID(ctx, artistID)
@@ -193,6 +193,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 		setup      func() string // returns artistID with pre-existing log
 		wantStatus entity.ConcertSearchStatus
 	}{
+		// @spec components/entity/concert-search/update-status "Completed"
 		{
 			name: "update to completed",
 			setup: func() string {
@@ -222,7 +223,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 				artistID := seedArtist(t, db, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				_, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
-				err = repo.UpdateStatus(ctx, artistID, entity.ConcertSearchStatusFailed)
+				err = repo.UpdateStatus(ctx, artistID, searchTimeOf(t, repo, artistID), entity.ConcertSearchStatusFailed)
 				require.NoError(t, err)
 				return artistID
 			},
@@ -234,7 +235,7 @@ func TestConcertSearchRepository_UpdateStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			artistID := tt.setup()
 
-			err := repo.UpdateStatus(ctx, artistID, tt.wantStatus)
+			err := repo.UpdateStatus(ctx, artistID, searchTimeOf(t, repo, artistID), tt.wantStatus)
 			require.NoError(t, err)
 
 			log, err := repo.GetByArtistID(ctx, artistID)
@@ -297,4 +298,46 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 			assert.Nil(t, got)
 		})
 	}
+}
+
+// searchTimeOf returns the search time of the artist's concert search.
+func searchTimeOf(t *testing.T, repo *rdb.ConcertSearchRepository, artistID string) time.Time {
+	t.Helper()
+	search, err := repo.GetByArtistID(context.Background(), artistID)
+	require.NoError(t, err)
+	return search.SearchTime
+}
+
+// @spec components/entity/concert-search/update-status "Replaced search"
+func TestConcertSearchRepository_UpdateStatus_ReplacedSearch(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
+	ctx := context.Background()
+	artistID := seedArtist(t, db, "Replaced Search Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b02")
+	earlier, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+	require.NoError(t, err)
+	later, err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
+	require.NoError(t, err)
+	require.NotEqual(t, earlier, later)
+
+	require.NoError(t, repo.UpdateStatus(ctx, artistID, earlier, entity.ConcertSearchStatusFailed))
+
+	got, err := repo.GetByArtistID(ctx, artistID)
+	require.NoError(t, err)
+	assert.Equal(t, entity.ConcertSearchStatusPending, got.Status)
+}
+
+// @spec components/entity/concert-search/update-status "No log"
+func TestConcertSearchRepository_UpdateStatus_NoSearch(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewConcertSearchRepository(db)
+	ctx := context.Background()
+	artistID := seedArtist(t, db, "Never Searched Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b03")
+
+	require.NoError(t, repo.UpdateStatus(ctx, artistID, time.Now(), entity.ConcertSearchStatusFailed))
+
+	_, err := repo.GetByArtistID(ctx, artistID)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
