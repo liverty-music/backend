@@ -94,6 +94,18 @@ func TestVenue_Coordinates(t *testing.T) {
 		fetch := time.Date(2026, 10, 20, 4, 0, 0, 0, time.UTC)
 		assert.True(t, (&entity.Venue{Coordinates: point, CoordinatesFetchTime: &fetch}).CoordinatesExpired(now))
 	})
+	t.Run("Coordinates older than 28 days", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/venue "Coordinates older than 28 days"
+		fetch := time.Date(2026, 10, 26, 4, 0, 0, 0, time.UTC)
+		assert.True(t, (&entity.Venue{Coordinates: point, CoordinatesFetchTime: &fetch}).CoordinatesExpired(now))
+	})
+	t.Run("Coordinates 27 days old", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/venue "Coordinates 27 days old"
+		fetch := time.Date(2026, 10, 28, 4, 0, 0, 0, time.UTC)
+		assert.False(t, (&entity.Venue{Coordinates: point, CoordinatesFetchTime: &fetch}).CoordinatesExpired(now))
+	})
 	t.Run("removed two days before the 30 day limit", func(t *testing.T) {
 		t.Parallel()
 		// Removal runs daily: anything older than 28 days could pass 30 days

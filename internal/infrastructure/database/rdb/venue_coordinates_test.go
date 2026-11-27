@@ -195,6 +195,25 @@ func TestVenueRepository_ClearExpiredCoordinates(t *testing.T) {
 		assert.Zero(t, again, "running again changes nothing more")
 	})
 
+	// @spec components/entity/venue/clear-expired-coordinates "Coordinates on either side of 28 days"
+	t.Run("remove coordinates 29 days old and keep those 27 days old", func(t *testing.T) {
+		t.Parallel()
+		repo := rdb.NewVenueRepository(newTestDB(t))
+		older := createVenueWithCoordinates(t, repo, "ChIJd29", fetchedDaysBefore(29))
+		newer := createVenueWithCoordinates(t, repo, "ChIJd27", fetchedDaysBefore(27))
+
+		n, err := repo.ClearExpiredCoordinates(ctx, coordinatesInstant)
+
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+		got, err := repo.Get(ctx, older)
+		require.NoError(t, err)
+		assert.Nil(t, got.Coordinates)
+		got, err = repo.Get(ctx, newer)
+		require.NoError(t, err)
+		assert.NotNil(t, got.Coordinates)
+	})
+
 	// @spec components/entity/venue/clear-expired-coordinates "Nothing expired"
 	t.Run("change no venue when nothing has expired", func(t *testing.T) {
 		t.Parallel()
