@@ -469,10 +469,14 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 			// ticket sales: an admin decides instead of the batch failing.
 			return uc.stage(ctx, b, candidate, &d.event.Event, "not merged")
 		}
+		// A merge that failed after its commit (a dropped connection, a
+		// cancelled context) has removed the source too, and the retry would
+		// not find it: its series is swept either way, and the sweep removes
+		// only an empty one.
+		b.mergedSeries = append(b.mergedSeries, d.source.SeriesID)
 		if err != nil {
 			return fmt.Errorf("merge event %s into %s: %w", d.source.ID, d.event.ID, err)
 		}
-		b.mergedSeries = append(b.mergedSeries, d.source.SeriesID)
 		b.artistEvents = append(b.artistEvents, d.event)
 		uc.logger.Info(ctx, "merged the artist's event into another artist's event at the same slot",
 			slog.String("artist_id", b.artistID),

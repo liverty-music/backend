@@ -613,6 +613,9 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.findsArtistEvents(a, own)
 		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
 		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.Unavailable, "series locked")).Once()
+		// The Series is swept anyway: a merge can fail after its commit, and
+		// the sweep removes only an empty Series.
+		h.sweepsOrphans()
 
 		err := h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18)))
 
