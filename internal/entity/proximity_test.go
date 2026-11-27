@@ -29,6 +29,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 		want entity.Proximity
 	}{
 		{
+			// @spec components/entity/concert "Same admin area is HOME"
 			name: "HOME: venue admin_area matches home level1",
 			home: home,
 			c: &entity.Concert{
@@ -40,6 +41,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityHome,
 		},
 		{
+			// @spec components/entity/concert "Different admin area within 200 km is NEARBY"
 			name: "NEARBY: venue within 200km of home centroid",
 			home: home,
 			c: &entity.Concert{
@@ -51,6 +53,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityNearby,
 		},
 		{
+			// @spec components/entity/concert "Beyond 200 km is AWAY"
 			name: "AWAY: venue beyond 200km",
 			home: home,
 			c: &entity.Concert{
@@ -73,6 +76,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityAway,
 		},
 		{
+			// @spec components/entity/concert "No home area"
 			name: "AWAY: nil home",
 			home: nil,
 			c: &entity.Concert{
@@ -84,6 +88,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityAway,
 		},
 		{
+			// @spec components/entity/concert "No venue"
 			name: "AWAY: nil venue",
 			home: home,
 			c: &entity.Concert{
@@ -92,6 +97,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityAway,
 		},
 		{
+			// @spec components/entity/concert "Venue coordinates unknown"
 			name: "AWAY: venue missing coordinates",
 			home: home,
 			c: &entity.Concert{
@@ -102,6 +108,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityAway,
 		},
 		{
+			// @spec components/entity/concert "Home centroid unknown"
 			name: "AWAY: home centroid is nil (unsupported country)",
 			home: &entity.Home{
 				CountryCode:    "JP",
@@ -117,6 +124,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			want: entity.ProximityAway,
 		},
 		{
+			// @spec components/entity/concert "Admin area match wins over distance"
 			name: "HOME: admin_area match takes priority over distance",
 			home: home,
 			c: &entity.Concert{
