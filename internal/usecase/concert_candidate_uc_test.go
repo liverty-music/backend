@@ -561,7 +561,6 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 		sc := d.candidate(new("JP-13"), new("Asia/Tokyo"), new("P"))
 		d.logsRejection()
 		d.deletes(sc.ID)
-		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()
 
 		err := d.uc.Reject(context.Background(), sc.ID, "wrong artist", "reviewer@example.com")
 		require.NoError(t, err)
@@ -596,7 +595,6 @@ func TestConcertCandidateUseCase_Reject(t *testing.T) {
 		sc := d.candidate(new("JP-13"), new("Asia/Tokyo"), new("P"))
 		d.logsRejection()
 		d.deletes(sc.ID)
-		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{sc.SeriesID}).Return(0, nil).Once()
 
 		err := d.uc.Reject(context.Background(), sc.ID, "bad data", "")
 		require.NoError(t, err)

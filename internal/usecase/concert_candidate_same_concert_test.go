@@ -251,7 +251,7 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		d.inserts()
 		d.deletes(sc.ID)
 
-		// No DeleteOrphaned expectation: SiM's Event and its Series stay.
+		// SiM's Event and its Series stay.
 		result, err := approveWith(d, sc, usecase.ApproveResolutionKeepExisting)
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
@@ -297,7 +297,6 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		d.concertRepo.EXPECT().UpdateEventListedVenueName(mock.Anything, "event-h", "ゼップ大阪ベイサイド").Return(nil).Once()
 		d.concertRepo.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-h"}, mock.Anything, mock.Anything).Return(nil).Once()
 		d.concertRepo.EXPECT().Merge(mock.Anything, "event-s", "event-h").Return(nil).Once()
-		d.seriesRepo.EXPECT().DeleteOrphaned(mock.Anything, []string{"series-s"}).Return(1, nil).Once()
 		d.deletes(sc.ID)
 
 		// No Create expectation: nobody is told again.
@@ -318,7 +317,6 @@ func TestCreateFromDiscovered_AfterKeepExisting(t *testing.T) {
 		ListedVenueName: new("Old Name"), OtherListedVenueNames: []string{"New Name"}}, "artist-a")
 	h.findsArtistEvents("artist-a", own)
 	h.venueHolds("venue-1", dec19, own)
-	h.sweepsOrphans()
 
 	require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered("artist-a", "Live", entity.SeriesTypeSingle, found("New Name", dec19, todAt(18, 0)))))
 

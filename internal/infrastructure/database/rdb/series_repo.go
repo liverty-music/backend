@@ -62,20 +62,31 @@ const (
 		WHERE s.id = ANY($1)
 	`
 
-	// lockOrphanCandidatesQuery locks the series an orphan sweep looks at.
-	// Inserting an event, a concert candidate or a ticket sale takes a key
-	// share lock on its series, so a series locked here has no such insert in
-	// progress, and one being written is skipped: the sweep never waits, so
-	// it cannot deadlock.
-	lockOrphanCandidatesQuery = `SELECT id FROM series WHERE id = ANY($1) FOR UPDATE SKIP LOCKED`
+	// lockOrphanedSeriesQuery locks the discovered series created before $1
+	// (read from the UUIDv7 id; PostgreSQL 18 and later) that have no event,
+	// concert candidate or ticket sale. Inserting one of those takes a key
+	// share lock on its series, so a series being written is skipped: the
+	// removal never waits, so it cannot deadlock.
+	lockOrphanedSeriesQuery = `
+		SELECT s.id FROM series s
+		WHERE s.organizer_id IS NULL
+			AND uuid_extract_timestamp(s.id) < $1
+			AND ` + seriesIsEmpty + `
+		FOR UPDATE SKIP LOCKED
+	`
 
+	// deleteOrphanedSeriesQuery removes the locked series ($1) that are still
+	// empty: a second statement sees every row committed before the lock.
 	deleteOrphanedSeriesQuery = `
 		DELETE FROM series s
-		WHERE s.id = ANY($1)
-			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
-			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
-			AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = s.id)
+		WHERE s.id = ANY($1) AND ` + seriesIsEmpty + `
 	`
+
+	// seriesIsEmpty holds for a series s with no event, concert candidate or
+	// ticket sale.
+	seriesIsEmpty = `NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = s.id)`
 
 	// insertFirstPartySeriesQuery stores a new first-party series. It has no
 	// ON CONFLICT clause on purpose: an id that is taken fails with a unique
@@ -364,35 +375,34 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 	return insertedIDs, nil
 }
 
-// DeleteOrphaned removes, from among the given candidate series IDs, every row
-// with no member events, pending concert candidates or ticket sales. An empty
-// slice is a no-op. Returns the number of rows deleted.
-func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
-	if len(seriesIDs) == 0 {
-		return 0, nil
-	}
-	count := slog.Int("count", len(seriesIDs))
+// DeleteOrphaned removes every discovered series created before
+// createdBefore that has no event, concert candidate or ticket sale, leaving
+// one that is being written at that moment. Returns how many it removed.
+func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, createdBefore time.Time) (int64, error) {
+	before := slog.Time("created_before", createdBefore)
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return 0, toAppErr(err, "failed to begin transaction", count)
+		return 0, toAppErr(err, "failed to begin transaction", before)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := tx.Query(ctx, lockOrphanCandidatesQuery, seriesIDs)
+	rows, err := tx.Query(ctx, lockOrphanedSeriesQuery, createdBefore)
 	if err != nil {
-		return 0, toAppErr(err, "failed to lock series", count)
+		return 0, toAppErr(err, "failed to lock series", before)
 	}
 	locked, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return 0, toAppErr(err, "failed to lock series", count)
+		return 0, toAppErr(err, "failed to lock series", before)
 	}
-	// A second statement, so it sees every row committed before the lock.
+	if len(locked) == 0 {
+		return 0, nil
+	}
 	tag, err := tx.Exec(ctx, deleteOrphanedSeriesQuery, locked)
 	if err != nil {
-		return 0, toAppErr(err, "failed to delete orphaned series", count)
+		return 0, toAppErr(err, "failed to delete orphaned series", before)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, toAppErr(err, "failed to commit transaction", count)
+		return 0, toAppErr(err, "failed to commit transaction", before)
 	}
 	return tag.RowsAffected(), nil
 }

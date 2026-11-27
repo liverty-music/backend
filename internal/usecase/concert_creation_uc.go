@@ -37,8 +37,31 @@ type ConcertCreationUseCase interface {
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 
 	// RunCreateFromDiscovered is the create-from-discovered workflow a concert
-	// search (ConcertUseCase.RunSearch) starts.
+	// search (ConcertUseCase.RunSearch) starts, on [ConcertDiscoveryQueue].
 	RunCreateFromDiscovered(ctx context.Context, f Flow, in entity.ConcertDiscoveredData) (struct{}, error)
+
+	// RemoveEmptyDiscoveredSeries removes every discovered Series created
+	// more than a day before now with no Event, no ConcertCandidate and no
+	// TicketSale (Series.DeleteOrphaned): a Series discovery created whose
+	// events were all rejected, merged away or never stored.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the removal could not run; the next day's run removes
+	//    the Series.
+	RemoveEmptyDiscoveredSeries(ctx context.Context, now time.Time) error
+
+	// ScheduleEmptySeriesRemoval is the scheduled workflow
+	// [WorkflowScheduleEmptySeriesRemoval]: it starts
+	// [WorkflowRemoveEmptyDiscoveredSeries] for the scheduled time on
+	// [ConcertDiscoveryQueue], so the removal waits for any batch being
+	// processed.
+	ScheduleEmptySeriesRemoval(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error)
+
+	// RunRemoveEmptyDiscoveredSeries is the workflow
+	// [WorkflowRemoveEmptyDiscoveredSeries]: it runs
+	// RemoveEmptyDiscoveredSeries as one step.
+	RunRemoveEmptyDiscoveredSeries(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error)
 }
 
 // concertCreationUseCase implements ConcertCreationUseCase. It reuses the
@@ -103,10 +126,9 @@ const (
 // the series' Series is chosen, then each event is decided and the events to
 // publish are stored in ONE Concert.Create call, which announces them
 // together, so a multi-date tour wakes the notification consumer once. A
-// collision at one slot stages that event and never fails the batch. A
-// lightweight cleanup at the end removes the series this batch minted or
-// merged an event away from that are left with no events and no pending
-// concert candidates.
+// collision at one slot stages that event and never fails the batch. A Series
+// the batch leaves empty is removed by RemoveEmptyDiscoveredSeries a day
+// later, not here.
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) (err error) {
 	// Batch-local place cache: (listed_venue_name, admin_area) → *VenuePlace.
 	// Avoids redundant Places API calls for the same venue within one batch,
@@ -132,11 +154,6 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		})
 	}()
 
-	// sweep collects the series this batch newly created and the series of
-	// the events it merged away, so the end-of-batch orphan sweep is scoped to
-	// them alone and cannot delete another concurrently-processing run's
-	// just-created (still event-less) series.
-	var sweep []string
 	for _, series := range data.Series {
 		if series == nil || len(series.Events) == 0 {
 			continue
@@ -149,21 +166,9 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			continue
 		}
 
-		swept, err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces, tally)
-		if err != nil {
+		if err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces, tally); err != nil {
 			return err
 		}
-		sweep = append(sweep, swept...)
-	}
-
-	// Sweep, after every event of the batch is stored, the series this batch
-	// minted or merged an event away from that ended up with no events and no
-	// pending concert candidates.
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, sweep); err != nil {
-		uc.logger.Error(ctx, "failed to clean up orphaned series", err,
-			slog.String("artist_id", data.ArtistID),
-		)
-		// Non-fatal: an orphaned series row is harmless and swept next run.
 	}
 	return nil
 }
@@ -184,49 +189,42 @@ type placedEvent struct {
 // (design D5 of recognize-same-discovered-concert): it decides the Venue of
 // each event, then chooses the series' Series, then decides each event
 // (decideFoundEvent) and stores every event to publish in one Concert.Create
-// call, which announces them together. It returns the series the end-of-batch
-// sweep is to look at: the one it minted and those of the events it merged
-// away.
+// call, which announces them together.
 func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	ctx context.Context,
 	artistID string,
 	series *entity.DiscoveredSeries,
 	newPlaces map[string]*entity.VenuePlace,
 	tally *ingestTally,
-) ([]string, error) {
+) error {
 	artistEvents, err := uc.findArtistEvents(ctx, artistID, series.Events)
 	if err != nil {
-		return nil, fmt.Errorf("find events of %q: %w", series.Title, err)
+		return fmt.Errorf("find events of %q: %w", series.Title, err)
 	}
 	placed, err := uc.placeEvents(ctx, artistID, series, artistEvents, newPlaces)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	seriesID, minted, err := uc.chooseSeries(ctx, artistID, series, placed, artistEvents)
+	seriesID, err := uc.chooseSeries(ctx, artistID, series, placed, artistEvents)
 	if err != nil {
-		return nil, err
-	}
-	var sweep []string
-	if minted {
-		sweep = append(sweep, seriesID)
+		return err
 	}
 
 	b := &seriesBatch{artistID: artistID, seriesID: seriesID, series: series, artistEvents: artistEvents, claimed: map[string]bool{}, tally: tally}
 	for _, p := range placed {
 		if err := uc.decideEvent(ctx, b, p); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	sweep = append(sweep, b.mergedSeries...)
 	if len(b.toPublish) == 0 {
-		return sweep, nil
+		return nil
 	}
 
 	// One Concert.Create for the series, so it tells the Artist's followers
 	// about all of them at once.
 	insertedIDs, err := uc.concertRepo.Create(ctx, b.toPublish...)
 	if err != nil {
-		return nil, fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
+		return fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
 	}
 	tally.published += len(insertedIDs)
 	if len(insertedIDs) > 0 {
@@ -237,7 +235,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 			slog.Int("inserted", len(insertedIDs)),
 		)
 	}
-	return sweep, nil
+	return nil
 }
 
 // findArtistEvents returns the Artist's stored events on the dates of the
@@ -331,33 +329,33 @@ func (uc *concertCreationUseCase) placeEvent(ctx context.Context, series *entity
 // of one of the series' events and listed under its name or at its Venue
 // (the smallest id); else, for a TOUR, the Artist's upcoming discovered tour
 // of the same title (the smallest id); else a new Series, created now so it
-// exists before any event references it. minted reports the last case.
+// exists before any event references it.
 func (uc *concertCreationUseCase) chooseSeries(
 	ctx context.Context,
 	artistID string,
 	series *entity.DiscoveredSeries,
 	placed []placedEvent,
 	artistEvents []*entity.Concert,
-) (seriesID string, minted bool, err error) {
+) (string, error) {
 	if id := seriesOfSameShow(placed, artistEvents); id != "" {
-		return id, false, nil
+		return id, nil
 	}
 	if series.Type == entity.SeriesTypeTour {
 		id, err := uc.upcomingTourOfSameTitle(ctx, artistID, series.Title)
 		if err != nil {
-			return "", false, err
+			return "", err
 		}
 		if id != "" {
-			return id, false, nil
+			return id, nil
 		}
 	}
 	// Create is idempotent (ON CONFLICT (id) DO NOTHING) so a redelivered
 	// message is harmless.
 	row := &entity.Series{ID: entity.NewID(), Title: series.Title, Type: series.Type, SourceURL: series.SourceURL}
 	if _, err := uc.seriesRepo.Create(ctx, row); err != nil {
-		return "", false, fmt.Errorf("create series %q: %w", series.Title, err)
+		return "", fmt.Errorf("create series %q: %w", series.Title, err)
 	}
-	return row.ID, true, nil
+	return row.ID, nil
 }
 
 // seriesOfSameShow returns the smallest Series id among the discovered events
@@ -413,9 +411,7 @@ type seriesBatch struct {
 	claimed map[string]bool
 	// toPublish are the Concerts stored together in one Concert.Create call.
 	toPublish []*entity.Concert
-	// mergedSeries are the Series of the events merged away.
-	mergedSeries []string
-	tally        *ingestTally
+	tally     *ingestTally
 }
 
 // decideEvent decides one placed event of the series and does what the
@@ -456,7 +452,6 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 		if err != nil {
 			return fmt.Errorf("merge event %s into %s: %w", d.source.ID, d.event.ID, err)
 		}
-		b.mergedSeries = append(b.mergedSeries, d.source.SeriesID)
 		b.artistEvents = append(b.artistEvents, d.event)
 		uc.logger.Info(ctx, "merged the artist's event into another artist's event at the same slot",
 			slog.String("artist_id", b.artistID),

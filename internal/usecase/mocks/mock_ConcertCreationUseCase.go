@@ -6,6 +6,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -105,6 +106,63 @@ func (_c *MockConcertCreationUseCase_CreateFromDiscovered_Call) RunAndReturn(run
 	return _c
 }
 
+// RemoveEmptyDiscoveredSeries provides a mock function for the type MockConcertCreationUseCase
+func (_mock *MockConcertCreationUseCase) RemoveEmptyDiscoveredSeries(ctx context.Context, now time.Time) error {
+	ret := _mock.Called(ctx, now)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveEmptyDiscoveredSeries")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) error); ok {
+		r0 = returnFunc(ctx, now)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveEmptyDiscoveredSeries'
+type MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call struct {
+	*mock.Call
+}
+
+// RemoveEmptyDiscoveredSeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - now time.Time
+func (_e *MockConcertCreationUseCase_Expecter) RemoveEmptyDiscoveredSeries(ctx any, now any) *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call {
+	return &MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call{Call: _e.mock.On("RemoveEmptyDiscoveredSeries", ctx, now)}
+}
+
+func (_c *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call) Run(run func(ctx context.Context, now time.Time)) *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 time.Time
+		if args[1] != nil {
+			arg1 = args[1].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call) Return(err error) *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call) RunAndReturn(run func(ctx context.Context, now time.Time) error) *MockConcertCreationUseCase_RemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RunCreateFromDiscovered provides a mock function for the type MockConcertCreationUseCase
 func (_mock *MockConcertCreationUseCase) RunCreateFromDiscovered(ctx context.Context, f usecase.Flow, in entity.ConcertDiscoveredData) (struct{}, error) {
 	ret := _mock.Called(ctx, f, in)
@@ -173,6 +231,150 @@ func (_c *MockConcertCreationUseCase_RunCreateFromDiscovered_Call) Return(val st
 }
 
 func (_c *MockConcertCreationUseCase_RunCreateFromDiscovered_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in entity.ConcertDiscoveredData) (struct{}, error)) *MockConcertCreationUseCase_RunCreateFromDiscovered_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RunRemoveEmptyDiscoveredSeries provides a mock function for the type MockConcertCreationUseCase
+func (_mock *MockConcertCreationUseCase) RunRemoveEmptyDiscoveredSeries(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error) {
+	ret := _mock.Called(ctx, f, scheduled)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunRemoveEmptyDiscoveredSeries")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) (struct{}, error)); ok {
+		return returnFunc(ctx, f, scheduled)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) struct{}); ok {
+		r0 = returnFunc(ctx, f, scheduled)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, time.Time) error); ok {
+		r1 = returnFunc(ctx, f, scheduled)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunRemoveEmptyDiscoveredSeries'
+type MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call struct {
+	*mock.Call
+}
+
+// RunRemoveEmptyDiscoveredSeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - scheduled time.Time
+func (_e *MockConcertCreationUseCase_Expecter) RunRemoveEmptyDiscoveredSeries(ctx any, f any, scheduled any) *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call {
+	return &MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call{Call: _e.mock.On("RunRemoveEmptyDiscoveredSeries", ctx, f, scheduled)}
+}
+
+func (_c *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call) Run(run func(ctx context.Context, f usecase.Flow, scheduled time.Time)) *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call) Return(val struct{}, err error) *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error)) *MockConcertCreationUseCase_RunRemoveEmptyDiscoveredSeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ScheduleEmptySeriesRemoval provides a mock function for the type MockConcertCreationUseCase
+func (_mock *MockConcertCreationUseCase) ScheduleEmptySeriesRemoval(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error) {
+	ret := _mock.Called(ctx, f, scheduled)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ScheduleEmptySeriesRemoval")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) (struct{}, error)); ok {
+		return returnFunc(ctx, f, scheduled)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, time.Time) struct{}); ok {
+		r0 = returnFunc(ctx, f, scheduled)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, time.Time) error); ok {
+		r1 = returnFunc(ctx, f, scheduled)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScheduleEmptySeriesRemoval'
+type MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call struct {
+	*mock.Call
+}
+
+// ScheduleEmptySeriesRemoval is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - scheduled time.Time
+func (_e *MockConcertCreationUseCase_Expecter) ScheduleEmptySeriesRemoval(ctx any, f any, scheduled any) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	return &MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call{Call: _e.mock.On("ScheduleEmptySeriesRemoval", ctx, f, scheduled)}
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) Run(run func(ctx context.Context, f usecase.Flow, scheduled time.Time)) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) Return(val struct{}, err error) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, scheduled time.Time) (struct{}, error)) *MockConcertCreationUseCase_ScheduleEmptySeriesRemoval_Call {
 	_c.Call.Return(run)
 	return _c
 }
