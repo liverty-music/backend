@@ -34,11 +34,12 @@ func firstAttempt(artist *entity.Artist, trigger usecase.SearchTrigger) usecase.
 }
 
 // expectCheck sets up an attempt's check: the ConcertSearch is pending with
-// the attempt's search time and the Artist is read.
+// the attempt's search time and the Artist is read. The ConcertSearch is read
+// again when the search ends.
 func expectCheck(d *concertTestDeps, artist *entity.Artist, in usecase.ConcertSearchAttempt) {
 	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(&entity.ConcertSearch{
 		ArtistID: artist.ID, SearchTime: in.SearchTime, Status: entity.ConcertSearchStatusPending,
-	}, nil).Once()
+	}, nil)
 	d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
 }
 
@@ -803,6 +804,26 @@ func TestRunSearch_Outcome(t *testing.T) {
 		runAttempt(t, d, in)
 
 		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
+	})
+
+	// The strict ConcertSearch mock fails the test if the status is written.
+	// @spec components/usecase/concert/search-new-concerts "Replaced while the last call ran"
+	t.Run("leaves the status of a later search alone when its last call ends late", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerFirstFollow)
+		search := &entity.ConcertSearch{ArtistID: artist.ID, SearchTime: in.SearchTime, Status: entity.ConcertSearchStatusPending}
+		later := &entity.ConcertSearch{ArtistID: artist.ID, SearchTime: in.SearchTime.Add(21 * time.Hour), Status: entity.ConcertSearchStatusPending}
+		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(search, nil).Once()
+		d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, artist.ID).Return(later, nil).Once()
+		d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
+		expectReads(d, artist, nil)
+		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).Return(nil, nil).Once()
+
+		runAttempt(t, d, in)
+
+		assert.Len(t, d.signals.sent(usecase.EventConcertSearchCompleted), 1, "this search still reports its outcome")
 	})
 
 	// A resumed run must not search, hand on or record twice.

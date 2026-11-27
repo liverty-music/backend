@@ -344,20 +344,21 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 
 // endSearch records the end of a search in one step: the ConcertSearch's
 // status, the search metric and, for a search that called the external search,
-// its concert.search.completed signal. A search that neither called it nor
-// failed records no metric. No failure to record changes the outcome.
+// its concert.search.completed signal. The status is left alone when a later
+// search has replaced this one. A search that neither called the external
+// search nor failed records no metric. No failure to record changes the
+// outcome.
 func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearchAttempt, end searchEnd) (struct{}, error) {
 	return Step(ctx, f, "record-end", func(ctx context.Context) (struct{}, error) {
-		outcome, metric := concertSearchOutcomeFound, "success"
+		outcome, metric, mark := concertSearchOutcomeFound, "success", uc.markSearchCompleted
 		switch {
 		case end.Failed:
-			outcome, metric = concertSearchOutcomeFailed, "error"
-			uc.markSearchFailed(ctx, in.ArtistID)
+			outcome, metric, mark = concertSearchOutcomeFailed, "error", uc.markSearchFailed
 		case end.EventCount == 0:
 			outcome, metric = concertSearchOutcomeNothingNew, "zero_results"
-			uc.markSearchCompleted(ctx, in.ArtistID)
-		default:
-			uc.markSearchCompleted(ctx, in.ArtistID)
+		}
+		if !uc.isReplaced(ctx, in) {
+			mark(ctx, in.ArtistID)
 		}
 		if end.Called || end.Failed {
 			uc.metrics.RecordConcertSearch(ctx, metric)
@@ -367,6 +368,23 @@ func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearc
 		}
 		return struct{}{}, nil
 	})
+}
+
+// isReplaced reports whether a later search of the Artist has taken this one's
+// place. The last call of a search can end after the search window, when the
+// next daily run may already have requested a new search, whose status this one
+// must not overwrite. A ConcertSearch that cannot be read counts as not
+// replaced.
+func (uc *concertUseCase) isReplaced(ctx context.Context, in ConcertSearchAttempt) bool {
+	search, err := uc.concertSearchRepo.GetByArtistID(ctx, in.ArtistID)
+	if err != nil {
+		uc.logger.Warn(ctx, "failed to check whether the concert search was replaced",
+			slog.String("artist_id", in.ArtistID),
+			slog.Any("error", err),
+		)
+		return false
+	}
+	return search.SearchTime.UnixMicro() != in.SearchTime.UnixMicro()
 }
 
 // reportSearchOutcome sends the concert.search.completed signal of a search
