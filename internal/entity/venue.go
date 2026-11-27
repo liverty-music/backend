@@ -145,6 +145,16 @@ type VenueMapCatalog interface {
 
 // VenueRepository defines the data access interface for Venues.
 type VenueRepository interface {
+	// CheckNew reports whether Create would accept venue, storing nothing, so a
+	// caller storing several venues can refuse all of them first.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the admin area is no first-level Area, the time zone
+	//    is missing or not one the Area allows, or coordinates come without
+	//    their fetch time.
+	CheckNew(ctx context.Context, venue *Venue) error
+
 	// Create inserts a new venue and returns the id of the surviving row. It is an
 	// idempotent get-or-create: the insert absorbs a conflict on either
 	// place_id or (listed_venue_name, admin_area) and re-SELECTs the existing row,

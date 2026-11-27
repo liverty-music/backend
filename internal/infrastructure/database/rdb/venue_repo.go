@@ -78,6 +78,14 @@ func NewVenueRepository(db *Database) *VenueRepository {
 	return &VenueRepository{db: db}
 }
 
+// CheckNew implements entity.VenueRepository.
+func (r *VenueRepository) CheckNew(ctx context.Context, venue *entity.Venue) error {
+	if err := r.checkArea(ctx, venue); err != nil {
+		return err
+	}
+	return venue.CheckCoordinates()
+}
+
 // Create inserts a new venue and returns the id of the surviving row. It is an
 // idempotent get-or-create: the insert uses ON CONFLICT DO NOTHING, so a lost
 // race or a violation on either partial-unique index resolves to the existing
@@ -85,10 +93,7 @@ func NewVenueRepository(db *Database) *VenueRepository {
 // google_place_id first (the more canonical identity) and then by
 // (listed_venue_name, admin_area), returning whichever row won.
 func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) (string, error) {
-	if err := r.checkArea(ctx, venue); err != nil {
-		return "", err
-	}
-	if err := venue.CheckCoordinates(); err != nil {
+	if err := r.CheckNew(ctx, venue); err != nil {
 		return "", err
 	}
 	var lat, lng *float64

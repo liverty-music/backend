@@ -144,12 +144,12 @@ func TestDiscoveredTicketSale_FoundReason(t *testing.T) {
 		{"no name", func(d *entity.DiscoveredTicketSale) { d.Name = "" }, "no name"},
 		{"no end time", func(d *entity.DiscoveredTicketSale) { d.SaleEndTime = time.Time{} }, "no apply_end_time"},
 		{"ends before it starts", func(d *entity.DiscoveredTicketSale) { d.SaleEndTime = d.SaleStartTime.Add(-time.Hour) }, "sale end must be after the sale start"},
-		{"starts at the start of the day after the last event", func(d *entity.DiscoveredTicketSale) {
-			d.SaleStartTime = time.Date(2026, 12, 21, 0, 0, 0, 0, jst)
+		{"starts late on the day of the last event", func(d *entity.DiscoveredTicketSale) {
+			d.SaleStartTime = time.Date(2026, 12, 20, 23, 59, 0, 0, jst)
 			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
 		}, ""},
-		{"starts after the day following the last event begins", func(d *entity.DiscoveredTicketSale) {
-			d.SaleStartTime = time.Date(2026, 12, 22, 0, 0, 0, 0, jst)
+		{"starts on the day after the last event", func(d *entity.DiscoveredTicketSale) {
+			d.SaleStartTime = time.Date(2026, 12, 21, 0, 0, 0, 0, jst)
 			d.SaleEndTime = d.SaleStartTime.Add(24 * time.Hour)
 		}, "apply_start_time after the series' last event"},
 	}

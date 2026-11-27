@@ -23,10 +23,7 @@ type authoringDeps struct {
 	mapCatalog    *entitymocks.MockVenueMapCatalog
 	organizerRepo *entitymocks.MockOrganizerRepository
 	ticketSales   *entitymocks.MockTicketSaleRepository
-	// venueZones is the time zone of each Venue by id that VenueRepository.Get
-	// reads; Asia/Tokyo when absent.
-	venueZones map[string]string
-	uc         usecase.SeriesUseCase
+	uc            usecase.SeriesUseCase
 }
 
 func newAuthoringDeps(t *testing.T) *authoringDeps {
@@ -38,17 +35,14 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 		mapCatalog:    entitymocks.NewMockVenueMapCatalog(t),
 		organizerRepo: entitymocks.NewMockOrganizerRepository(t),
 		ticketSales:   entitymocks.NewMockTicketSaleRepository(t),
-		venueZones:    map[string]string{},
 	}
-	// Reading an event's Venue for its time zone, which checks the event's
-	// date and times at the Venue.
+	// A planned new Venue is checked before any Venue is stored.
+	d.venueRepo.EXPECT().CheckNew(mock.Anything, mock.Anything).Return(nil).Maybe()
+	// A Create that answers with another id stands for a place another writer
+	// stored first: the event is checked again against that Venue.
 	d.venueRepo.EXPECT().Get(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, id string) (*entity.Venue, error) {
-			zone := "Asia/Tokyo"
-			if z, ok := d.venueZones[id]; ok {
-				zone = z
-			}
-			return &entity.Venue{ID: id, TimeZone: &zone}, nil
+			return &entity.Venue{ID: id, TimeZone: new("Asia/Tokyo")}, nil
 		}).Maybe()
 	d.uc = usecase.NewSeriesUseCase(
 		d.seriesRepo, entitymocks.NewMockSeriesImageRepository(t), d.venueRepo, d.mapCatalog, d.organizerRepo,

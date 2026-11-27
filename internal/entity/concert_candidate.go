@@ -12,10 +12,9 @@ import (
 // a pending approval queue until a developer approves or rejects it via the
 // admin console.
 //
-// Venue resolution (Google Places) runs at staging time: the resolved canonical
-// fields (ResolvedVenueName, ResolvedPlaceID, etc.) are denormalised onto the
-// row so reviewers can judge venue accuracy without extra lookups. The canonical
-// venues row is created only on approval.
+// Venue resolution (Google Places) runs at staging time: the row keeps the
+// resolved place id, which the review links to the map, and the venues row is
+// created only on approval.
 //
 // A row lives in this table only while it is pending — both Approve and Reject
 // delete the row, so a re-discovered concert can re-enter the queue after a

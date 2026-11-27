@@ -165,7 +165,7 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 			d := newAuthoringDeps(t)
 			representsArtists(d, authoringArtistID)
 			if tt.holdsVenue {
-				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+				d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID, TimeZone: new("Asia/Tokyo")}, nil).Once()
 			}
 
 			_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)), tt.inputs, []string{authoringArtistID})
@@ -180,8 +180,7 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		// authoringNow is 2026-10-12 03:00 UTC, 2026-10-11 20:00 in Los Angeles.
 		d := newAuthoringDeps(t)
 		representsArtists(d, authoringArtistID)
-		d.venueZones[lifecycleVenueID] = "America/Los_Angeles"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID, TimeZone: new("America/Los_Angeles")}, nil).Once()
 		d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		d.seriesRepo.EXPECT().GetAuthored(mock.Anything, mock.Anything).Return(lifecycleSeries(entity.SeriesVisibilityPublic), nil, nil).Once()
 		dayAtVenue := time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)
@@ -198,8 +197,7 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		// @spec components/usecase/series/create "Show abroad"
 		d := newAuthoringDeps(t)
 		representsArtists(d, authoringArtistID)
-		d.venueZones[lifecycleVenueID] = "Asia/Seoul"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID, TimeZone: new("Asia/Seoul")}, nil).Once()
 		var stored []*entity.Event
 		d.seriesRepo.EXPECT().CreateDraft(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Run(func(_ context.Context, _ *entity.Series, events []*entity.Event, _ []string) { stored = events }).Return(nil).Once()
@@ -220,14 +218,63 @@ func TestSeriesUseCase_Create_Lifecycle(t *testing.T) {
 		// @spec components/usecase/series/create "Time skipped by daylight saving"
 		d := newAuthoringDeps(t)
 		representsArtists(d, authoringArtistID)
-		d.venueZones[lifecycleVenueID] = "America/New_York"
-		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID}, nil).Once()
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(&entity.Venue{ID: lifecycleVenueID, TimeZone: new("America/New_York")}, nil).Once()
 		// No CreateDraft expectation: nothing is stored.
 
 		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)),
 			[]*usecase.DraftEventInput{{VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID),
 				LocalDate: time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC), StartTime: todAt(2, 30)}},
 			[]string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("store no new Venue when a later event of the save is refused", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/series/create "Time skipped by daylight saving"
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(nil, apperr.New(codes.NotFound, "no venue")).Twice()
+		d.mapCatalog.EXPECT().GetPlace(mock.Anything, lifecyclePlaceID).Return(&entity.MapPlace{}, nil).Once()
+		// No Venue Create and no CreateDraft expectation: nothing is stored.
+		newPlace := func(date time.Time, start *entity.TimeOfDay) *usecase.DraftEventInput {
+			return &usecase.DraftEventInput{
+				VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), AdminArea: new("US-NY"),
+				TimeZone: new("America/New_York"), LocalDate: date, StartTime: start,
+			}
+		}
+
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)), []*usecase.DraftEventInput{
+			newPlace(time.Date(2027, 3, 13, 0, 0, 0, 0, time.UTC), todAt(2, 30)),
+			newPlace(time.Date(2027, 3, 14, 0, 0, 0, 0, time.UTC), todAt(2, 30)),
+		}, []string{authoringArtistID})
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("check the event again at a Venue another writer stored first", func(t *testing.T) {
+		t.Parallel()
+		d := newAuthoringDeps(t)
+		representsArtists(d, authoringArtistID)
+		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, lifecyclePlaceID).Return(nil, apperr.New(codes.NotFound, "no venue")).Twice()
+		d.mapCatalog.EXPECT().GetPlace(mock.Anything, lifecyclePlaceID).Return(&entity.MapPlace{}, nil).Once()
+		// The surviving Venue is in Asia/Tokyo, where the date has passed
+		// although it has not in the member's zone.
+		d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(lifecycleVenueID, nil).Once()
+		// No CreateDraft expectation: nothing is stored.
+
+		at := func(date time.Time) *usecase.DraftEventInput {
+			return &usecase.DraftEventInput{
+				VenueName: lifecycleVenue, PlaceID: new(lifecyclePlaceID), AdminArea: new("US-CA"),
+				TimeZone: new("America/Los_Angeles"), LocalDate: date,
+			}
+		}
+
+		// The first event is fine at the surviving Venue; the second, of the
+		// same place, is not.
+		_, _, err := d.uc.Create(ctx, authoringOrgID, editOf(lifecycleSeries(entity.SeriesVisibilityPublic)), []*usecase.DraftEventInput{
+			at(futureDate()), at(time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)),
+		}, []string{authoringArtistID})
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})

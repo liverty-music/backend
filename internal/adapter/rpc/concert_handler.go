@@ -95,8 +95,8 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *concertv1.ListFo
 	}
 
 	// Optional lower bound. A nil from (field omitted) defaults to today-onward
-	// via the repository's COALESCE(..., CURRENT_DATE); a client-supplied date
-	// widens the window into the past.
+	// in the repository, each Venue's current date deciding; a client-supplied
+	// date widens the window into the past.
 	from := pb.DateToTimePtr(req.GetFrom().GetValue())
 
 	groups, err := h.concertUseCase.ListFollowed(ctx, user.ID, user.Home, from)
