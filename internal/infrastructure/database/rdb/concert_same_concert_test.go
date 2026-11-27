@@ -611,3 +611,35 @@ func TestSeriesRepository_ListUpcomingToursByArtist(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+// TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries checks that a
+// discovered TicketSale inserted for the source's Series while Merge runs is
+// seen by Merge's check: the insert's transaction holds the key share lock on
+// the Series, Merge waits for it, and then refuses.
+func TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries(t *testing.T) {
+	t.Parallel()
+	db := newTestDBWithPool(t, 6)
+	f := newVisibilityFixture(t, db)
+	a, b, v := f.artist(), f.artist(), f.venue("JP-13", nil, nil)
+	series := f.discoveredSeries()
+	source := f.store(slotEvent{series: series, venue: v, date: slotDate, artists: []string{a}})
+	target := f.store(slotEvent{series: f.discoveredSeries(), venue: v, date: slotDate, start: "18:00", artists: []string{b}})
+	ctx := context.Background()
+
+	sale, err := db.Pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = sale.Rollback(ctx) }()
+	_, err = sale.Exec(ctx, `INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time, find_time)
+		VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), series)
+	require.NoError(t, err)
+
+	merged := make(chan error, 1)
+	go func() { merged <- f.repo.Merge(ctx, source, target) }()
+	require.Eventually(t, func() bool {
+		return f.count(`SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`) == 1
+	}, 10*time.Second, 20*time.Millisecond, "Merge waits for the sale's transaction")
+
+	require.NoError(t, sale.Commit(ctx))
+	require.ErrorIs(t, <-merged, apperr.ErrFailedPrecondition)
+	assert.True(t, f.read(source).exists)
+}

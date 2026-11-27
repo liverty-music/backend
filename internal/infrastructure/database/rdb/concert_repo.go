@@ -1261,6 +1261,8 @@ const (
 		ORDER BY e.id
 		FOR UPDATE
 	`
+	// lockMergedSeriesQuery locks the Series of a merge's source.
+	lockMergedSeriesQuery = `SELECT 1 FROM series WHERE id = $1 FOR UPDATE`
 	// mergeSourceSellsAloneQuery reports whether the source ($1) is the last
 	// event of its Series ($2) and that Series has a TicketSale: removing the
 	// source would leave the sales on a Series without events, which the
@@ -1362,6 +1364,13 @@ func checkMerge(ctx context.Context, tx pgx.Tx, source, target *entity.Event, at
 	}
 	if source.PublishState != nil || target.PublishState != nil {
 		return apperr.New(codes.FailedPrecondition, "an Organizer's event is never merged", attrs...)
+	}
+	// The source's Series row is locked first: another Merge of an event of
+	// the Series locks it too, and inserting a TicketSale for it takes a key
+	// share lock on it for the foreign key, so neither can change the answer
+	// before this transaction commits.
+	if _, err := tx.Exec(ctx, lockMergedSeriesQuery, source.SeriesID); err != nil {
+		return toAppErr(err, "failed to lock the merged event's series", attrs...)
 	}
 	var sellsAlone bool
 	if err := tx.QueryRow(ctx, mergeSourceSellsAloneQuery, source.ID, source.SeriesID).Scan(&sellsAlone); err != nil {
