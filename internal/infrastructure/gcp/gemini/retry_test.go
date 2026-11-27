@@ -93,7 +93,7 @@ func TestSearch_LogLevelOfAFailedCall(t *testing.T) {
 			_, _ = s.Search(context.Background(), &entity.Artist{Name: "A"}, nil, time.Now())
 
 			var level string
-			for _, line := range strings.Split(string(logs.Bytes()), "\n") {
+			for line := range strings.SplitSeq(string(logs.Bytes()), "\n") {
 				var entry struct{ Level, Msg string }
 				if json.Unmarshal([]byte(line), &entry) == nil && entry.Msg == "gemini model call failed" {
 					level = entry.Level
