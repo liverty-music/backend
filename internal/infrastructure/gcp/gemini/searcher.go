@@ -707,7 +707,13 @@ func (s *ConcertSearcher) executePass(
 			kind = errorKindTransient
 		}
 		record(kind)
-		s.logger.Warn(ctx, "gemini model call failed",
+		// A transient failure is expected (a busy flex tier answers 503 for
+		// minutes) and the caller tries again, so it is not a warning.
+		level := s.logger.Warn
+		if transient {
+			level = s.logger.Info
+		}
+		level(ctx, "gemini model call failed",
 			append(attrs, slog.String("error", err.Error()), slog.Bool("transient", transient))...)
 		// The caller's own deadline or cancellation decides over the failure.
 		if ctxErr := ctx.Err(); ctxErr != nil {

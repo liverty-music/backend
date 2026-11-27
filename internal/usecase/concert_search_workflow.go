@@ -255,9 +255,9 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 }
 
 // logSearchFailure records a failed call of the external search. A transient
-// failure is a warning, also on the attempt after which the search gives up: a
-// busy service raises no alert, and the count of failed outcomes shows how
-// often it stayed busy for the whole window. Any other failure fails the
+// failure is expected while the service is busy, so it is information, also on
+// the attempt after which the search gives up: it raises no alert, and the
+// count of failed outcomes shows how often it stayed busy for the whole window. Any other failure fails the
 // search and is an error, which alerts: a refused account or a broken request
 // needs an admin.
 func (uc *concertUseCase) logSearchFailure(ctx context.Context, in ConcertSearchAttempt, err error) {
@@ -266,7 +266,7 @@ func (uc *concertUseCase) logSearchFailure(ctx context.Context, in ConcertSearch
 		slog.Int("attempt", in.Attempt),
 	}
 	if isTransient(err) {
-		uc.logger.Warn(ctx, "concert search attempt failed", append(attrs, slog.Any("error", err))...)
+		uc.logger.Info(ctx, "concert search attempt failed", append(attrs, slog.Any("error", err))...)
 		return
 	}
 	uc.logger.Error(ctx, "concert search failed", err, attrs...)
