@@ -548,6 +548,42 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		require.Len(t, h.staged, 1)
 	})
 
+	t.Run("Organizer's unknown-start event already listed under the name", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Organizer's unknown-start event already listed under the name"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		own.ListedVenueName, own.PublishState = &zepp, published()
+		h.findsArtistEvents(a, own)
+		h.createsSeries(1)
+		h.venueHolds("venue-v", dec31, own)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
+
+		// No FillEventStartTimes or Create expectation: the Organizer's Event is unchanged.
+		require.Len(t, h.staged, 0)
+	})
+
+	t.Run("Organizer's unknown-start event under another name", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Organizer's unknown-start event under another name"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		own.ListedVenueName, own.PublishState = new("羽田"), published()
+		h.findsArtistEvents(a, own)
+		h.createsSeries(1)
+		h.resolvesTo(zepp, "venue-v")
+		h.venueHolds("venue-v", dec31, own)
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
+
+		// No FillEventStartTimes or Create expectation: the Organizer's Event is unchanged.
+		require.Len(t, h.staged, 1)
+	})
+
 	t.Run("Slot taken meanwhile", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Slot taken meanwhile"
