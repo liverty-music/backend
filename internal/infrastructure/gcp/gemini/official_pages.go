@@ -2,6 +2,8 @@ package gemini
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -185,58 +187,96 @@ func refuseNonPublicAddress(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
+// officialPage is what one read of an official page gives: the links to
+// list in the prompt (see listedLinks), the URL the page was read from, the
+// status it answered and its visible text (see scanPage).
+type officialPage struct {
+	Links      []pageLink
+	URL        string
+	HTTPStatus int
+	Text       string
+}
+
+// pageStatusError is the error of a page that answered a status outside
+// 2xx.
+type pageStatusError struct{ status int }
+
+func (e *pageStatusError) Error() string {
+	return fmt.Sprintf("official top page answered %d", e.status)
+}
+
+// notHTMLError is the error of a page that answered 2xx with a body that is
+// not HTML.
+type notHTMLError struct {
+	status      int
+	contentType string
+}
+
+func (e *notHTMLError) Error() string {
+	return fmt.Sprintf("official top page is not HTML: %q", e.contentType)
+}
+
 // officialPageLinks reads the official site's top page and returns the links
 // to list in the prompt (see listedLinks) and the URL the page was read
 // from. When the site's www. host does not resolve, the apex host is read
 // instead, once. An error means the page could not be read; callers search
 // without links.
 func officialPageLinks(ctx context.Context, client *http.Client, siteURL string) ([]pageLink, string, error) {
+	page, err := readOfficialTopPage(ctx, client, siteURL)
+	return page.Links, page.URL, err
+}
+
+// readOfficialTopPage reads the official site's top page as
+// officialPageLinks describes and returns everything the read gives.
+func readOfficialTopPage(ctx context.Context, client *http.Client, siteURL string) (officialPage, error) {
 	page, err := url.Parse(siteURL)
 	if err != nil {
-		return nil, "", err
+		return officialPage{}, err
 	}
 	if page.Scheme != "http" && page.Scheme != "https" {
-		return nil, "", fmt.Errorf("unsupported scheme %q", page.Scheme)
+		return officialPage{}, fmt.Errorf("unsupported scheme %q", page.Scheme)
 	}
 
-	links, final, err := fetchPageLinks(ctx, client, page)
+	read, err := fetchOfficialPage(ctx, client, page)
 	if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound && strings.HasPrefix(page.Hostname(), "www.") {
 		apex := *page
 		apex.Host = strings.TrimPrefix(page.Host, "www.")
-		return fetchPageLinks(ctx, client, &apex)
+		return fetchOfficialPage(ctx, client, &apex)
 	}
-	return links, final, err
+	return read, err
 }
 
-// fetchPageLinks fetches page and returns its listed links and the URL it
-// was served from. The registrable domain of page, not of a redirect target,
-// is the official site's domain.
-func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL) ([]pageLink, string, error) {
+// fetchOfficialPage fetches page and returns its listed links, the URL it
+// was served from, its status and its visible text, from one parse of the
+// body. The registrable domain of page, not of a redirect target, is the
+// site's domain. A status outside 2xx is a *pageStatusError and a body that
+// is not HTML a *notHTMLError.
+func fetchOfficialPage(ctx context.Context, client *http.Client, page *url.URL) (officialPage, error) {
 	domain := registrableDomain(page.Hostname())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, page.String(), nil)
 	if err != nil {
-		return nil, "", err
+		return officialPage{}, err
 	}
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("User-Agent", officialPageUserAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return officialPage{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, "", fmt.Errorf("official top page answered %d", resp.StatusCode)
+		return officialPage{}, &pageStatusError{status: resp.StatusCode}
 	}
 	if mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type")); err != nil ||
 		(mediaType != "text/html" && mediaType != "application/xhtml+xml") {
-		return nil, "", fmt.Errorf("official top page is not HTML: %q", resp.Header.Get("Content-Type"))
+		return officialPage{}, &notHTMLError{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type")}
 	}
 	final := resp.Request.URL
 	if registrableDomain(final.Hostname()) != domain {
-		return nil, "", errOffSiteRedirect(final.Host)
+		return officialPage{}, errOffSiteRedirect(final.Host)
 	}
 
 	// Labels are text the model reads, so the page is decoded to UTF-8 from
@@ -244,9 +284,15 @@ func fetchPageLinks(ctx context.Context, client *http.Client, page *url.URL) ([]
 	// Japanese artist sites serve Shift_JIS or EUC-JP.
 	body, err := charset.NewReader(io.LimitReader(resp.Body, officialPageMaxBytes), resp.Header.Get("Content-Type"))
 	if err != nil {
-		return nil, "", fmt.Errorf("official top page charset: %w", err)
+		return officialPage{}, fmt.Errorf("official top page charset: %w", err)
 	}
-	return listedLinks(anchors(body), final, domain), final.String(), nil
+	scan := scanPage(body)
+	return officialPage{
+		Links:      listedLinks(scan.anchors, final, domain),
+		URL:        final.String(),
+		HTTPStatus: resp.StatusCode,
+		Text:       scan.text,
+	}, nil
 }
 
 // anchor is one <a> tag: its href and its label.
@@ -255,26 +301,88 @@ type anchor struct {
 	label string
 }
 
-// anchors returns the <a> tags of the HTML in document order, each with its
-// href and its label: the text inside the tag, or else the alternative text
-// of the first image inside it, with whitespace collapsed.
-func anchors(r io.Reader) []anchor {
+// pageScan is what one pass over an HTML page collects: its <a> tags and
+// its visible text.
+type pageScan struct {
+	anchors []anchor
+	text    string
+}
+
+// scanPage reads the HTML once and returns, in document order, its <a> tags,
+// each with its href and its label (the text inside the tag, or else the
+// alternative text of the first image inside it, with whitespace collapsed),
+// and its visible text (see textScanner).
+func scanPage(r io.Reader) pageScan {
 	var sc anchorScanner
+	var tx textScanner
 	z := html.NewTokenizer(r)
 	for {
-		switch z.Next() {
+		switch tt := z.Next(); tt {
 		case html.ErrorToken:
-			return sc.out
+			return pageScan{anchors: sc.out, text: tx.String()}
 		case html.StartTagToken, html.SelfClosingTagToken:
-			sc.startTag(z)
+			name, hasAttr := z.TagName()
+			sc.startTag(z, string(name), hasAttr)
+			if tt == html.StartTagToken {
+				tx.startTag(string(name))
+			}
 		case html.TextToken:
-			sc.text(z.Text())
+			// Text, like TagName, returns the token's bytes only once.
+			text := z.Text()
+			sc.text(text)
+			tx.text(text)
 		case html.EndTagToken:
-			if name, _ := z.TagName(); string(name) == "a" {
+			name, _ := z.TagName()
+			if string(name) == "a" {
 				sc.endAnchor()
 			}
+			tx.endTag(string(name))
 		}
 	}
+}
+
+// hiddenTextTags are the elements whose content is not visible page text:
+// scripts, styles, the fallback of disabled scripts, templates and inline
+// SVG drawings.
+var hiddenTextTags = setOf("script", "style", "noscript", "template", "svg")
+
+// textScanner collects the visible text of a page: the text nodes outside
+// hiddenTextTags, with entities decoded by the tokenizer, joined by a space,
+// with every run of whitespace collapsed to one space.
+type textScanner struct {
+	hiddenDepth int
+	buf         strings.Builder
+}
+
+func (tx *textScanner) startTag(name string) {
+	if _, hidden := hiddenTextTags[name]; hidden {
+		tx.hiddenDepth++
+	}
+}
+
+func (tx *textScanner) endTag(name string) {
+	if _, hidden := hiddenTextTags[name]; hidden && tx.hiddenDepth > 0 {
+		tx.hiddenDepth--
+	}
+}
+
+func (tx *textScanner) text(b []byte) {
+	if tx.hiddenDepth == 0 {
+		tx.buf.Write(b)
+		tx.buf.WriteByte(' ')
+	}
+}
+
+// String returns the collected text with whitespace collapsed.
+func (tx *textScanner) String() string {
+	return strings.Join(strings.Fields(tx.buf.String()), " ")
+}
+
+// textDigest returns the hex SHA-256 of a page's visible text and its length
+// in characters.
+func textDigest(text string) (string, int) {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:]), utf8.RuneCountInString(text)
 }
 
 // anchorScanner collects anchors from a tokenizer's events.
@@ -287,16 +395,16 @@ type anchorScanner struct {
 }
 
 // startTag opens an anchor at <a> and records the first image's alt text
-// inside an open anchor.
-func (sc *anchorScanner) startTag(z *html.Tokenizer) {
-	name, hasAttr := z.TagName()
+// inside an open anchor. name and hasAttr are what z.TagName returned for the
+// current tag.
+func (sc *anchorScanner) startTag(z *html.Tokenizer, name string, hasAttr bool) {
 	switch {
-	case string(name) == "a":
+	case name == "a":
 		sc.cur = &anchor{href: tagAttr(z, hasAttr, "href")}
 		sc.textBuf.Reset()
 		sc.altBuf.Reset()
 		sc.altFilled = false
-	case string(name) == "img" && sc.cur != nil && !sc.altFilled:
+	case name == "img" && sc.cur != nil && !sc.altFilled:
 		if alt := tagAttr(z, hasAttr, "alt"); alt != "" {
 			sc.altBuf.WriteString(alt)
 			sc.altFilled = true

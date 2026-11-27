@@ -1,5 +1,7 @@
 package gemini
 
+import "strings"
+
 // IsRetryable exports isRetryable for testing.
 var IsRetryable = isRetryable
 
@@ -25,3 +27,9 @@ var DefaultPrompt = defaultPrompt
 // SetWithoutGoogleSearch leaves the Google Search tool out of the grounded
 // call of s, for A/B variant runs.
 func SetWithoutGoogleSearch(s *ConcertSearcher, without bool) { s.withoutGoogleSearch = without }
+
+// HTMLTextDigest returns the SHA-256 and length of the visible text of an
+// HTML page, as an official page check reports them.
+func HTMLTextDigest(page string) (string, int) {
+	return textDigest(scanPage(strings.NewReader(page)).text)
+}

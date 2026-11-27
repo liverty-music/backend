@@ -1,8 +1,16 @@
 // Package main provides the concert discovery CronJob entry point.
+//
+// The -mode flag picks what a run does: search (the default) starts the due
+// concert searches; official-page-check reads the official pages of the
+// followed artists and logs a digest of each, for the measurement of OpenSpec
+// change measure-official-page-change-detection.
 package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +19,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/analyticslog"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -28,8 +37,27 @@ const (
 	fallbackShutdownTimeout = 10 * time.Second
 )
 
+// Modes of a run, chosen by the -mode flag.
+const (
+	modeSearch = "search"
+	// modeOfficialPageCheck is temporary.
+	//
+	// TODO(measure-official-page-change-detection): remove after the
+	// measurement.
+	modeOfficialPageCheck = "official-page-check"
+)
+
 func main() {
 	logger := di.NewBootstrapLogger()
+	mode, err := parseMode(os.Args[1:])
+	if err != nil {
+		logger.Error(context.Background(), "concert discovery job failed", err)
+		os.Exit(2)
+	}
+	run := runSearch
+	if mode == modeOfficialPageCheck {
+		run = runOfficialPageCheck
+	}
 	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "concert discovery job failed", err)
 		// Exit non-zero so the Job is recorded as failed. The CronJob's
@@ -38,7 +66,39 @@ func main() {
 	}
 }
 
-func run(bootLogger *logging.Logger) error {
+// parseMode returns the mode the command-line arguments choose, modeSearch
+// when they name none.
+func parseMode(args []string) (string, error) {
+	fs := flag.NewFlagSet("concert-discovery", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	mode := fs.String("mode", modeSearch, "what the run does: search or official-page-check")
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	switch *mode {
+	case modeSearch, modeOfficialPageCheck:
+		return *mode, nil
+	default:
+		return "", fmt.Errorf("unknown -mode %q (allowed: %q, %q)", *mode, modeSearch, modeOfficialPageCheck)
+	}
+}
+
+// shutdownAfterRun shuts down the registered resources within the timeout
+// that timeout returns, fallbackShutdownTimeout when it returns 0 (DI failed
+// before the timeout was read).
+func shutdownAfterRun(bootLogger *logging.Logger, timeout func() time.Duration) {
+	d := timeout()
+	if d == 0 {
+		d = fallbackShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	if err := shutdown.Shutdown(ctx); err != nil {
+		bootLogger.Error(context.Background(), "error during shutdown", err)
+	}
+}
+
+func runSearch(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -47,17 +107,12 @@ func run(bootLogger *logging.Logger) error {
 	// Register shutdown before DI so partially-initialized resources are
 	// cleaned up even when initialization fails partway through.
 	var app *di.JobApp
-	defer func() {
-		timeout := fallbackShutdownTimeout
-		if app != nil {
-			timeout = app.ShutdownTimeout
+	defer shutdownAfterRun(bootLogger, func() time.Duration {
+		if app == nil {
+			return 0
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		if err := shutdown.Shutdown(ctx); err != nil {
-			bootLogger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
+		return app.ShutdownTimeout
+	})
 
 	var err error
 	app, err = di.InitializeJobApp(ctx)
@@ -92,6 +147,53 @@ func run(bootLogger *logging.Logger) error {
 
 	logSummary(ctx, app.Logger, len(artists), result)
 
+	return nil
+}
+
+// runOfficialPageCheck reads the official pages of the followed artists the
+// concert search would search and logs a digest of each (see pageChecker).
+func runOfficialPageCheck(bootLogger *logging.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	bootLogger.Info(ctx, "starting official page check")
+
+	var app *di.OfficialPageCheckApp
+	defer shutdownAfterRun(bootLogger, func() time.Duration {
+		if app == nil {
+			return 0
+		}
+		return app.ShutdownTimeout
+	})
+
+	var err error
+	app, err = di.InitializeOfficialPageCheckApp(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctx, runSpan := telemetry.StartJobRun(ctx, "official-page-check")
+	defer runSpan.End()
+
+	artists, err := app.FollowRepo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	checker := &pageChecker{
+		artists:    app.ArtistRepo,
+		organizers: app.OrganizerRepo,
+		check: func(ctx context.Context, siteURL string) []gemini.OfficialPageCheck {
+			return gemini.CheckOfficialPages(ctx, app.PageClient, siteURL)
+		},
+		logger: app.Logger,
+	}
+	result := checker.run(ctx, artists)
+
+	if cause := context.Cause(ctx); cause != nil {
+		app.Logger.Info(ctx, "job interrupted by signal", slog.String("cause", cause.Error()))
+	}
+	logPageCheckSummary(ctx, app.Logger, len(artists), result)
 	return nil
 }
 
