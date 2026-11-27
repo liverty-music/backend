@@ -879,6 +879,26 @@ func TestRunSearch_Outcome(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrCanceled)
 	})
 
+	t.Run("a status write cut short by the run's cancellation records nothing", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerDaily)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		expectSearch(d, artist, in, nil, nil)
+		d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, in.SearchTime, entity.ConcertSearchStatusCompleted).
+			RunAndReturn(func(context.Context, string, time.Time, entity.ConcertSearchStatus) error {
+				cancel()
+				return context.Canceled
+			}).Once()
+
+		_, err := d.uc.RunSearch(ctx, &inlineFlow{}, in)
+
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
+	})
+
 	// A resumed run must not search, hand on or record twice.
 	t.Run("a run resumed after the search step does not call the search again", func(t *testing.T) {
 		t.Parallel()

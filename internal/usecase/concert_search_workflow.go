@@ -353,8 +353,9 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 // that has replaced this one is left alone (ConcertSearch.UpdateStatus). A
 // search that neither called the external search nor failed records no metric.
 //
-// A transient failure to write the status is the step's error, so it is tried
-// again: a ConcertSearch left pending would keep the Artist from being
+// A write cut short by the run's cancellation is the step's error too, for the
+// resumed run to record. A transient failure to write the status is the step's
+// error, so it is tried again: a ConcertSearch left pending would keep the Artist from being
 // searched for the whole search window. Nothing else is recorded until then,
 // and no failure to record changes the outcome.
 func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearchAttempt, end searchEnd) (struct{}, error) {
@@ -367,7 +368,7 @@ func (uc *concertUseCase) endSearch(ctx context.Context, f Flow, in ConcertSearc
 			outcome, metric = concertSearchOutcomeNothingNew, "zero_results"
 		}
 		if err := uc.concertSearchRepo.UpdateStatus(ctx, in.ArtistID, in.SearchTime, status); err != nil {
-			if isTransient(err) {
+			if isTransient(err) || ctx.Err() != nil {
 				return struct{}{}, err
 			}
 			uc.logger.Error(ctx, "failed to update the concert search status", err,
