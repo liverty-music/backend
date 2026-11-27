@@ -231,9 +231,9 @@ type UserRepository interface {
 	//  - AlreadyExists: another User has the same provider user ID or the
 	//    same email; two emails are the same when they are equal with letter
 	//    case ignored. Nothing is stored.
-	//  - FailedPrecondition: a User with the same provider user ID was removed
-	//    (Delete), also when the removal completes while Create runs. Nothing
-	//    is stored.
+	//  - FailedPrecondition: the provider user ID is recorded as that of a
+	//    removed User (Delete, until ForgetRemovedIdentity), also when the
+	//    removal completes while Create runs. Nothing is stored.
 	//  - Unavailable: The announcement could not be recorded; nothing is
 	//    stored.
 	//
@@ -286,7 +286,8 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*User, error)
 
 	// Delete removes a user and records its provider user ID as removed,
-	// together: Create refuses that ID from then on.
+	// together: Create refuses that ID until ForgetRemovedIdentity removes
+	// the record.
 	//
 	// # Possible errors
 	//
@@ -294,6 +295,17 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	//  - Unavailable: the store cannot be reached.
 	Delete(ctx context.Context, id string) error
+
+	// ForgetRemovedIdentity removes the record that providerUserID belonged
+	// to a removed User, after which Create no longer refuses it. An ID with
+	// no record counts as forgotten. It is called once the identity can no
+	// longer be used to sign in.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If providerUserID is empty.
+	//  - Unavailable: the store cannot be reached.
+	ForgetRemovedIdentity(ctx context.Context, providerUserID string) error
 
 	// SerializeDeletion runs fn while holding an exclusive lock keyed on the
 	// user. LotteryEntryRepository.Create, CheckoutRepository.GetOrCreateHeld

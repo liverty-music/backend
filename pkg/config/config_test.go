@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -871,6 +872,7 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 		JWT: JWTConfig{
 			Issuer:              "https://test-issuer.com",
 			JWKSRefreshInterval: 15 * time.Minute,
+			ZitadelInternalURL:  "http://zitadel-api.zitadel.svc.cluster.local:80",
 		},
 		GCP:                   GCPConfig{GeminiSearchAPIKey: "gemini-key"},
 		VAPID:                 VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"},
@@ -895,9 +897,16 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 	case WorkloadAdmin:
 		cfg.OrganizerConsoleProjectID = "organizer-console-project"
 		cfg.IdentityServiceURL = "http://identity:9101"
+		cfg.SignInCheck.AdminConsoleProjectID = "admin-console-project"
+		cfg.SignInCheck.AdminConsoleAPIKeyPath = "/secrets/admin-console-api.json"
 	case WorkloadFan:
 		cfg.IdentityServiceURL = "http://identity:9102"
 		cfg.FanClientID = "fan-client"
+		cfg.SignInCheck.ProductProjectID = "product-project"
+		cfg.SignInCheck.FanAPIKeyPath = "/secrets/fan-api.json"
+	case WorkloadOrganizer:
+		cfg.OrganizerConsoleProjectID = "organizer-console-project"
+		cfg.SignInCheck.OrganizerConsoleAPIKeyPath = "/secrets/organizer-console-api.json"
 	}
 	return cfg
 }
@@ -913,8 +922,7 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 		wantErr string // substring; empty means no error
 	}{
 		{name: "accept a complete fan workload", mutate: func(*ServerConfig) {}},
-		{name: "accept a complete organizer workload", mutate: func(c *ServerConfig) { c.Workload = WorkloadOrganizer }},
-		{name: "accept a complete reception workload", mutate: func(c *ServerConfig) { c.Workload = WorkloadReception }},
+
 		{
 			name:    "reject missing reception CORS origins",
 			mutate:  func(c *ServerConfig) { c.Server.ReceptionAllowedOrigins = nil },
@@ -974,6 +982,11 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			mutate:  func(c *ServerConfig) { c.FanClientID = "" },
 			wantErr: "FAN_OIDC_CLIENT_ID",
 		},
+		{
+			name:    "reject a missing internal sign-in service URL",
+			mutate:  func(c *ServerConfig) { c.JWT.ZitadelInternalURL = "" },
+			wantErr: "ZITADEL_INTERNAL_URL",
+		},
 	}
 
 	for _, tt := range tests {
@@ -997,6 +1010,105 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 		t.Parallel()
 		assert.NoError(t, validNonLocalServerConfig(WorkloadAdmin).Validate())
 	})
+}
+
+// Each signed-in API asks the sign-in service with a key of its own and
+// requires its own app's project in a token; no workload holds another's key.
+//
+// @spec components/infrastructure/backend/process/identity-provider-credentials "Signed-in calls keep working"
+// @spec components/infrastructure/backend/process/identity-provider-credentials "API server deployment"
+func TestServerConfig_Validate_SignInCheckPerWorkload(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		workload string
+		mutate   func(c *ServerConfig)
+		wantErr  string // substring; empty means no error
+	}{
+		{name: "accept a complete fan workload", workload: WorkloadFan, mutate: func(*ServerConfig) {}},
+		{name: "accept a complete admin workload", workload: WorkloadAdmin, mutate: func(*ServerConfig) {}},
+		{name: "accept a complete organizer workload", workload: WorkloadOrganizer, mutate: func(*ServerConfig) {}},
+		{name: "accept a reception workload with no key", workload: WorkloadReception, mutate: func(*ServerConfig) {}},
+		{
+			name:     "reject a fan workload without its key and project",
+			workload: WorkloadFan,
+			mutate:   func(c *ServerConfig) { c.SignInCheck = SignInCheckConfig{} },
+			wantErr:  "ZITADEL_PRODUCT_PROJECT_ID, ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH",
+		},
+		{
+			name:     "reject an admin workload without its key and project",
+			workload: WorkloadAdmin,
+			mutate:   func(c *ServerConfig) { c.SignInCheck = SignInCheckConfig{} },
+			wantErr:  "ZITADEL_ADMIN_CONSOLE_PROJECT_ID, ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH",
+		},
+		{
+			name:     "reject an organizer workload without its key and project",
+			workload: WorkloadOrganizer,
+			mutate: func(c *ServerConfig) {
+				c.OrganizerConsoleProjectID = ""
+				c.SignInCheck = SignInCheckConfig{}
+			},
+			wantErr: "ORGANIZER_CONSOLE_PROJECT_ID, ZITADEL_INTROSPECTION_KEY_FOR_ORGANIZER_CONSOLE_API_PATH",
+		},
+		{
+			name:     "reject a fan workload given the admin console API's key",
+			workload: WorkloadFan,
+			mutate:   func(c *ServerConfig) { c.SignInCheck.AdminConsoleAPIKeyPath = "/secrets/admin-console-api.json" },
+			wantErr:  "ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH must not be set on the fan workload",
+		},
+		{
+			name:     "reject a reception workload given a key",
+			workload: WorkloadReception,
+			mutate:   func(c *ServerConfig) { c.SignInCheck.FanAPIKeyPath = "/secrets/fan-api.json" },
+			wantErr:  "ZITADEL_INTROSPECTION_KEY_FOR_FAN_API_PATH must not be set on the reception workload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validNonLocalServerConfig(tt.workload)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+// No process other than the API servers reads an introspection key.
+//
+// @spec components/infrastructure/backend/process/identity-provider-credentials "API server deployment"
+func TestOtherProcessesReadNoIntrospectionKey(t *testing.T) {
+	t.Parallel()
+
+	for _, cfg := range []any{ConsumerConfig{}, WorkerConfig{}, JobConfig{}, IdentityConfig{}, SeriesImageConsumerConfig{}} {
+		for _, name := range envconfigNames(reflect.TypeOf(cfg)) {
+			assert.NotContains(t, name, "INTROSPECTION_KEY", "%T reads %s", cfg, name)
+		}
+	}
+}
+
+// envconfigNames returns every envconfig name of t's fields, nested structs
+// included.
+func envconfigNames(t reflect.Type) []string {
+	var names []string
+	for f := range t.Fields() {
+		if f.Type.Kind() == reflect.Struct {
+			names = append(names, envconfigNames(f.Type)...)
+		}
+		if name := f.Tag.Get("envconfig"); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func TestServerConfig_WorkloadDuties(t *testing.T) {
@@ -1074,11 +1186,12 @@ func validIdentityConfig() *IdentityConfig {
 		Logging:                            LoggingConfig{Level: "info", Format: "json"},
 		Telemetry:                          TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
 		IssuerURL:                          "https://auth.liverty-music.app",
+		ZitadelInternalURL:                 "http://zitadel-api.zitadel.svc.cluster.local:80",
 		ZitadelMachineKeyForBackendAppPath: "/secrets/backend-app.json",
 		ZitadelMachineKeyForFanPasskeyRecoveryPath:   "/secrets/fan-passkey-recovery.json",
 		ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
 		OrganizerConsoleProjectID:                    "organizer-console-project",
-		Listeners:                                    IdentityListeners{HealthPort: 8080, EventConsumerPort: 9100, AdminConsoleAPIPort: 9101, FanAPIPort: 9102},
+		Listeners:                                    IdentityListeners{HealthPort: 8080, WorkflowWorkerPort: 9100, AdminConsoleAPIPort: 9101, FanAPIPort: 9102},
 	}
 }
 
@@ -1116,8 +1229,20 @@ func TestIdentityConfig_Validate(t *testing.T) {
 			wantErr: "TELEMETRY_OTLP_ENDPOINT",
 		},
 		{
+			name:    "reject a missing internal sign-in service URL outside local",
+			mutate:  func(c *IdentityConfig) { c.ZitadelInternalURL = "" },
+			wantErr: "ZITADEL_INTERNAL_URL",
+		},
+		{
+			name: "accept no internal sign-in service URL in local",
+			mutate: func(c *IdentityConfig) {
+				c.Environment = "local"
+				c.ZitadelInternalURL = ""
+			},
+		},
+		{
 			name:    "reject two listeners on one port",
-			mutate:  func(c *IdentityConfig) { c.Listeners.AdminConsoleAPIPort = c.Listeners.EventConsumerPort },
+			mutate:  func(c *IdentityConfig) { c.Listeners.AdminConsoleAPIPort = c.Listeners.WorkflowWorkerPort },
 			wantErr: "must be valid and distinct",
 		},
 		{

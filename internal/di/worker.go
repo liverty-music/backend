@@ -226,6 +226,7 @@ func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 	workflow.Register(rt, usecase.WorkflowNotifyPasskeyChange, users.RunNotifyPasskeyChange)
 	workflow.Register(rt, usecase.WorkflowSendVerification, users.RunSendVerification)
 	workflow.Register(rt, usecase.WorkflowDeleteUser, users.RunDeleteUser)
+	workflow.Register(rt, usecase.WorkflowForgetRemovedIdentity, users.RunForgetRemovedIdentity)
 
 	workflows, err := provideWorkflows(ctx, db, logger)
 	if err != nil {

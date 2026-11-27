@@ -60,7 +60,7 @@ func newJWKSFixture(t *testing.T) *jwksFixture {
 // trusts the fixture's JWKS endpoint via a freshly constructed JWTValidator.
 func (f *jwksFixture) newValidator(t *testing.T, expectedAud string) *auth.WebhookValidator {
 	t.Helper()
-	v, err := auth.NewJWTValidator(testWebhookIssuer, f.server.URL, 15*time.Minute)
+	v, err := auth.NewJWTValidator(testWebhookIssuer, f.server.URL, 15*time.Minute, http.DefaultClient)
 	require.NoError(t, err)
 	return v.NewWebhookValidator(expectedAud)
 }

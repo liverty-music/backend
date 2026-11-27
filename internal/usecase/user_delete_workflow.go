@@ -15,6 +15,10 @@ import (
 // WorkflowDeleteUser is the registered name of UserUseCase.RunDeleteUser.
 const WorkflowDeleteUser = "delete-user"
 
+// WorkflowForgetRemovedIdentity is the registered name of
+// UserUseCase.RunForgetRemovedIdentity.
+const WorkflowForgetRemovedIdentity = "forget-removed-identity"
+
 const (
 	// deleteUserWait is how long Delete waits for the removal. The apps give up
 	// on a call after 10 seconds, so the answer must reach them before that.
@@ -22,6 +26,16 @@ const (
 	// deleteUserDeadline is how long a removal is tried before it stops and an
 	// admin is told.
 	deleteUserDeadline = 24 * time.Hour
+	// forgetRemovedIdentityDelay is how long after the identity is removed its
+	// record is forgotten. An API reuses an answer that a token is active for
+	// at most 60 seconds after it asked, so a request is admitted at latest 60
+	// seconds after an ask that preceded the removal, and its handler runs at
+	// most 30 seconds: after 90 seconds no request of the identity is
+	// accepted or running.
+	forgetRemovedIdentityDelay = 90 * time.Second
+	// forgetRemovedIdentityDeadline is how long forgetting is tried before it
+	// stops and an admin is told.
+	forgetRemovedIdentityDeadline = 24 * time.Hour
 )
 
 // UserDeletion is the input of the delete-user workflow: the User and its
@@ -79,15 +93,41 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 
 // RunDeleteUser implements [UserUseCase]. The User goes first: nothing can
 // block what follows, because every record that blocks a deletion needs the
-// User, and the removed identity gets no new one (User.Delete).
+// User, and the removed identity gets no new one (User.Delete) until it is
+// forgotten. A run that started before the forgetting existed (the patch
+// `forget-removed-identity`) ends after the identity, as it did.
 func (uc *userUseCase) RunDeleteUser(ctx context.Context, f Flow, in UserDeletion) (struct{}, error) {
 	if _, err := Step(ctx, f, "remove-user", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, uc.removeUser(ctx, in.UserID)
 	}); err != nil {
 		return struct{}{}, err
 	}
-	return Step(ctx, f, "remove-identity", func(ctx context.Context) (struct{}, error) {
+	if _, err := Step(ctx, f, "remove-identity", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, uc.identityRemover.DeleteIdentity(ctx, in.ProviderUserID)
+	}); err != nil {
+		return struct{}{}, err
+	}
+	patched, err := f.Patched(ctx, "forget-removed-identity")
+	if err != nil || !patched {
+		return struct{}{}, err
+	}
+	// The forgetting outlives this workflow, which ends right after starting
+	// it; one run per identity.
+	deadline, err := Step(ctx, f, "forget-deadline", func(context.Context) (time.Time, error) {
+		return uc.clock().Add(forgetRemovedIdentityDelay + forgetRemovedIdentityDeadline), nil
+	})
+	if err != nil {
+		return struct{}{}, err
+	}
+	return struct{}{}, f.Start(context.WithoutCancel(ctx), WorkflowForgetRemovedIdentity,
+		WorkflowForgetRemovedIdentity+":"+in.ProviderUserID, in.ProviderUserID,
+		WithDelay(forgetRemovedIdentityDelay), WithDeadline(deadline))
+}
+
+// RunForgetRemovedIdentity implements [UserUseCase].
+func (uc *userUseCase) RunForgetRemovedIdentity(ctx context.Context, f Flow, providerUserID string) (struct{}, error) {
+	return Step(ctx, f, "forget", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, uc.userRepo.ForgetRemovedIdentity(ctx, providerUserID)
 	})
 }
 

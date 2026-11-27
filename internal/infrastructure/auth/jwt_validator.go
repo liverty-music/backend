@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/lestrrat-go/jwx/v4/jwt"
 	"github.com/liverty-music/backend/pkg/authctx"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // JWTValidator validates JWT tokens using JWKS.
@@ -46,9 +50,13 @@ type jwksSource struct {
 // issuer is the primary (and only) accepted issuer. Use WithAcceptedIssuers to add
 // additional accepted issuers for multi-provider scenarios (e.g., Option C migration).
 //
+// The keys are fetched with httpClient, whose transport sends them over the
+// cluster network outside local (route.Route.Transport).
+//
 // The cache runs background goroutines until Close is called.
-func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JWTValidator, error) {
-	cache, err := jwkfetch.NewCache(context.Background(), httprc.NewClient())
+func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration, httpClient *http.Client) (*JWTValidator, error) {
+	cache, err := jwkfetch.NewCache(context.Background(), httprc.NewClient(),
+		jwkfetch.WithHTTPClient(jwkfetch.WrapHTTPClientDefaults(httpClient)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWKS cache: %w", err)
 	}
@@ -146,10 +154,36 @@ func optionalProfileClaims(token jwt.Token) (name string, emailVerified bool) {
 }
 
 // ValidateToken validates a JWT token and returns the claims.
+//
+// # Possible errors
+//
+//   - Unavailable: the sign-in service's keys cannot be fetched and none are
+//     cached.
+//   - Unauthenticated: the token is not signed by the sign-in service, has
+//     expired, names another issuer, or lacks the subject or email.
 func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*authctx.Claims, error) {
+	claims, _, err := v.validate(ctx, tokenString)
+	return claims, err
+}
+
+// validate is ValidateToken that also returns the token's expiry.
+func (v *JWTValidator) validate(ctx context.Context, tokenString string) (*authctx.Claims, time.Time, error) {
+	claims, expiry, err := v.parse(ctx, tokenString)
+	if err != nil {
+		if errors.Is(err, apperr.ErrUnavailable) {
+			return nil, time.Time{}, err
+		}
+		return nil, time.Time{}, apperr.Wrap(err, codes.Unauthenticated, "invalid token")
+	}
+	return claims, expiry, nil
+}
+
+// parse verifies the token and reads its claims; a failure other than
+// Unavailable is a plain error.
+func (v *JWTValidator) parse(ctx context.Context, tokenString string) (*authctx.Claims, time.Time, error) {
 	keySet, err := v.jwks.keySet(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get JWKS: %w", err)
+		return nil, time.Time{}, apperr.Wrap(err, codes.Unavailable, "the sign-in service's keys cannot be fetched")
 	}
 
 	// Parse and validate the token.
@@ -162,30 +196,30 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		jwt.WithValidate(true),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate token: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to validate token: %w", err)
 	}
 
 	// Verify the issuer against the accepted list.
 	tokenIssuer, _ := token.Issuer()
 	issuerOK := slices.Contains(v.acceptedIssuers, tokenIssuer)
 	if !issuerOK {
-		return nil, fmt.Errorf("token issuer %q is not in the accepted issuers list", tokenIssuer)
+		return nil, time.Time{}, fmt.Errorf("token issuer %q is not in the accepted issuers list", tokenIssuer)
 	}
 
 	// Extract claims from the token
 	sub, _ := token.Subject()
 	if sub == "" {
-		return nil, fmt.Errorf("token missing subject claim")
+		return nil, time.Time{}, fmt.Errorf("token missing subject claim")
 	}
 
 	// Extract email from private claims
 	email, ok := token.Field("email")
 	if !ok {
-		return nil, fmt.Errorf("token missing email claim")
+		return nil, time.Time{}, fmt.Errorf("token missing email claim")
 	}
 	emailStr, ok := email.(string)
 	if !ok {
-		return nil, fmt.Errorf("email claim is not a string")
+		return nil, time.Time{}, fmt.Errorf("email claim is not a string")
 	}
 
 	name, emailVerified := optionalProfileClaims(token)
@@ -211,6 +245,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	// organizer RPCs.
 	roleOrgIDs, loginScopeOrgID := extractRoleOrgIDs(token)
 
+	expiry, _ := token.Expiration()
 	return &authctx.Claims{
 		Sub:             sub,
 		Email:           emailStr,
@@ -220,7 +255,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		Audiences:       audiences,
 		LoginScopeOrgID: loginScopeOrgID,
 		RoleOrgIDs:      roleOrgIDs,
-	}, nil
+	}, expiry, nil
 }
 
 // extractAudiences returns the audience ("aud") claim values from the token.

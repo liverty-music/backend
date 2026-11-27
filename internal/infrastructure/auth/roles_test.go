@@ -3,6 +3,7 @@ package auth_test
 import (
 	"context"
 	"crypto/rsa"
+	"net/http"
 	"testing"
 	"time"
 
@@ -70,7 +71,7 @@ func TestValidateToken_Roles(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTokenWithRoles(t, privateKey, server.URL, "global", []string{"admin"})
 				return tok, v
@@ -83,7 +84,7 @@ func TestValidateToken_Roles(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTokenWithRoles(t, privateKey, server.URL, "project", []string{"admin", "reviewer"})
 				return tok, v
@@ -96,7 +97,7 @@ func TestValidateToken_Roles(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				// createTestToken from jwt_validator_test.go — no role opts → no claim set.
 				tok := createTestToken(t, privateKey, server.URL, "user-456", "user@example.com", "User", time.Hour)

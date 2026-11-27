@@ -48,30 +48,34 @@ func TestCallersRequireIdentityServiceURLOutsideLocal(t *testing.T) {
 	t.Run("the admin console API", func(t *testing.T) {
 		setenvAll(t, base)
 		setenvAll(t, map[string]string{
-			"API_WORKLOAD":                    "admin",
-			"FAN_WEB_BASE_URL":                "https://liverty-music.app",
-			"CORS_ALLOWED_ORIGINS":            "https://liverty-music.app",
-			"ADMIN_CORS_ALLOWED_ORIGINS":      "https://admin.liverty-music.app",
-			"ORGANIZER_CORS_ALLOWED_ORIGINS":  "https://organizer.liverty-music.app",
-			"RECEPTION_CORS_ALLOWED_ORIGINS":  "https://reception.liverty-music.app",
-			"CDN_BASE_URL":                    "https://cdn.liverty-music.app",
-			"LASTFM_API_KEY":                  "lastfm-key",
-			"POCKET_SIGN_BASE_URL":            "https://verify.mock.p8n.app",
-			"POCKET_SIGN_CALLBACK_URL":        "https://api.liverty-music.app/pocket-sign/callback",
-			"POCKET_SIGN_TENANT_ID":           "tenant",
-			"POCKET_SIGN_TOKEN":               "ps-token",
-			"STORAGE_BUCKET":                  "storage",
-			"STORAGE_INTERNAL_BUCKET":         "storage-internal",
-			"STRIPE_ONBOARDING_RETURN_URL":    "https://organizer.liverty-music.app/",
-			"STRIPE_SECRET_KEY":               "sk_test_x",
-			"STRIPE_WEBHOOK_SIGNING_SECRET":   "whsec_x",
-			"WEBHOOK_LOGIN_EVENT_SIGNING_KEY": "login-key",
-			"ORGANIZER_CONSOLE_PROJECT_ID":    "organizer-console-project",
+			"API_WORKLOAD":                                         "admin",
+			"FAN_WEB_BASE_URL":                                     "https://liverty-music.app",
+			"CORS_ALLOWED_ORIGINS":                                 "https://liverty-music.app",
+			"ADMIN_CORS_ALLOWED_ORIGINS":                           "https://admin.liverty-music.app",
+			"ORGANIZER_CORS_ALLOWED_ORIGINS":                       "https://organizer.liverty-music.app",
+			"RECEPTION_CORS_ALLOWED_ORIGINS":                       "https://reception.liverty-music.app",
+			"CDN_BASE_URL":                                         "https://cdn.liverty-music.app",
+			"LASTFM_API_KEY":                                       "lastfm-key",
+			"POCKET_SIGN_BASE_URL":                                 "https://verify.mock.p8n.app",
+			"POCKET_SIGN_CALLBACK_URL":                             "https://api.liverty-music.app/pocket-sign/callback",
+			"POCKET_SIGN_TENANT_ID":                                "tenant",
+			"POCKET_SIGN_TOKEN":                                    "ps-token",
+			"STORAGE_BUCKET":                                       "storage",
+			"STORAGE_INTERNAL_BUCKET":                              "storage-internal",
+			"STRIPE_ONBOARDING_RETURN_URL":                         "https://organizer.liverty-music.app/",
+			"STRIPE_SECRET_KEY":                                    "sk_test_x",
+			"STRIPE_WEBHOOK_SIGNING_SECRET":                        "whsec_x",
+			"WEBHOOK_LOGIN_EVENT_SIGNING_KEY":                      "login-key",
+			"ORGANIZER_CONSOLE_PROJECT_ID":                         "organizer-console-project",
+			"ZITADEL_INTERNAL_URL":                                 "http://zitadel-api.zitadel.svc.cluster.local:80",
+			"ZITADEL_ADMIN_CONSOLE_PROJECT_ID":                     "admin-console-project",
+			"ZITADEL_INTROSPECTION_KEY_FOR_ADMIN_CONSOLE_API_PATH": "/secrets/admin-console-api.json",
 		})
 
 		_, err := di.InitializeApp(context.Background())
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "required outside local but not set: IDENTITY_SERVICE_URL")
+		assert.NotContains(t, err.Error(), "ZITADEL", "every other setting is given")
 	})
 }

@@ -1,4 +1,4 @@
-h1:JwuKu6uAaocEx/+eByj0c+YRWzUMSb20AZUhYEJwIQw=
+h1:6XoIwb6lqdWuhpU3+VmrCNisQLKbngujV8Zp1rwoe1A=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -151,3 +151,4 @@ h1:JwuKu6uAaocEx/+eByj0c+YRWzUMSb20AZUhYEJwIQw=
 20261126060405_wall_clock_times.sql h1:6fhF+kB9s9APDGc213524deuyoM5KlWLRwC/d3ALbHw=
 20261126141736_record_deleted_user_identities.sql h1:j7PtWDWPLiodiZFvQUAm+jWT2Thp66iRDk/uR02gYx0=
 20261126152558_drop_replaced_time_home_and_place_columns.sql h1:RbgzNTVhT/bLK9Gy5EAC7FtR//jd7An+K7x29CaXzkU=
+20261127041852_comment_forget_removed_identities.sql h1:gHmhZ0ezdz5vf1QIR8kgCC4EcOZgU7fiTHWZgrJ6YSA=

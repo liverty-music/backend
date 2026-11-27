@@ -4,14 +4,11 @@ package zitadel
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"net/url"
 
-	"github.com/zitadel/oidc/v3/pkg/oidc"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,36 +37,14 @@ type EmailVerifier struct {
 // NewEmailVerifier creates a new EmailVerifier that authenticates to the
 // Zitadel API using a machine user's private key JWT.
 //
-// issuerURL is the OIDC issuer URL (e.g., "https://auth.dev.liverty-music.app").
-// keyPath is the file path to the machine key JSON.
-// opts are additional zitadel connection options (e.g., WithInsecure for testing).
-func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*EmailVerifier, error) {
-	apiEndpoint, err := grpcEndpoint(issuerURL)
+// r is the route to the sign-in service. keyPath is the file path to the
+// machine key JSON. opts are additional zitadel connection options (e.g., to
+// point a test at its own server).
+func NewEmailVerifier(ctx context.Context, r route.Route, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*EmailVerifier, error) {
+	conn, err := dial(ctx, r, keyPath, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("parse zitadel domain: %w", err)
+		return nil, err
 	}
-
-	connOpts := []zitadelconn.Option{
-		zitadelconn.WithJWTProfileTokenSource(
-			jwtProfileFromPath(ctx, keyPath),
-		),
-		zitadelconn.WithDialOptions(
-			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-		),
-	}
-	connOpts = append(connOpts, opts...)
-
-	conn, err := zitadelconn.NewConnection(
-		ctx,
-		issuerURL,
-		apiEndpoint,
-		[]string{oidc.ScopeOpenID, zitadelconn.ScopeZitadelAPI()},
-		connOpts...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create zitadel connection: %w", err)
-	}
-
 	return NewEmailVerifierWithClient(userpb.NewUserServiceClient(conn.ClientConn), logger), nil
 }
 
@@ -158,25 +133,4 @@ func wrapGRPC(err error, msg string, attrs ...slog.Attr) error {
 	default:
 		return apperr.Wrap(err, codes.Internal, msg, attrs...)
 	}
-}
-
-// grpcEndpoint extracts the host:port gRPC endpoint from an OIDC issuer URL.
-// The issuer URL uses https:// scheme, but gRPC Dial expects host:port.
-func grpcEndpoint(issuerURL string) (string, error) {
-	u, err := url.Parse(issuerURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid issuer URL %q: %w", issuerURL, err)
-	}
-
-	host := u.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("issuer URL %q has no host", issuerURL)
-	}
-
-	port := u.Port()
-	if port == "" {
-		port = "443"
-	}
-
-	return host + ":" + port, nil
 }

@@ -3,6 +3,7 @@ package auth_test
 import (
 	"context"
 	"crypto/rsa"
+	"net/http"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestFreshSignInVerifier_VerifyFreshSignIn(t *testing.T) {
 	t.Parallel()
 	server, privateKey, _ := setupTestJWKS(t)
 	t.Cleanup(server.Close)
-	validator, err := auth.NewJWTValidator(freshSignInIssuer, server.URL, time.Hour)
+	validator, err := auth.NewJWTValidator(freshSignInIssuer, server.URL, time.Hour, http.DefaultClient)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = validator.Close() })
 	now := time.Now()

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 )
 
 // setupTestJWKS creates a test JWKS server and returns the server, private key, and public key set.
@@ -140,7 +141,7 @@ func TestNewJWTValidator_SignInServiceDown(t *testing.T) {
 	server := httptest.NewServer(jwks)
 	t.Cleanup(server.Close)
 
-	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute, http.DefaultClient)
 
 	require.NoError(t, err)
 	assert.Equal(t, server.URL, auth.JWTValidatorIssuer(validator))
@@ -155,7 +156,7 @@ func TestValidateToken_RecoversWhenSignInServiceReturns(t *testing.T) {
 	jwks.down.Store(true)
 	server := httptest.NewServer(jwks)
 	t.Cleanup(server.Close)
-	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute, http.DefaultClient)
 	require.NoError(t, err)
 	token := createTestToken(t, privateKey, server.URL, "user-1", "fan@example.com", "", time.Hour)
 
@@ -181,7 +182,7 @@ func TestValidateToken_UnknownKeyID(t *testing.T) {
 	jwks := &flakyJWKS{keySet: keySet}
 	server := httptest.NewServer(jwks)
 	t.Cleanup(server.Close)
-	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute, http.DefaultClient)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, validator.Close()) })
 	// Warm the cache with a token the JWKS can verify.
@@ -229,7 +230,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", time.Hour)
 				return tok, v
@@ -247,7 +248,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, server.URL, "user-456", "another@example.com", "", time.Hour)
 				return tok, v
@@ -264,7 +265,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, server.URL, "user-123", "verified@example.com", "Verified User", time.Hour, withEmailVerified(true))
 				return tok, v
@@ -282,7 +283,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, server.URL, "user-123", "unverified@example.com", "Unverified User", time.Hour, withEmailVerified(false))
 				return tok, v
@@ -300,7 +301,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				// No withEmailVerified option — claim is absent.
 				tok := createTestToken(t, privateKey, server.URL, "user-123", "noverify@example.com", "No Verify User", time.Hour)
@@ -319,7 +320,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", -time.Hour)
 				return tok, v
@@ -332,7 +333,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, privateKey, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				tok := createTestToken(t, privateKey, "https://wrong-issuer.com", "user-123", "test@example.com", "Test User", time.Hour)
 				return tok, v
@@ -345,7 +346,7 @@ func TestValidateToken(t *testing.T) {
 				t.Helper()
 				server, _, _ := setupTestJWKS(t)
 				t.Cleanup(server.Close)
-				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+				v, err := auth.NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute, http.DefaultClient)
 				require.NoError(t, err)
 				return "invalid.token.here", v
 			},
@@ -373,4 +374,34 @@ func TestValidateToken(t *testing.T) {
 			assert.Equal(t, tt.want.emailVerified, claims.EmailVerified)
 		})
 	}
+}
+
+// The public issuer never answers (.test is reserved), so the keys can only
+// come from the internal address, which must receive both instance headers.
+func TestJWTValidator_FetchesKeysFromTheInternalAddress(t *testing.T) {
+	t.Parallel()
+	const issuer = "https://auth.liverty-music.test"
+	privateKey, keySet := newKeySet(t)
+	var instanceHost, publicHost atomic.Value
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		instanceHost.Store(r.Header.Get(route.InstanceHostHeader))
+		publicHost.Store(r.Header.Get(route.PublicHostHeader))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(keySet)
+	}))
+	t.Cleanup(internal.Close)
+	signIn, err := route.New(issuer, internal.URL)
+	require.NoError(t, err)
+	validator, err := auth.NewJWTValidator(issuer, issuer+"/oauth/v2/keys", 15*time.Minute,
+		&http.Client{Transport: signIn.Transport(http.DefaultTransport)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = validator.Close() })
+
+	claims, err := validator.ValidateToken(context.Background(),
+		createTestToken(t, privateKey, issuer, "user-1", "fan@example.com", "", time.Hour))
+
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", claims.Sub)
+	assert.Equal(t, "auth.liverty-music.test", instanceHost.Load())
+	assert.Equal(t, "auth.liverty-music.test", publicHost.Load())
 }

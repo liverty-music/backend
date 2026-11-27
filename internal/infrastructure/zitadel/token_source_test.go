@@ -23,6 +23,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,14 @@ func TestTokenEndpoint(t *testing.T) {
 			assert.Equal(t, tt.want, infrazitadel.TokenEndpoint(tt.issuer))
 		})
 	}
+}
+
+// mustRoute returns the route straight to issuer, as a local run has.
+func mustRoute(t *testing.T, issuer string) route.Route {
+	t.Helper()
+	r, err := route.New(issuer, "")
+	require.NoError(t, err)
+	return r
 }
 
 // writeMachineKey writes a Zitadel machine key JSON with a fresh RSA key and
@@ -133,7 +142,7 @@ func TestNewIdentityRemover_SignInServiceDown(t *testing.T) {
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	r, err := infrazitadel.NewIdentityRemover(context.Background(), issuer, writeMachineKey(t), logger,
+	r, err := infrazitadel.NewIdentityRemover(context.Background(), mustRoute(t, issuer), writeMachineKey(t), logger,
 		zitadelconn.WithInsecure(),
 		zitadelconn.WithCustomURL(issuer, startDeleteUserServer(t)),
 	)
@@ -152,7 +161,7 @@ func TestIdentityRemover_RecoversWhenSignInServiceReturns(t *testing.T) {
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	r, err := infrazitadel.NewIdentityRemover(context.Background(), issuer.URL, writeMachineKey(t), logger,
+	r, err := infrazitadel.NewIdentityRemover(context.Background(), mustRoute(t, issuer.URL), writeMachineKey(t), logger,
 		zitadelconn.WithInsecure(),
 		zitadelconn.WithCustomURL(issuer.URL, startDeleteUserServer(t)),
 	)
