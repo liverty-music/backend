@@ -21,59 +21,47 @@ const (
 	errBody400 = `{"error":{"code":400,"message":"Bad Request","status":"INVALID_ARGUMENT"}}`
 )
 
-// @spec components/entity/concert/search "Recovered on retry"
-func TestSearch_RetryOnTransientError(t *testing.T) {
-	t.Parallel()
-
-	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
-	artist := &entity.Artist{Name: "Test Artist"}
-	officialSite := &entity.OfficialSite{URL: "https://example.com"}
-	successBody := `{"series": [{"title": "Retry Success", "source_url": "https://example.com/retry", "events": [
-		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": "2026-03-01T18:00:00Z"}]}]}`
-
-	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(n int32, _ map[string]any) (int, string) {
-		// The first attempt times out; the second succeeds.
-		if n == 1 {
-			return http.StatusGatewayTimeout, errBody504
-		}
-		return http.StatusOK, geminiResponse(successBody, "STOP")
-	})
-
-	got, err := s.Search(context.Background(), artist, officialSite, from)
-
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "Retry Success", got[0].Title)
-	assert.Equal(t, int32(2), calls.Load(), "1 timeout + 1 retry success")
-}
-
-// @spec components/entity/concert/search "All attempts transient"
-func TestSearch_AllRetriesExhausted(t *testing.T) {
+// A transient failure is not retried within a Search: it fails with
+// Unavailable after its one request, for the caller to try again later.
+func TestSearch_TransientFailureEndsAfterOneRequest(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	reporter := &recordingReporter{}
-	s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(int32, map[string]any) (int, string) {
-		return http.StatusTooManyRequests, errBody429
-	})
-
-	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
-
-	// Transient exhaustion fails the search with Unavailable, flagged in the
-	// metadata, and each of the 3 requests is reported as transient.
-	assert.ErrorIs(t, err, apperr.ErrUnavailable)
-	assert.Empty(t, got)
-	reported := reporter.reported()
-	require.Len(t, reported, 3)
-	for _, r := range reported {
-		assert.Equal(t, "transient", r.gen.ErrorKind)
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		// @spec components/entity/concert/search "Rate limited"
+		{name: "rate limited", status: http.StatusTooManyRequests, body: errBody429},
+		{name: "busy", status: http.StatusServiceUnavailable, body: errBody503},
+		// @spec components/entity/concert/search "Server error"
+		{name: "server error", status: http.StatusInternalServerError, body: `{"error":{"code":500,"message":"internal","status":"INTERNAL"}}`},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, body: errBody504},
 	}
-	require.NotNil(t, md.Grounded)
-	assert.True(t, md.Grounded.ExhaustedTransient)
-	assert.Equal(t, int32(3), calls.Load(), "3 attempts in total")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reporter := &recordingReporter{}
+			s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(int32, map[string]any) (int, string) {
+				return tt.status, tt.body
+			})
+
+			got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
+
+			assert.ErrorIs(t, err, apperr.ErrUnavailable)
+			assert.Empty(t, got)
+			assert.Equal(t, int32(1), calls.Load())
+			require.NotNil(t, md.Grounded)
+			assert.True(t, md.Grounded.Transient)
+			reported := reporter.reported()
+			require.Len(t, reported, 1)
+			assert.Equal(t, "transient", reported[0].gen.ErrorKind)
+		})
+	}
 }
 
 func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
@@ -95,101 +83,57 @@ func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
 }
 
 // @spec components/entity/concert/search "Caller deadline expires"
-func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
+func TestSearch_CallerDeadlineDecidesOverTheFailure(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
 	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		// The call is detached from the caller's context, so it outlives the
+		// deadline and then is refused.
+		<-ctx.Done()
 		return http.StatusServiceUnavailable, errBody503
 	})
-
-	// The deadline expires during the first retry backoff.
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
 
 	got, err := s.Search(ctx, artist, officialSite, from)
 
 	assert.Nil(t, got)
-	// backoff.Retry wraps the deadline in a *backoff.RetryError whose last
-	// error is the 503; the caller's deadline must still decide the code.
 	assert.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
-	assert.Less(t, calls.Load(), int32(3), "should not exhaust all retries when context is cancelled")
+	assert.Equal(t, int32(1), calls.Load())
 }
 
-// TestSearch_IncompleteResponseWithoutTextIsRetried locks in that an
-// incomplete response carrying no text (e.g. MAX_TOKENS) is retried as a
-// transient failure instead of being read as "no concerts" on the first
-// attempt.
-func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
+// @spec components/entity/concert/search "Response not completed"
+func TestSearch_IncompleteResponseIsNotTransient(t *testing.T) {
 	t.Parallel()
 
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	// No text at all: it must not be read as "no concerts" either.
 	noText := `{"candidates": [{"content": {"parts": [
 		{"toolCall": {"toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["Test Artist live"]}}}
 	]}, "finishReason": "MAX_TOKENS"}]}`
-	successBody := `{"series": [{"title": "Show", "source_url": "https://example.com/show", "events": [
-		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}]}`
 
-	tests := []struct {
-		name      string
-		respond   func(n int32) string
-		wantTitle []string
-		wantCalls int32
-		wantFlag  bool
-		wantErr   error
-	}{
-		{
-			name: "recovered on the next attempt",
-			respond: func(n int32) string {
-				if n == 1 {
-					return noText
-				}
-				return geminiResponse(successBody, "STOP")
-			},
-			wantTitle: []string{"Show"},
-			wantCalls: 2,
-		},
-		{
-			name:      "every attempt incomplete fails with Unavailable",
-			respond:   func(int32) string { return noText },
-			wantCalls: 3,
-			wantFlag:  true,
-			wantErr:   apperr.ErrUnavailable,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			s, calls := newTestSearcher(t, gemini.Config{}, nil, func(n int32, _ map[string]any) (int, string) {
-				return http.StatusOK, tt.respond(n)
-			})
+	reporter := &recordingReporter{}
+	s, calls := newTestSearcher(t, gemini.Config{Reporter: reporter}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusOK, noText
+	})
 
-			got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
+	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-			titles := make([]string, 0, len(got))
-			for _, ds := range got {
-				titles = append(titles, ds.Title)
-			}
-			if tt.wantTitle == nil {
-				assert.Empty(t, titles)
-			} else {
-				assert.Equal(t, tt.wantTitle, titles)
-			}
-			assert.Equal(t, tt.wantCalls, calls.Load())
-			require.NotNil(t, md.Grounded)
-			assert.Equal(t, tt.wantFlag, md.Grounded.ExhaustedTransient)
-		})
-	}
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
+	assert.Equal(t, int32(1), calls.Load())
+	require.NotNil(t, md.Grounded)
+	assert.False(t, md.Grounded.Transient)
+	reported := reporter.reported()
+	require.Len(t, reported, 1)
+	assert.Equal(t, "incomplete", reported[0].gen.ErrorKind)
 }
 
 // @spec components/entity/concert/search "Too many tool calls"
@@ -210,7 +154,7 @@ func TestSearch_TooManyToolCallsFailsWithoutRetry(t *testing.T) {
 	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
 	assert.Nil(t, got)
-	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
 	assert.Equal(t, int32(1), calls.Load(), "not retried")
 	require.NotNil(t, md.Grounded)
 	assert.Equal(t, 2, md.Grounded.WebSearchQueries, "the stopped call's queries are still recorded")

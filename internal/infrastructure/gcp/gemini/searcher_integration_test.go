@@ -279,7 +279,7 @@ type cellResult struct {
 	// CostUSD2027 is the cost at the price from 2027-01-01 (Pricing2027),
 	// 0 for a model without one.
 	CostUSD2027 float64 `json:"cost_usd_2027"`
-	// RetryCount is the number of attempts of the grounded call.
+	// RetryCount is the number of requests the grounded call sent.
 	RetryCount int `json:"retry_count"`
 	// EmptyResponse is true when the call answered with no candidate or
 	// ended without text.

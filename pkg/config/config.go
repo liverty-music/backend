@@ -95,12 +95,14 @@ type WorkerConfig struct {
 	// emails.
 	AccountEmailConfig
 
-	// GCPProjectID is the project whose Google Maps Places API the
-	// create-from-discovered workflow resolves venues with.
-	GCPProjectID string `envconfig:"GCP_PROJECT_ID"`
+	// GCP holds the project whose Google Maps Places API the
+	// create-from-discovered workflow resolves venues with, and the Gemini
+	// settings of the concert searcher the search-concerts workflow calls.
+	GCP GCPConfig `envconfig:""`
 
-	// PostHog receives the pipeline signal of each create-from-discovered
-	// batch. Optional: without a project API key no signal is sent.
+	// PostHog receives the pipeline signals of the concert searches and of
+	// each create-from-discovered batch, and the usage of each Gemini call.
+	// Optional: without a project API key nothing is sent.
 	PostHog PostHogConfig `envconfig:""`
 
 	// StripeSecretKey authenticates the captures and releases of the issue
@@ -119,11 +121,14 @@ type WorkerConfig struct {
 	SettlementDisputeBufferDays int `envconfig:"STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS" default:"7"`
 }
 
-// Validate checks the worker configuration: the base settings, and outside
-// local the NATS URL, the VAPID keys, the identity service, the issuer, the
-// GCP project and the Stripe secret key.
+// Validate checks the worker configuration: the base and GCP settings, and
+// outside local the NATS URL, the VAPID keys, the identity service, the
+// issuer, the GCP project, the Gemini key and the Stripe secret key.
 func (c *WorkerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	if err := c.GCP.Validate(); err != nil {
 		return err
 	}
 	if c.IsLocal() {
@@ -133,7 +138,8 @@ func (c *WorkerConfig) Validate() error {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
 	return requireSet(
-		envVar{"GCP_PROJECT_ID", c.GCPProjectID},
+		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
+		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
 		envVar{"IDENTITY_SERVICE_URL", c.IdentityServiceURL},
 		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
@@ -261,9 +267,9 @@ type JobConfig struct {
 	// FanartTV API Key for artist image sync job
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
 
-	// PostHog configuration for the pipeline signals of the concert-discovery
-	// and sales-phase-discovery jobs (search outcomes and external model
-	// usage). Optional: with no project API key the jobs report nothing.
+	// PostHog configuration for the pipeline signals of the
+	// sales-phase-discovery job (search outcomes and external model usage).
+	// Optional: with no project API key the jobs report nothing.
 	PostHog PostHogConfig `envconfig:""`
 }
 
@@ -513,12 +519,19 @@ type GCPConfig struct {
 	GeminiSearchThinkingExtract string `envconfig:"GCP_GEMINI_SEARCH_THINKING_EXTRACT"`
 
 	// API key for the Gemini API direct backend (BackendGeminiAPI).
-	// REQUIRED for the concert searcher — Vertex AI does not support
+	// REQUIRED outside local on the workflow worker, which runs the concert
+	// searcher, and by the ticket sale discovery job — Vertex AI does not support
 	// URLContext or GoogleSearch.TimeRangeFilter, which the two-step
 	// grounded-extract pipeline depends on. Get a key at
 	// https://aistudio.google.com/apikey and apply API restrictions
 	// (Generative Language API only) before 2026-06-19.
 	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
+
+	// Service tier of the concert searcher's requests (Gemini API
+	// service_tier): "flex" costs half per token, may answer up to 15 minutes
+	// later and refuses requests while busy; "standard" sends no tier. Setting
+	// it to "standard" leaves the flex tier without a release.
+	GeminiConcertSearchServiceTier string `envconfig:"GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER" default:"flex"`
 
 	// Freshness window for the concert-search cache. A completed search within
 	// this window suppresses a repeat external call. Empty/zero falls back
@@ -1021,6 +1034,9 @@ func Load[T Loadable]() (*T, error) {
 
 // Validate validates the GCPConfig fields:
 //   - GeminiSearchThinkingLevel / Extract: each must be one of "", "minimal", "low", "medium", "high"
+//   - GeminiConcertSearchServiceTier: "flex" or "standard" ("" only when the
+//     struct is built without envconfig, and sends no tier)
+//   - GeminiSearchCacheTTL / DiscoveryWindow: not negative
 func (c *GCPConfig) Validate() error {
 	// validThinkingLevels must mirror the set accepted by
 	// gemini.thinkingLevelFromConfig (searcher.go). Keeping these in sync
@@ -1032,6 +1048,9 @@ func (c *GCPConfig) Validate() error {
 	}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingExtract) {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_EXTRACT: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingExtract)
+	}
+	if !slices.Contains([]string{"", "flex", "standard"}, c.GeminiConcertSearchServiceTier) {
+		return fmt.Errorf("invalid GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER: %q (allowed: flex, standard)", c.GeminiConcertSearchServiceTier)
 	}
 	// A non-parseable duration already fails at envconfig.Process (Load);
 	// here we reject negatives so a stray "-1h" cannot disable the cache.
@@ -1218,7 +1237,6 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 	required := []envVar{
 		{"ADMIN_CORS_ALLOWED_ORIGINS", strings.Join(c.Server.AdminAllowedOrigins, ",")},
 		{"CDN_BASE_URL", c.CDNBaseURL},
-		{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		{"LASTFM_API_KEY", c.LastFMAPIKey},
 		{"POCKET_SIGN_BASE_URL", c.PocketSign.BaseURL},
 		{"POCKET_SIGN_CALLBACK_URL", c.PocketSign.CallbackURL},
@@ -1358,7 +1376,6 @@ func (c *ConsumerConfig) Validate() error {
 	}
 	return requireSet(
 		envVar{"FANARTTV_API_KEY", c.FanartTVAPIKey},
-		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
 		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
 		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},

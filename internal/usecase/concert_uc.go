@@ -12,8 +12,6 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // ConcertUseCase defines the interface for concert-related business logic.
@@ -93,19 +91,32 @@ type ConcertUseCase interface {
 	//  - Internal: database query failure.
 	ListByLocation(ctx context.Context, area string, from, to time.Time) ([]*entity.ProximityGroup, error)
 
-	// SearchNewConcerts discovers new concerts for the given artist synchronously.
-	// It returns the newly discovered concerts after deduplication against
-	// already-known upcoming events. It returns no concerts, without an
-	// external search, for an artist whose activity has ended.
+	// SearchNewConcerts starts a search for new concerts of the artist and
+	// returns without waiting for it. Unless a rule skips the search (the
+	// artist's activity has ended, an active organizer represents it, or its
+	// ConcertSearch is fresh, recently discovered or pending), it records the
+	// ConcertSearch as pending and starts the search-concerts workflow named
+	// after the artist and that search time (RunSearch).
 	//
-	// trigger names what started the run; it is reported with the run's
-	// outcome when the external search is performed.
+	// trigger names what started the search; it is reported with the search's
+	// outcome when the external search is called.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the artist does not exist.
-	//  - Internal: search or database failure.
-	SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) ([]*entity.Concert, error)
+	//  - Internal: If the artist is missing the name or MBID a search needs,
+	//    or the database fails.
+	//  - Unavailable: If the search cannot be started.
+	SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) error
+
+	// RunSearch is the search-concerts workflow, one attempt of a search that
+	// SearchNewConcerts started. Only the workflow worker runs it.
+	//
+	// # Possible errors
+	//
+	//  - Internal: If the search or the artist cannot be read, or an attempt
+	//    cannot be recorded.
+	RunSearch(ctx context.Context, f Flow, in ConcertSearchAttempt) (struct{}, error)
 
 	// SearchNewConcertsOnFirstFollow triggers concert discovery for an artist
 	// the very first time it is followed by anyone, and is a no-op on every
@@ -118,13 +129,14 @@ type ConcertUseCase interface {
 	// artist as searched, subsequent calls for the same artist are a no-op
 	// here. When several fans follow the same artist concurrently, each
 	// publishes its own FOLLOW.created event and this method may run more
-	// than once for the artist, but SearchNewConcerts's own dedup (against
+	// than once for the artist, but the search's own dedup (against
 	// already-known concerts and pending concert candidates) and the DB natural key
 	// on events guarantee any discovered concerts are stored only once.
 	//
 	// # Possible errors
 	//
-	//  - Internal: concert search lookup or search failure.
+	//  - Internal: concert search lookup failure.
+	//  - Any error of SearchNewConcerts.
 	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
 
 	// Get returns the Concert of one Event when that Event has a concert page
@@ -187,11 +199,12 @@ type concertUseCase struct {
 	logger          *logging.Logger
 }
 
-// pendingTimeout is the maximum age of a pending concert search before it is
-// considered stale and treated as failed (self-healing for crashed workers).
-const pendingTimeout = 3 * time.Minute
+// pendingTimeout is the age up to which a pending concert search counts as in
+// progress: the time its attempts may keep calling the external search. An
+// older one is searched again (self-healing for a search that never ended).
+const pendingTimeout = searchWindow
 
-// statusUpdateTimeout is the context timeout for concert search status updates.
+// statusUpdateTimeout is the context timeout for recording a search's find.
 // Uses a fresh context.Background() to ensure updates succeed even when the
 // parent context (Gemini API call) has expired.
 const statusUpdateTimeout = 5 * time.Second
@@ -396,13 +409,12 @@ const (
 	concertSearchOutcomeFound      = "found"
 )
 
-// SearchNewConcerts discovers new concerts for the given artist synchronously.
-// It returns the newly discovered concerts after deduplication against
-// already-known upcoming events.
-func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) ([]*entity.Concert, error) {
+// SearchNewConcerts records the search of the artist's new concerts and
+// starts it; the search-concerts workflow does the rest.
+func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger SearchTrigger) error {
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get artist: %w", err)
+		return fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// An artist whose activity has ended (a dissolved group, a solo artist
@@ -412,22 +424,37 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		uc.logger.Debug(ctx, "skipping discovery for artist whose activity has ended",
 			slog.String("artist_id", artistID),
 		)
-		return nil, nil
+		return nil
 	}
 
 	skip, err := uc.skipSearch(ctx, artistID)
 	if err != nil || skip {
-		return nil, err
+		return err
 	}
 
-	// Mark as pending. If this fails, abort — without a pending row,
-	// downstream UpdateStatus calls silently no-op (0 rows affected).
+	// An artist row with an empty Name or MBID is a data-integrity problem
+	// the search cannot recover from: both are required to search and to link
+	// the concerts it finds. Fail before anything is recorded or spent; only
+	// an admin's fix of the row helps, and the error keeps showing until then.
+	if err := artist.CheckSearchable(); err != nil {
+		return err
+	}
+
+	// Mark as pending. If this fails, abort: the search only runs for a
+	// pending ConcertSearch.
 	searchTime, err := uc.concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 	if err != nil {
-		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
+		return fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
-	return uc.executeSearch(ctx, artist, trigger, searchTime)
+	// No deadline: the engine counts one from the dequeue, so each attempt
+	// checks the search window against the search time itself.
+	first := ConcertSearchAttempt{ArtistID: artistID, SearchTime: searchTime, Trigger: trigger, Attempt: 1}
+	if err := uc.workflows.Start(ctx, WorkflowSearchConcerts, searchAttemptID(artistID, searchTime, 1), first,
+		WithQueue(ConcertSearchQueue)); err != nil {
+		return fmt.Errorf("start the concert search: %w", err)
+	}
+	return nil
 }
 
 // skipSearch reports whether no external search runs for the artist now, and
@@ -445,19 +472,8 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // Otherwise the stored concert search decides: skip if recently completed,
 // recently found a new concert, or currently pending.
 func (uc *concertUseCase) skipSearch(ctx context.Context, artistID string) (bool, error) {
-	if uc.organizerRepo != nil {
-		represented, err := uc.organizerRepo.IsArtistRepresentedByActiveOrganizer(ctx, artistID)
-		if err != nil {
-			uc.logger.Warn(ctx, "failed to check organizer representation for discovery exclusion",
-				slog.String("artist_id", artistID),
-				slog.Any("error", err),
-			)
-		} else if represented {
-			uc.logger.Debug(ctx, "skipping discovery for organizer-represented artist",
-				slog.String("artist_id", artistID),
-			)
-			return true, nil
-		}
+	if uc.isRepresented(ctx, artistID) {
+		return true, nil
 	}
 
 	concertSearch, err := uc.concertSearchRepo.GetByArtistID(ctx, artistID)
@@ -494,6 +510,29 @@ func (uc *concertUseCase) skipSearch(ctx context.Context, artistID string) (bool
 	return false, nil
 }
 
+// isRepresented reports whether an active organizer represents the artist,
+// and logs why discovery leaves it out. A failure to check is logged and
+// reported as not represented.
+func (uc *concertUseCase) isRepresented(ctx context.Context, artistID string) bool {
+	if uc.organizerRepo == nil {
+		return false
+	}
+	represented, err := uc.organizerRepo.IsArtistRepresentedByActiveOrganizer(ctx, artistID)
+	if err != nil {
+		uc.logger.Warn(ctx, "failed to check organizer representation for discovery exclusion",
+			slog.String("artist_id", artistID),
+			slog.Any("error", err),
+		)
+		return false
+	}
+	if represented {
+		uc.logger.Debug(ctx, "skipping discovery for organizer-represented artist",
+			slog.String("artist_id", artistID),
+		)
+	}
+	return represented
+}
+
 // SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
 // first time it is followed by anyone (no ConcertSearch row exists yet), and is a
 // no-op otherwise.
@@ -511,258 +550,15 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 	uc.logger.Info(ctx, "first follow detected, triggering concert search",
 		slog.String("artist_id", artistID),
 	)
-	if _, err := uc.SearchNewConcerts(ctx, artistID, SearchTriggerFirstFollow); err != nil {
+	if err := uc.SearchNewConcerts(ctx, artistID, SearchTriggerFirstFollow); err != nil {
 		return fmt.Errorf("search new concerts for first follow: %w", err)
 	}
 	return nil
 }
 
-// executeSearch performs the actual Gemini search, deduplication, and the start
-// of CreateFromDiscovered for the new concerts.
-// It returns the newly discovered concerts and updates the concert search status on exit.
-//
-// Deduplication uses `(local_event_date, listed_venue_name)` matching via
-// `entity.FilterNewSeries`, aligned with the DB-level natural key
-// `UNIQUE (series_id, local_event_date, venue_id)` enforced by the events
-// table (added in migration `20260523145447_add_series_hierarchy`). The pre-
-// v0.41.0 per-artist constraint `(artist_id, local_event_date)` was dropped
-// in that migration alongside the singular events.artist_id column.
-//
-// The application-level FilterNewSeries check on `(date, listed_venue_name)` avoids
-// unnecessary hand-over/UPSERT round-trips for re-scrapes; the DB natural key
-// is the source of truth and uses the resolved `venue_id` instead of the raw
-// listed name, so the application key is a best-effort upstream filter.
-//
-// searchTime is the search time of the Artist's ConcertSearch; the
-// create-from-discovered workflow the search starts is named after it.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artist *entity.Artist, trigger SearchTrigger, searchTime time.Time) (result []*entity.Concert, err error) {
-	artistID := artist.ID
-	// searched is set once the external search is called; only such a run
-	// reports its outcome. announcedSeries/Events count what was handed on.
-	var (
-		searched                         bool
-		announcedSeries, announcedEvents int
-	)
-	defer func() {
-		if searched {
-			uc.reportSearchOutcome(ctx, artistID, trigger, announcedSeries, announcedEvents, len(result), err)
-		}
-	}()
-	defer func() { uc.recordSearchEnd(ctx, artistID, len(result), err) }()
-
-	// Guard before the Gemini call: an artist row with empty Name or MBID
-	// is a data-integrity problem the discovery pipeline can't recover
-	// from — both fields are required for the proto response (ArtistName
-	// min_len=1, Mbid uuid format) AND for the consumer-side performer
-	// link to validate. Fail fast here so we don't burn a Gemini quota
-	// unit (and re-burn it on every subsequent retry — markSearchFailed
-	// sets the log to "failed", which the IsFresh/IsPending skip check
-	// doesn't catch, so the next CronJob tick re-enters executeSearch
-	// unconditionally). An admin fix to the artist row is the only valid
-	// recovery; surfacing Internal here keeps the error visible in logs.
-	if err := artist.CheckSearchable(); err != nil {
-		return nil, err
-	}
-
-	newSeries, newEvents, err := uc.findNewSeries(ctx, artist, &searched)
-	if err != nil {
-		return nil, err
-	}
-
-	// Hand the new concerts to CreateFromDiscovered (artist-level batch).
-	if newEvents == 0 {
-		uc.logger.Debug(ctx, "no new concerts after deduplication",
-			slog.String("artist_id", artistID),
-		)
-		return nil, nil
-	}
-
-	// Note: the artist.Name / MBID guard fires at the top of executeSearch
-	// (right after artistRepo.Get) so the Gemini call is never reached for
-	// data-quality failures. By the time we get here both fields are
-	// guaranteed non-empty.
-
-	eventData := entity.ConcertDiscoveredData{
-		ArtistID:   artistID,
-		ArtistName: artist.Name,
-		Series:     newSeries,
-	}
-
-	if err := uc.workflows.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(artistID, searchTime), eventData); err != nil {
-		uc.logger.Error(ctx, "failed to start create-from-discovered", err,
-			slog.String("artist_id", artistID),
-			slog.Int("concert_count", newEvents),
-		)
-		// The CronJob will re-discover on the next run.
-		// The defer will call markSearchFailed because err != nil.
-		return nil, err
-	}
-
-	announcedSeries, announcedEvents = len(newSeries), newEvents
-	uc.logger.Info(ctx, "started create-from-discovered",
-		slog.String("artist_id", artistID),
-		slog.String("artist_name", artist.Name),
-		slog.Int("series_count", len(newSeries)),
-		slog.Int("concert_count", newEvents),
-	)
-
-	// Record the discovery so the discoveryWindow skip suppresses redundant
-	// re-searches until the next announcement cycle is likely.
-	uc.markSearchFound(ctx, artistID)
-
-	return previewConcerts(artist, newSeries, newEvents), nil
-}
-
-// findNewSeries searches the artist's new concerts through the external API
-// and returns the discovered series left after leaving out the events already
-// published or pending review, with their event count. *searched is set once
-// the external search is called.
-func (uc *concertUseCase) findNewSeries(ctx context.Context, artist *entity.Artist, searched *bool) ([]*entity.DiscoveredSeries, int, error) {
-	artistID := artist.ID
-	// Get Official Site — missing site is not an error; search continues with nil
-	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
-	if errors.Is(err, apperr.ErrNotFound) {
-		site, err = nil, nil
-	}
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get official site: %w", err)
-	}
-
-	// One instant for the whole run: the search leaves out events dated
-	// before the current date at their Venue at now, and the concerts it is
-	// compared against are the upcoming ones at the same instant.
-	now := uc.clock()
-
-	// Get existing upcoming concerts for deduplication.
-	existing, err := uc.concertRepo.ListUpcomingByArtist(ctx, artistID, now)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list existing concerts: %w", err)
-	}
-
-	// Fetch pending concert candidates for this artist so that already-concert candidates
-	// are not re-staged. The rejection log is intentionally NOT consulted here:
-	// a rejected concert can always re-enter the queue on a subsequent run.
-	pendingKeys, err := uc.concertCandidateRepo.ListPendingDedupKeysByArtist(ctx, artistID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list pending concert candidate keys: %w", err)
-	}
-
-	// Search new concerts via external API (deadline inherited from HandlerTimeout).
-	// The searcher returns discovered concerts already grouped by series.
-	*searched = true
-	scraped, err := uc.concertSearcher.Search(ctx, artist, site, now)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to search concerts via external API: %w", err)
-	}
-	scrapedEvents := entity.SumSeriesEvents(scraped)
-
-	// Deduplicate against published concerts, per event while preserving grouping.
-	_, filterSpan := otel.Tracer("usecase/concert").Start(ctx, "FilterNewConcerts")
-	newSeries := entity.FilterNewSeries(scraped, existing)
-	newEvents := entity.SumSeriesEvents(newSeries)
-	filterSpan.SetAttributes(
-		attribute.Int("filter.scraped_count", scrapedEvents),
-		attribute.Int("filter.new_count", newEvents),
-	)
-	filterSpan.End()
-
-	// Further deduplicate against pending concert candidates: events pending
-	// review are dropped and a series emptied by that is removed entirely.
-	newSeries = entity.DropPending(newSeries, pendingKeys)
-	newEvents = entity.SumSeriesEvents(newSeries)
-
-	if filtered := scrapedEvents - newEvents; filtered > 0 {
-		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",
-			slog.String("artist_id", artistID),
-			slog.Int("filtered_count", filtered),
-		)
-	}
-
-	return newSeries, newEvents, nil
-}
-
-// previewConcerts builds the Concert entities of the deduplicated series to
-// return to the caller.
-// Event / Venue IDs stay empty because the search path returns concerts for
-// immediate display rather than persistence. One synthetic series ID (UUIDv7)
-// is minted per discovered series and shared across its events so the
-// embedded SeriesId carries a valid UUID and passes the response-side
-// protovalidate guards; the synthetic ID has no referent in the DB and is
-// discarded by the client after rendering.
-func previewConcerts(artist *entity.Artist, series []*entity.DiscoveredSeries, eventCount int) []*entity.Concert {
-	concerts := make([]*entity.Concert, 0, eventCount)
-	for _, s := range series {
-		syntheticSeriesID := entity.NewID()
-		for _, ev := range s.Events {
-			c := s.ToConcert(ev, artist.ID, syntheticSeriesID, "", "")
-			// Replace ToConcert's id-only Performer shell with the resolved
-			// Artist entity so the response carries a complete performer with
-			// Name and MBID (validated non-empty by the guard above).
-			c.Artists = []*entity.Artist{artist}
-			concerts = append(concerts, c)
-		}
-	}
-	return concerts
-}
-
-// reportSearchOutcome sends the concert.search.completed signal of a run that
-// called the external search, with what it handed on (announcedSeries and
-// announcedEvents) and the outcome: failed with err, nothing new when it
-// found no concert, found otherwise.
-func (uc *concertUseCase) reportSearchOutcome(ctx context.Context, artistID string, trigger SearchTrigger, announcedSeries, announcedEvents, found int, err error) {
-	outcome := concertSearchOutcomeFound
-	switch {
-	case err != nil:
-		outcome = concertSearchOutcomeFailed
-	case found == 0:
-		outcome = concertSearchOutcomeNothingNew
-	}
-	props := AnalyticsProperties{
-		"artist_id":    artistID,
-		"trigger":      string(trigger),
-		"outcome":      outcome,
-		"series_count": announcedSeries,
-		"event_count":  announcedEvents,
-	}
-	if err != nil {
-		props["error_code"] = errorCode(err)
-	}
-	sendSystemSignal(ctx, uc.analytics, uc.logger, EventConcertSearchCompleted, uc.clock(), props)
-}
-
-// recordSearchEnd stores the search's status and its metric when a run ends:
-// failed with err, otherwise completed, with a metric that tells a healthy run
-// that discovered nothing new from a fruitful one so pipeline-health views can
-// spot quota burned for no yield.
-func (uc *concertUseCase) recordSearchEnd(ctx context.Context, artistID string, found int, err error) {
-	switch {
-	case err != nil:
-		uc.markSearchFailed(ctx, artistID)
-		uc.metrics.RecordConcertSearch(ctx, "error")
-	case found == 0:
-		uc.markSearchCompleted(ctx, artistID)
-		uc.metrics.RecordConcertSearch(ctx, "zero_results")
-	default:
-		uc.markSearchCompleted(ctx, artistID)
-		uc.metrics.RecordConcertSearch(ctx, "success")
-	}
-}
-
-// markSearchCompleted updates the concert search status to completed.
-// It uses context.WithoutCancel to detach from the parent's deadline while
-// preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string) {
-	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
-	defer cancel()
-
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusCompleted); err != nil {
-		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
-	}
-}
-
 // markSearchFound records that the search discovered at least one new concert.
-// Failure is non-fatal and only logged: the discovery event was already
-// published, so a missed last_find_time update merely lets the next CronJob tick
+// Failure is non-fatal and only logged: the new concerts were already handed
+// on, so a missed last_find_time update merely lets the next CronJob tick
 // re-search this artist sooner than the discoveryWindow would otherwise allow.
 func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
@@ -770,18 +566,6 @@ func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) 
 
 	if err := uc.concertSearchRepo.MarkFound(updateCtx, artistID); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as found", err, slog.String("artist_id", artistID))
-	}
-}
-
-// markSearchFailed updates the concert search status to failed.
-// It uses context.WithoutCancel to detach from the parent's deadline while
-// preserving trace context for span correlation.
-func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {
-	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
-	defer cancel()
-
-	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusFailed); err != nil {
-		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
 }
 

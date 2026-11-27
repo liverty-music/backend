@@ -11,7 +11,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
@@ -99,7 +98,7 @@ func (b *consumerBuilder) behaviors() ([]behaviorEntry, []io.Closer, error) {
 	// Infrastructure - fanart.tv (for artist image resolution)
 	fanarttvClient := fanarttv.NewClient(b.cfg.FanartTVAPIKey, extHTTPClient, b.logger)
 
-	uc, err := b.useCases(extHTTPClient, musicbrainzClient, fanarttvClient)
+	uc, err := b.useCases(musicbrainzClient, fanarttvClient)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -107,7 +106,7 @@ func (b *consumerBuilder) behaviors() ([]behaviorEntry, []io.Closer, error) {
 }
 
 // useCases builds the usecases of the consumer.
-func (b *consumerBuilder) useCases(extHTTPClient *http.Client, identities entity.ArtistIdentityManager, fanart entity.ArtistImageResolver) (consumerUseCases, error) {
+func (b *consumerBuilder) useCases(identities entity.ArtistIdentityManager, fanart entity.ArtistImageResolver) (consumerUseCases, error) {
 	logger := b.logger
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(b.ticketJourneyRepo, b.userRepo, b.concertRepo, b.followRepo, b.lotteryEntryRepo, b.orderRepo, b.ticketStockRepo, logger)
 
@@ -117,10 +116,7 @@ func (b *consumerBuilder) useCases(extHTTPClient *http.Client, identities entity
 	artistUC := usecase.NewArtistUseCase(b.artistRepo, nil, nil, identities, nil, time.Now, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(b.artistRepo, fanart, time.Now, logger)
 
-	concertUC, err := b.concertUseCase(extHTTPClient)
-	if err != nil {
-		return consumerUseCases{}, err
-	}
+	concertUC := b.concertUseCase()
 	notificationUC, err := b.notificationUseCase()
 	if err != nil {
 		return consumerUseCases{}, err
@@ -189,13 +185,10 @@ func (b *consumerBuilder) notificationUseCase() (usecase.NotificationUseCase, er
 
 // concertUseCase builds the ConcertUseCase: needed here (not just by the RPC
 // server) so the search-first-followed-artist consumer can call
-// SearchNewConcertsOnFirstFollow when FOLLOW.created fires.
-func (b *consumerBuilder) concertUseCase(extHTTPClient *http.Client) (usecase.ConcertUseCase, error) {
+// SearchNewConcertsOnFirstFollow when FOLLOW.created fires. It starts the
+// search as a workflow, so it needs no external searcher.
+func (b *consumerBuilder) concertUseCase() usecase.ConcertUseCase {
 	cfg, db, logger := b.cfg, b.db, b.logger
-	geminiSearcher, err := provideConcertSearcher(b.ctx, cfg.GCP, posthog.NewGenerationReporter(b.analyticsClient, logger), extHTTPClient, b.areaRepo, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create gemini concert searcher: %w", err)
-	}
 	return usecase.NewConcertUseCase(
 		b.artistRepo,
 		b.concertRepo,
@@ -205,7 +198,7 @@ func (b *consumerBuilder) concertUseCase(extHTTPClient *http.Client) (usecase.Co
 		rdb.NewConcertSearchRepository(db),
 		rdb.NewConcertCandidateRepository(db),
 		rdb.NewRejectedConcertRepository(db),
-		geminiSearcher,
+		nil,
 		b.areaRepo,
 		b.workflows,
 		infratelemetry.NewBusinessMetrics(),
@@ -213,7 +206,7 @@ func (b *consumerBuilder) concertUseCase(extHTTPClient *http.Client) (usecase.Co
 		cfg.GCP.SearchCacheTTL(),
 		cfg.GCP.SearchDiscoveryWindow(), time.Now,
 		logger,
-	), nil
+	)
 }
 
 // table builds the canonical behavior → subjects → handler mapping.

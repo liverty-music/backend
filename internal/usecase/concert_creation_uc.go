@@ -36,8 +36,8 @@ type ConcertCreationUseCase interface {
 	//     notifications fire immediately.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 
-	// RunCreateFromDiscovered is the create-from-discovered workflow
-	// ConcertUseCase.SearchNewConcerts starts.
+	// RunCreateFromDiscovered is the create-from-discovered workflow a concert
+	// search (ConcertUseCase.RunSearch) starts.
 	RunCreateFromDiscovered(ctx context.Context, f Flow, in entity.ConcertDiscoveredData) (struct{}, error)
 }
 

@@ -10,7 +10,6 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -119,78 +118,4 @@ func TestSeriesUseCase_RegenerateShareURL(t *testing.T) {
 	token, err := d.uc.RegenerateShareURL(ctx, orgID, seriesID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
-}
-
-func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	d := newConcertTestDeps(t)
-	logger := newTestLogger(t)
-
-	d.artistRepo.EXPECT().Get(mock.Anything, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
-	orgRepo := entitymocks.NewMockOrganizerRepository(t)
-	orgRepo.EXPECT().IsArtistRepresentedByActiveOrganizer(mock.Anything, "artist-1").
-		Return(true, nil)
-
-	uc := usecase.NewConcertUseCase(
-		d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo,
-		orgRepo,
-		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
-		d.searcher, d.areas,
-		d.workflows,
-		anyConcertMetrics(t),
-		nil,
-		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
-	)
-
-	concerts, err := uc.SearchNewConcerts(ctx, "artist-1", usecase.SearchTriggerDaily)
-	require.NoError(t, err)
-	assert.Nil(t, concerts, "expected nil result when artist is organizer-represented")
-	// Searcher mock has no expectations — no Gemini call must have been made.
-}
-
-func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	d := newConcertTestDeps(t)
-	logger := newTestLogger(t)
-
-	orgRepo := entitymocks.NewMockOrganizerRepository(t)
-	orgRepo.EXPECT().IsArtistRepresentedByActiveOrganizer(mock.Anything, "artist-2").
-		Return(false, nil)
-
-	uc := usecase.NewConcertUseCase(
-		d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo,
-		orgRepo,
-		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
-		d.searcher, d.areas,
-		d.workflows,
-		anyConcertMetrics(t),
-		nil,
-		testSearchCacheTTL, testDiscoveryWindow, time.Now, logger,
-	)
-
-	// Artist not represented → discovery pipeline proceeds.
-	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, "artist-2").
-		Return(nil, apperr.New(codes.NotFound, "not found"))
-	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, "artist-2", entity.ConcertSearchStatusPending).
-		Return(testSearchTime, nil)
-	d.artistRepo.EXPECT().Get(mock.Anything, "artist-2").
-		Return(&entity.Artist{ID: "artist-2", Name: "Test Artist", MBID: "mbid-1"}, nil)
-	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-2").
-		Return(nil, apperr.New(codes.NotFound, "not found"))
-	d.concertRepo.EXPECT().ListUpcomingByArtist(mock.Anything, "artist-2", mock.Anything).
-		Return(nil, nil)
-	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, "artist-2").
-		Return(nil, nil)
-	d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil, nil)
-	d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, "artist-2", entity.ConcertSearchStatusCompleted).
-		Return(nil).Maybe()
-
-	concerts, err := uc.SearchNewConcerts(ctx, "artist-2", usecase.SearchTriggerDaily)
-	require.NoError(t, err)
-	assert.Nil(t, concerts)
 }

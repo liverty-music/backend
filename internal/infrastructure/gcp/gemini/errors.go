@@ -54,6 +54,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 var apiErrorCodes = map[int]codes.Code{
 	http.StatusBadRequest:   codes.InvalidArgument,
 	http.StatusUnauthorized: codes.Unauthenticated,
+	// Depleted prepaid credits.
+	http.StatusPaymentRequired: codes.FailedPrecondition,
 	// A denial, not missing credentials (AIP-193), such as a spent project
 	// spend cap ("Spend cap breached", PERMISSION_DENIED).
 	http.StatusForbidden:          codes.PermissionDenied,
@@ -87,11 +89,12 @@ func apiErrorCode(status int) codes.Code {
 //   - 502 (Bad Gateway): Upstream proxy failure.
 //   - 503 (Service Unavailable): Server temporarily overloaded.
 //   - 504 (Gateway Timeout): Deadline exceeded. Retryable because each attempt
-//     uses an independent context with a fresh 120s timeout.
+//     uses an independent context with a fresh budget.
 //
 // NOT retryable:
 //   - 499 (Client Cancelled): Gemini cancelled the operation server-side.
-//   - Context errors (DeadlineExceeded, Canceled): caller's own deadline expired.
+//   - Context errors (DeadlineExceeded, Canceled). The concert searcher
+//     counts a request whose own budget passed as transient itself.
 func isRetryable(err error) bool {
 	apiErr, ok := errors.AsType[genai.APIError](err)
 	if !ok {

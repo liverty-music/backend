@@ -189,7 +189,7 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 // ConcertDiscoveredData is the input of the create-from-discovered workflow.
 // It carries the newly discovered concerts for one artist (post-deduplication),
 // grouped by series so a tour's dates persist under one series by construction.
-// Started by SearchNewConcerts after the external API call and dedup.
+// A concert search starts it after the external search and dedup.
 type ConcertDiscoveredData struct {
 	// ArtistID is the internal UUID of the artist.
 	ArtistID string `json:"artist_id"`
@@ -815,13 +815,22 @@ type ConcertRepository interface {
 // ConcertSearcher defines the interface for searching concerts from external sources.
 type ConcertSearcher interface {
 	// Search uses an external service (e.g., Gemini) to find concerts for an artist.
-	// It relies on the artist's name and official site URL for grounding.
+	// It relies on the artist's name and official site URL for grounding. It
+	// does not retry a failure: Unavailable tells the caller that a later call
+	// may succeed.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the artist or official site is invalid.
-	//  - Unavailable: If the external service is down.
-	//  - Internal: unexpected failure during search processing.
+	//  - Unavailable: the external service is busy, rate-limiting or failing,
+	//    refused authorization for the moment (401), the connection was lost,
+	//    or no answer came in time.
+	//  - DeadlineExceeded, Canceled: the caller's context ended.
+	//  - PermissionDenied, FailedPrecondition: the service refuses the account
+	//    (a spend cap, depleted credits).
+	//  - InvalidArgument: the service rejects the request.
+	//  - Internal: the answer holds no usable result (no candidate, a response
+	//    not completed, broken or empty), or processing failed.
 	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*DiscoveredSeries, error)
 }
 

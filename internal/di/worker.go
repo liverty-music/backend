@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -26,6 +28,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // WorkerApp is the workflow worker: the only process that runs workflows,
@@ -116,7 +119,63 @@ func registerWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.Wo
 		return err
 	}
 	registerSettlementWorkflows(rt, cfg, db, logger)
-	return registerCreateFromDiscovered(ctx, rt, cfg, db, outbox, logger)
+	return registerConcertWorkflows(ctx, rt, cfg, db, outbox, logger)
+}
+
+// registerConcertWorkflows registers the concert search and the processing of
+// what it finds. Both report to product analytics when PostHog is configured.
+func registerConcertWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
+	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	if err != nil {
+		return err
+	}
+	if err := registerSearchConcerts(ctx, rt, cfg, db, outbox, analyticsClient, logger); err != nil {
+		return err
+	}
+	return registerCreateFromDiscovered(ctx, rt, cfg, db, outbox, analyticsClient, logger)
+}
+
+// registerSearchConcerts registers the search-concerts workflow and its queue,
+// with the Gemini concert searcher it calls. A local worker without the Gemini
+// key leaves the started searches waiting.
+func registerSearchConcerts(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, analyticsClient usecase.AnalyticsClient, logger *logging.Logger) error {
+	areas := rdb.NewAreaRepository(db)
+	searcher, err := provideConcertSearcher(ctx, cfg.GCP, posthog.NewGenerationReporter(analyticsClient, logger),
+		&http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}, areas, logger)
+	if err != nil {
+		return fmt.Errorf("create gemini concert searcher: %w", err)
+	}
+	if searcher == nil {
+		logger.Warn(ctx, "GCP_GEMINI_SEARCH_API_KEY is not set; search-concerts is not run")
+		return nil
+	}
+	workflows, err := provideWorkflows(ctx, db, logger)
+	if err != nil {
+		return err
+	}
+	concerts := usecase.NewConcertUseCase(
+		rdb.NewArtistRepository(db, outbox),
+		rdb.NewConcertRepository(db, outbox),
+		rdb.NewVenueRepository(db),
+		rdb.NewSeriesRepository(db, outbox),
+		rdb.NewOrganizerRepository(db, outbox),
+		rdb.NewConcertSearchRepository(db),
+		rdb.NewConcertCandidateRepository(db),
+		rdb.NewRejectedConcertRepository(db),
+		searcher,
+		areas,
+		workflows,
+		infratelemetry.NewBusinessMetrics(),
+		analyticsClient,
+		cfg.GCP.SearchCacheTTL(),
+		cfg.GCP.SearchDiscoveryWindow(), time.Now,
+		logger,
+	)
+	if err := rt.RegisterQueue(usecase.ConcertSearchQueue, usecase.ConcertSearchQueueConcurrency); err != nil {
+		return err
+	}
+	workflow.Register(rt, usecase.WorkflowSearchConcerts, concerts.RunSearch)
+	return nil
 }
 
 // registerSettlementWorkflows registers the schedule that pays out the held
@@ -238,19 +297,14 @@ func registerAccountWorkflows(ctx context.Context, rt *workflow.Runtime, cfg *co
 }
 
 // registerCreateFromDiscovered registers CreateFromDiscovered, which resolves
-// venues with Google Maps and reports each batch to product analytics (when
-// PostHog is configured). A local worker without a GCP project leaves the
-// started batches waiting.
-func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, logger *logging.Logger) error {
-	if cfg.GCPProjectID == "" {
+// venues with Google Maps and reports each batch to product analytics. A local
+// worker without a GCP project leaves the started batches waiting.
+func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg *config.WorkerConfig, db *rdb.Database, outbox rdb.Announcer, analyticsClient usecase.AnalyticsClient, logger *logging.Logger) error {
+	if cfg.GCP.ProjectID == "" {
 		logger.Warn(ctx, "GCP_PROJECT_ID is not set; create-from-discovered is not run")
 		return nil
 	}
-	placeSearcher, err := newPlaceSearcher(ctx, cfg.GCPProjectID, rdb.NewAreaRepository(db), logger)
-	if err != nil {
-		return err
-	}
-	analyticsClient, err := provideAnalyticsClient(cfg.PostHog, cfg.Telemetry, logger)
+	placeSearcher, err := newPlaceSearcher(ctx, cfg.GCP.ProjectID, rdb.NewAreaRepository(db), logger)
 	if err != nil {
 		return err
 	}

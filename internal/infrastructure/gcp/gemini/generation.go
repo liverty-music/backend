@@ -10,7 +10,7 @@ import (
 )
 
 // GenerationReporter receives one report per request a searcher sends to the
-// model, retries and failures included (posthog.GenerationReporter in
+// model, re-sent requests and failures included (posthog.GenerationReporter in
 // production). Reporting never changes what a search returns.
 type GenerationReporter interface {
 	ReportGeneration(ctx context.Context, g posthog.LLMGeneration)

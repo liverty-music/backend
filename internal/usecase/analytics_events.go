@@ -119,8 +119,8 @@ const (
 
 // Pipeline events without a fan, sent as personless AnalyticsClient.Capture events.
 const (
-	// EventConcertSearchCompleted is recorded once per SearchNewConcerts run
-	// that performed the external search. Properties: artist_id, trigger,
+	// EventConcertSearchCompleted is recorded once per concert search that
+	// called the external search, when the search ends. Properties: artist_id, trigger,
 	// outcome ("failed", "nothing_new" or "found"), series_count,
 	// event_count, and on a failed search error_code (the error's apperr
 	// code, or "unknown").

@@ -553,7 +553,7 @@ func TestConcertSearcher_Search_Errors(t *testing.T) {
 			name: "Response without a candidate",
 			response: `{"candidates": [], "promptFeedback": {"blockReason": "OTHER"},
 				"usageMetadata": {"promptTokenCount": 10, "toolUsePromptTokenCount": 120000, "totalTokenCount": 120010}}`,
-			wantErr:   []error{apperr.ErrUnavailable},
+			wantErr:   []error{apperr.ErrInternal},
 			wantCalls: 1,
 		},
 		{
