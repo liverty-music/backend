@@ -769,6 +769,8 @@ type ConcertRepository interface {
 	//    event), or the source is the last event of its Series and that
 	//    Series has a TicketSale: removing the source would leave the sales
 	//    on a Series without events.
+	//  - Unavailable: another change is writing the source's Series. Nothing
+	//    changes.
 	Merge(ctx context.Context, sourceID, targetID string) error
 	// List retrieves every published concert with Series, Venue, and Artists
 	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /

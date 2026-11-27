@@ -62,11 +62,12 @@ const (
 		WHERE s.id = ANY($1)
 	`
 
-	// lockOrphanCandidatesQuery locks the series an orphan sweep looks at, in
-	// id order. Inserting an event, a concert candidate or a ticket sale takes
-	// a key-share lock on its series, so the sweep sees every such row
-	// committed before it and a later one fails its foreign key.
-	lockOrphanCandidatesQuery = `SELECT id FROM series WHERE id = ANY($1) ORDER BY id FOR UPDATE`
+	// lockOrphanCandidatesQuery locks the series an orphan sweep looks at.
+	// Inserting an event, a concert candidate or a ticket sale takes a key
+	// share lock on its series, so a series locked here has no such insert in
+	// progress, and one being written is skipped: the sweep never waits, so
+	// it cannot deadlock.
+	lockOrphanCandidatesQuery = `SELECT id FROM series WHERE id = ANY($1) FOR UPDATE SKIP LOCKED`
 
 	deleteOrphanedSeriesQuery = `
 		DELETE FROM series s
@@ -377,10 +378,16 @@ func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []strin
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, lockOrphanCandidatesQuery, seriesIDs); err != nil {
+	rows, err := tx.Query(ctx, lockOrphanCandidatesQuery, seriesIDs)
+	if err != nil {
 		return 0, toAppErr(err, "failed to lock series", count)
 	}
-	tag, err := tx.Exec(ctx, deleteOrphanedSeriesQuery, seriesIDs)
+	locked, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return 0, toAppErr(err, "failed to lock series", count)
+	}
+	// A second statement, so it sees every row committed before the lock.
+	tag, err := tx.Exec(ctx, deleteOrphanedSeriesQuery, locked)
 	if err != nil {
 		return 0, toAppErr(err, "failed to delete orphaned series", count)
 	}

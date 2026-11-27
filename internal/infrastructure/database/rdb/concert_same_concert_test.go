@@ -612,11 +612,11 @@ func TestSeriesRepository_ListUpcomingToursByArtist(t *testing.T) {
 	})
 }
 
-// TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries checks that a
-// discovered TicketSale inserted for the source's Series while Merge runs is
-// seen by Merge's check: the insert's transaction holds the key share lock on
-// the Series, Merge waits for it, and then refuses.
-func TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries(t *testing.T) {
+// TestConcertRepository_MergeDuringATicketSaleOfTheSeries checks that Merge
+// neither misses nor waits for a discovered TicketSale being inserted for the
+// source's Series: it fails with Unavailable while the insert holds its key
+// share lock on the Series, and refuses once the sale is committed.
+func TestConcertRepository_MergeDuringATicketSaleOfTheSeries(t *testing.T) {
 	t.Parallel()
 	db := newTestDBWithPool(t, 6)
 	f := newVisibilityFixture(t, db)
@@ -633,14 +633,11 @@ func TestConcertRepository_MergeWaitsForATicketSaleOfTheSeries(t *testing.T) {
 		VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), series)
 	require.NoError(t, err)
 
-	merged := make(chan error, 1)
-	go func() { merged <- f.repo.Merge(ctx, source, target) }()
-	require.Eventually(t, func() bool {
-		return f.count(`SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`) == 1
-	}, 10*time.Second, 20*time.Millisecond, "Merge waits for the sale's transaction")
+	require.ErrorIs(t, f.repo.Merge(ctx, source, target), apperr.ErrUnavailable)
+	assert.True(t, f.read(source).exists, "nothing changes")
 
 	require.NoError(t, sale.Commit(ctx))
-	require.ErrorIs(t, <-merged, apperr.ErrFailedPrecondition)
+	require.ErrorIs(t, f.repo.Merge(ctx, source, target), apperr.ErrFailedPrecondition)
 	assert.True(t, f.read(source).exists)
 }
 

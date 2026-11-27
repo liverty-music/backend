@@ -357,7 +357,8 @@ type SeriesRepository interface {
 	ListByIDs(ctx context.Context, ids []string) ([]*Series, error)
 	// DeleteOrphaned removes, from among the given candidate series IDs, every row
 	// that has no member events, no pending concert candidates and no ticket
-	// sales referencing it.
+	// sales referencing it. A series another change is writing at that moment
+	// is left.
 	// Eager series-row creation at discovery time allows a series to transiently
 	// exist with zero events (a provisional group mint that adopted a
 	// co-headliner's series, or a group later fully rejected); this sweep reclaims
