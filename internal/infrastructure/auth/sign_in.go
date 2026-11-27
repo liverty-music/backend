@@ -3,19 +3,12 @@ package auth
 import (
 	"context"
 	"slices"
-	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 
 	"github.com/liverty-music/backend/pkg/authctx"
 )
-
-// ActiveChecker reports whether the sign-in service holds a token active;
-// Introspector implements it.
-type ActiveChecker interface {
-	Active(ctx context.Context, token string, expiry time.Time) (bool, error)
-}
 
 // SignInChecker accepts only an active access token issued for one app. It
 // checks, in order:
@@ -31,12 +24,12 @@ type ActiveChecker interface {
 type SignInChecker struct {
 	jwt      *JWTValidator
 	audience string
-	active   ActiveChecker
+	active   *Introspector
 }
 
 // NewSignInChecker returns a checker of tokens issued for the project
 // audience, asking active whether a token is active.
-func NewSignInChecker(jwt *JWTValidator, audience string, active ActiveChecker) *SignInChecker {
+func NewSignInChecker(jwt *JWTValidator, audience string, active *Introspector) *SignInChecker {
 	return &SignInChecker{jwt: jwt, audience: audience, active: active}
 }
 
