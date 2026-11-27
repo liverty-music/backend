@@ -48,6 +48,69 @@ func (_m *MockConcertRepository) EXPECT() *MockConcertRepository_Expecter {
 	return &MockConcertRepository_Expecter{mock: &_m.Mock}
 }
 
+// AddOtherListedVenueName provides a mock function for the type MockConcertRepository
+func (_mock *MockConcertRepository) AddOtherListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
+	ret := _mock.Called(ctx, eventID, listedVenueName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddOtherListedVenueName")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, eventID, listedVenueName)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockConcertRepository_AddOtherListedVenueName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddOtherListedVenueName'
+type MockConcertRepository_AddOtherListedVenueName_Call struct {
+	*mock.Call
+}
+
+// AddOtherListedVenueName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+//   - listedVenueName string
+func (_e *MockConcertRepository_Expecter) AddOtherListedVenueName(ctx any, eventID any, listedVenueName any) *MockConcertRepository_AddOtherListedVenueName_Call {
+	return &MockConcertRepository_AddOtherListedVenueName_Call{Call: _e.mock.On("AddOtherListedVenueName", ctx, eventID, listedVenueName)}
+}
+
+func (_c *MockConcertRepository_AddOtherListedVenueName_Call) Run(run func(ctx context.Context, eventID string, listedVenueName string)) *MockConcertRepository_AddOtherListedVenueName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_AddOtherListedVenueName_Call) Return(err error) *MockConcertRepository_AddOtherListedVenueName_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockConcertRepository_AddOtherListedVenueName_Call) RunAndReturn(run func(ctx context.Context, eventID string, listedVenueName string) error) *MockConcertRepository_AddOtherListedVenueName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function for the type MockConcertRepository
 func (_mock *MockConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) ([]string, error) {
 	// *entity.Concert
@@ -256,23 +319,23 @@ func (_c *MockConcertRepository_FillEventStartTimes_Call) RunAndReturn(run func(
 }
 
 // FindEventsByArtistAndDate provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
+func (_mock *MockConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Concert, error) {
 	ret := _mock.Called(ctx, artistID, dates)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindEventsByArtistAndDate")
 	}
 
-	var r0 []*entity.Event
+	var r0 []*entity.Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []time.Time) ([]*entity.Event, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []time.Time) ([]*entity.Concert, error)); ok {
 		return returnFunc(ctx, artistID, dates)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []time.Time) []*entity.Event); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []time.Time) []*entity.Concert); ok {
 		r0 = returnFunc(ctx, artistID, dates)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Event)
+			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, []time.Time) error); ok {
@@ -319,34 +382,34 @@ func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) Run(run func(ctx
 	return _c
 }
 
-func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) Return(events []*entity.Event, err error) *MockConcertRepository_FindEventsByArtistAndDate_Call {
-	_c.Call.Return(events, err)
+func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) Return(concerts []*entity.Concert, err error) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+	_c.Call.Return(concerts, err)
 	return _c
 }
 
-func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) RunAndReturn(run func(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error)) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) RunAndReturn(run func(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Concert, error)) *MockConcertRepository_FindEventsByArtistAndDate_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // FindEventsByVenueAndDate provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error) {
+func (_mock *MockConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Concert, error) {
 	ret := _mock.Called(ctx, venueIDs, dates)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindEventsByVenueAndDate")
 	}
 
-	var r0 []*entity.Event
+	var r0 []*entity.Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []time.Time) ([]*entity.Event, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []time.Time) ([]*entity.Concert, error)); ok {
 		return returnFunc(ctx, venueIDs, dates)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []time.Time) []*entity.Event); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []string, []time.Time) []*entity.Concert); ok {
 		r0 = returnFunc(ctx, venueIDs, dates)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Event)
+			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, []string, []time.Time) error); ok {
@@ -393,12 +456,12 @@ func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) Run(run func(ctx 
 	return _c
 }
 
-func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) Return(events []*entity.Event, err error) *MockConcertRepository_FindEventsByVenueAndDate_Call {
-	_c.Call.Return(events, err)
+func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) Return(concerts []*entity.Concert, err error) *MockConcertRepository_FindEventsByVenueAndDate_Call {
+	_c.Call.Return(concerts, err)
 	return _c
 }
 
-func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) RunAndReturn(run func(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error)) *MockConcertRepository_FindEventsByVenueAndDate_Call {
+func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) RunAndReturn(run func(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Concert, error)) *MockConcertRepository_FindEventsByVenueAndDate_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1029,6 +1092,69 @@ func (_c *MockConcertRepository_ListUpcomingByArtist_Call) Return(concerts []*en
 }
 
 func (_c *MockConcertRepository_ListUpcomingByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string, now time.Time) ([]*entity.Concert, error)) *MockConcertRepository_ListUpcomingByArtist_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Merge provides a mock function for the type MockConcertRepository
+func (_mock *MockConcertRepository) Merge(ctx context.Context, sourceID string, targetID string) error {
+	ret := _mock.Called(ctx, sourceID, targetID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Merge")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, sourceID, targetID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockConcertRepository_Merge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Merge'
+type MockConcertRepository_Merge_Call struct {
+	*mock.Call
+}
+
+// Merge is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sourceID string
+//   - targetID string
+func (_e *MockConcertRepository_Expecter) Merge(ctx any, sourceID any, targetID any) *MockConcertRepository_Merge_Call {
+	return &MockConcertRepository_Merge_Call{Call: _e.mock.On("Merge", ctx, sourceID, targetID)}
+}
+
+func (_c *MockConcertRepository_Merge_Call) Run(run func(ctx context.Context, sourceID string, targetID string)) *MockConcertRepository_Merge_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_Merge_Call) Return(err error) *MockConcertRepository_Merge_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockConcertRepository_Merge_Call) RunAndReturn(run func(ctx context.Context, sourceID string, targetID string) error) *MockConcertRepository_Merge_Call {
 	_c.Call.Return(run)
 	return _c
 }

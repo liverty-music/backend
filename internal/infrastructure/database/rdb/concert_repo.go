@@ -36,6 +36,21 @@ const (
 			local_open_time  = COALESCE(events.local_open_time, EXCLUDED.local_open_time)
 	`
 
+	// firstPartySlotTakenQuery reports whether an event with a publish state
+	// holds one of the (venue_id, local_event_date, start_time) slots.
+	firstPartySlotTakenQuery = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM unnest($1::uuid[], $2::date[], $3::text[]) AS s(venue_id, local_event_date, start_time)
+			JOIN events e
+				ON e.venue_id = s.venue_id
+				AND e.local_event_date = s.local_event_date
+				AND e.local_start_time IS NOT DISTINCT FROM s.start_time::time
+				AND ` + catalogEventCondition + `
+			WHERE e.publish_state IS NOT NULL
+		)
+	`
+
 	// insertConcertsQuery inserts placeholder concerts rows only for events that
 	// were genuinely inserted. The WHERE EXISTS check filters out input UUIDs
 	// whose UPSERT lost a natural-key race.
@@ -81,31 +96,37 @@ const (
 
 	// findEventsByVenueDateQuery returns existing events at any of the given
 	// (venue_id, local_event_date) pairs, zipped element-wise from the two
-	// array params. DISTINCT collapses duplicate input pairs. Projects only the
-	// fields discovery-time resolution needs (physical key + parent series).
+	// array params, with their listed and other listed venue names, publish
+	// state and performers. The pairs are deduplicated first so an event is
+	// returned once.
 	findEventsByVenueDateQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.local_event_date, e.local_start_time::text
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.other_listed_venue_names,
+		       e.local_event_date, e.local_start_time::text, e.local_open_time::text, e.publish_state,
+		       ` + eventPerformerIDsColumn + `
 		FROM events e
-		JOIN unnest($1::uuid[], $2::date[]) AS pairs(venue_id, local_event_date)
-			ON e.venue_id = pairs.venue_id
-			AND e.local_event_date = pairs.local_event_date
-		WHERE ` + catalogEventCondition + `
+		WHERE (e.venue_id, e.local_event_date) IN (
+			SELECT pairs.venue_id, pairs.local_event_date
+			FROM unnest($1::uuid[], $2::date[]) AS pairs(venue_id, local_event_date)
+		)
+		AND ` + catalogEventCondition + `
 	`
 
 	// findEventsByArtistDateQuery returns existing events on any of the given
-	// dates at which the artist already performs (joined through
-	// concert_artists). DISTINCT collapses duplicate rows a multi-row join could
-	// produce. Projects the physical key + parent series + listed_venue_name so
-	// the discovery write path can both adopt the group's series and detect a
-	// per-event re-discovery (matching listed venue) that skips the Places API.
+	// dates at which the artist performs, with the same columns as
+	// findEventsByVenueDateQuery.
 	findEventsByArtistDateQuery = `
-		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.local_start_time::text
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.other_listed_venue_names,
+		       e.local_event_date, e.local_start_time::text, e.local_open_time::text, e.publish_state,
+		       ` + eventPerformerIDsColumn + `
 		FROM events e
-		JOIN concert_artists ep ON ep.event_id = e.id
-		WHERE ep.artist_id = $1
+		WHERE EXISTS (SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1)
 			AND e.local_event_date = ANY($2::date[])
 			AND ` + catalogEventCondition + `
 	`
+
+	// eventPerformerIDsColumn is the ids of the artists performing at the
+	// event e, ordered by id.
+	eventPerformerIDsColumn = `ARRAY(SELECT ca.artist_id::text FROM concert_artists ca WHERE ca.event_id = e.id ORDER BY ca.artist_id)`
 
 	// listEventsBySeriesQuery returns every event of a series, ordered by
 	// local_event_date ascending and, for equal dates, by local_start_time
@@ -1015,6 +1036,17 @@ func (b *concertBatch) insertEventsAndConcerts(ctx context.Context, tx pgx.Tx) (
 		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
 	}
 
+	// The upsert locked every row it conflicted with, so an Organizer cannot
+	// publish one between this check and the commit.
+	var firstParty bool
+	if err := tx.QueryRow(ctx, firstPartySlotTakenQuery, b.venueIDs, b.eventDates, timeOfDayTexts(b.startTimes)).Scan(&firstParty); err != nil {
+		return nil, toAppErr(err, "failed to check the slots", slog.Int("count", n))
+	}
+	if firstParty {
+		// Unavailable: calling again after looking the slots up decides anew.
+		return nil, apperr.New(codes.Unavailable, "a first-party event took a slot", slog.Int("count", n))
+	}
+
 	rows, err := tx.Query(ctx, insertConcertsQuery, b.eventIDs)
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
@@ -1072,70 +1104,58 @@ func (b *concertBatch) linkPerformers(ctx context.Context, tx pgx.Tx) ([]string,
 }
 
 // FindEventsByVenueAndDate implements entity.ConcertRepository. It returns
-// existing events at any of the supplied (venue_id, local_event_date) pairs,
-// projected to the fields discovery-time resolution needs.
-func (r *ConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error) {
+// the events at any of the supplied (venue_id, local_event_date) pairs with
+// their names, times, publish state and performer ids.
+func (r *ConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Concert, error) {
 	if len(venueIDs) == 0 || len(dates) == 0 {
 		return nil, nil
 	}
-
-	rows, err := r.db.Pool.Query(ctx, findEventsByVenueDateQuery, venueIDs, dates)
-	if err != nil {
-		return nil, toAppErr(err, "failed to find events by venue and date")
-	}
-	defer rows.Close()
-
-	var events []*entity.Event
-	for rows.Next() {
-		var (
-			e       entity.Event
-			startAt *string
-		)
-		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &e.LocalDate, &startAt); err != nil {
-			return nil, toAppErr(err, "failed to scan event by venue/date")
-		}
-		e.StartTime = timeOfDayFromText(startAt)
-		events = append(events, &e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "events by venue/date iteration ended with error")
-	}
-	return events, nil
+	return r.findEvents(ctx, "venue and date", findEventsByVenueDateQuery, venueIDs, dates)
 }
 
 // FindEventsByArtistAndDate implements entity.ConcertRepository. It returns
-// existing events on any of the supplied local event dates at which the artist
-// already performs (joined through concert_artists), projected to the fields
-// discovery-time series resolution needs.
-func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
+// the events on any of the supplied local dates at which the artist
+// performs, with the columns of [ConcertRepository.FindEventsByVenueAndDate].
+func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Concert, error) {
 	if artistID == "" || len(dates) == 0 {
 		return nil, nil
 	}
+	return r.findEvents(ctx, "artist and date", findEventsByArtistDateQuery, artistID, dates)
+}
 
-	rows, err := r.db.Pool.Query(ctx, findEventsByArtistDateQuery, artistID, dates)
+// findEvents runs one of the find-events queries and scans its rows into
+// Concerts whose Artists carry only their ids.
+func (r *ConcertRepository) findEvents(ctx context.Context, by, query string, args ...any) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, toAppErr(err, "failed to find events by artist and date")
+		return nil, toAppErr(err, "failed to find events by "+by)
 	}
 	defer rows.Close()
 
-	var events []*entity.Event
+	var concerts []*entity.Concert
 	for rows.Next() {
 		var (
-			e          entity.Event
-			listedName *string
-			startAt    *string
+			c               entity.Concert
+			startAt, openAt *string
+			state           sql.NullString
+			performerIDs    []string
 		)
-		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt); err != nil {
-			return nil, toAppErr(err, "failed to scan event by artist/date")
+		if err := rows.Scan(&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.OtherListedVenueNames,
+			&c.LocalDate, &startAt, &openAt, &state, &performerIDs); err != nil {
+			return nil, toAppErr(err, "failed to scan event by "+by)
 		}
-		e.ListedVenueName = listedName
-		e.StartTime = timeOfDayFromText(startAt)
-		events = append(events, &e)
+		c.StartTime = timeOfDayFromText(startAt)
+		c.OpenTime = timeOfDayFromText(openAt)
+		c.PublishState = nullPublishState(state)
+		for _, id := range performerIDs {
+			c.Artists = append(c.Artists, &entity.Artist{ID: id})
+		}
+		concerts = append(concerts, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "events by artist/date iteration ended with error")
+		return nil, toAppErr(err, "events by "+by+" iteration ended with error")
 	}
-	return events, nil
+	return concerts, nil
 }
 
 // ListEventsBySeries implements entity.ConcertRepository. It returns every
@@ -1171,7 +1191,9 @@ func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID str
 
 // FillEventStartTimes implements entity.ConcertRepository. It fills local_start_time /
 // local_open_time on existing events by id, using COALESCE so a known time is never
-// overwritten.
+// overwritten. It is one statement, so a fill that takes another event's slot
+// violates uq_events_natural_key, fails with AlreadyExists and changes none of
+// the events.
 func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*entity.TimeOfDay) error {
 	if len(eventIDs) == 0 {
 		return nil
@@ -1182,18 +1204,253 @@ func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []
 	return nil
 }
 
+// updateEventListedVenueNameQuery sets the event's listed venue name and keeps
+// the name it replaces among its other listed venue names, unless that name is
+// already there. The SET expressions read the row before the update. Giving
+// the name the event already lists matches no row.
 const updateEventListedVenueNameQuery = `
 	UPDATE events e
-	SET listed_venue_name = $2
+	SET listed_venue_name = $2,
+	    other_listed_venue_names = CASE
+	        WHEN e.listed_venue_name IS NULL OR e.listed_venue_name = ANY(e.other_listed_venue_names)
+	            THEN e.other_listed_venue_names
+	        ELSE array_append(e.other_listed_venue_names, e.listed_venue_name)
+	    END
 	WHERE e.id = $1
+	  AND e.listed_venue_name IS DISTINCT FROM $2
 	  AND ` + catalogEventCondition
 
-// UpdateEventListedVenueName implements entity.ConcertRepository. It overwrites
-// the listed_venue_name display field of an existing event, leaving venue_id and
+// UpdateEventListedVenueName implements entity.ConcertRepository. It replaces
+// the listed_venue_name display field of an existing event, keeping the
+// replaced name among its other listed venue names, and leaves venue_id and
 // google_place_id untouched. A missing id updates zero rows and is a no-op.
 func (r *ConcertRepository) UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
 	if _, err := r.db.Pool.Exec(ctx, updateEventListedVenueNameQuery, eventID, listedVenueName); err != nil {
 		return toAppErr(err, "failed to update event listed venue name", slog.String("event_id", eventID))
 	}
 	return nil
+}
+
+const (
+	// lockEventNamesQuery reads and locks the names of an event that is not
+	// DRAFT.
+	lockEventNamesQuery = `
+		SELECT e.listed_venue_name, e.other_listed_venue_names
+		FROM events e
+		WHERE e.id = $1 AND ` + catalogEventCondition + `
+		FOR UPDATE
+	`
+	// setOtherListedVenueNamesQuery replaces the other listed venue names of
+	// an event.
+	setOtherListedVenueNamesQuery = `UPDATE events SET other_listed_venue_names = $2 WHERE id = $1`
+)
+
+// AddOtherListedVenueName implements entity.ConcertRepository. It reads the
+// event under a row lock, asks [entity.Event.ListedUnder] whether the name is
+// known, and appends it only when it is not, in one transaction: a plain
+// array_append guarded in SQL would compare exact strings, not listed venues.
+func (r *ConcertRepository) AddOtherListedVenueName(ctx context.Context, eventID, listedVenueName string) error {
+	name := entity.NormalizeVenueName(listedVenueName)
+	if name == "" {
+		return apperr.New(codes.InvalidArgument, "listed venue name must name a venue", slog.String("event_id", eventID))
+	}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin add other listed venue name transaction", slog.String("event_id", eventID))
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var e entity.Event
+	if err := tx.QueryRow(ctx, lockEventNamesQuery, eventID).Scan(&e.ListedVenueName, &e.OtherListedVenueNames); err != nil {
+		return toAppErr(err, "failed to read event names", slog.String("event_id", eventID))
+	}
+	if e.ListedUnder(name) {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, setOtherListedVenueNamesQuery, eventID, append(e.OtherListedVenueNames, name)); err != nil {
+		return toAppErr(err, "failed to add other listed venue name", slog.String("event_id", eventID))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit other listed venue name", slog.String("event_id", eventID))
+	}
+	return nil
+}
+
+const (
+	// lockMergedEventsQuery locks the two events of a merge in id order, so
+	// two merges that share an event cannot deadlock. A DRAFT event is not
+	// returned.
+	lockMergedEventsQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.local_event_date, e.publish_state, e.listed_venue_name, e.other_listed_venue_names
+		FROM events e
+		WHERE e.id = ANY($1::uuid[]) AND ` + catalogEventCondition + `
+		ORDER BY e.id
+		FOR UPDATE
+	`
+	// lockMergedSeriesQuery locks the Series of a merge's source. It never
+	// waits: a Concert.Create holding the Series may be waiting for one of
+	// the merge's events, and waiting here would deadlock the two.
+	lockMergedSeriesQuery = `SELECT 1 FROM series WHERE id = $1 FOR UPDATE NOWAIT`
+	// mergeSourceSellsAloneQuery reports whether the source ($1) is the last
+	// event of its Series ($2) and that Series has a TicketSale: removing the
+	// source would leave the sales on a Series without events, which the
+	// Series sweep removes with them. A ConcertCandidate of the Series does
+	// not count: the one being approved is removed right after.
+	mergeSourceSellsAloneQuery = `
+		SELECT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = $2)
+			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = $2 AND e.id <> $1)
+	`
+	// mergePerformersQuery adds the source's performers to the target.
+	mergePerformersQuery = `
+		INSERT INTO concert_artists (event_id, artist_id)
+		SELECT $2, ca.artist_id FROM concert_artists ca WHERE ca.event_id = $1
+		ON CONFLICT DO NOTHING
+	`
+	// mergeTicketJourneysQuery moves the fans' ticket journeys of the source
+	// to the target; a fan's journey for the target wins.
+	mergeTicketJourneysQuery = `
+		INSERT INTO ticket_journeys (user_id, event_id, status, status_set_by)
+		SELECT tj.user_id, $2, tj.status, tj.status_set_by FROM ticket_journeys tj WHERE tj.event_id = $1
+		ON CONFLICT (user_id, event_id) DO NOTHING
+	`
+	// mergeTicketSaleLinksQuery moves the source's links to ticket sales to
+	// the target.
+	mergeTicketSaleLinksQuery = `
+		INSERT INTO ticket_sale_events (ticket_sale_id, event_id)
+		SELECT tse.ticket_sale_id, $2 FROM ticket_sale_events tse WHERE tse.event_id = $1
+		ON CONFLICT DO NOTHING
+	`
+	// deleteMergedEventQuery removes the source; its remaining performers,
+	// concert row, ticket journeys and sale links cascade with it. Its Series
+	// stays.
+	deleteMergedEventQuery = `DELETE FROM events WHERE id = $1`
+)
+
+// Merge implements entity.ConcertRepository. It locks both events (D3 of the
+// change recognize-same-discovered-concert), checks them, copies the
+// source's performers, ticket journeys and sale links to the target, adds the
+// source's names to the target's other listed venue names and deletes the
+// source, in one transaction. A ticket journey or sale link written for the
+// source after the lock waits for it, as its foreign key check takes a key
+// share lock on the source row, and then fails instead of being removed.
+func (r *ConcertRepository) Merge(ctx context.Context, sourceID, targetID string) error {
+	attrs := []slog.Attr{slog.String("source_event_id", sourceID), slog.String("target_event_id", targetID)}
+	if sourceID == targetID {
+		return apperr.New(codes.InvalidArgument, "an event cannot be merged into itself", attrs...)
+	}
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin merge transaction", attrs...)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	source, target, err := lockMergedEvents(ctx, tx, sourceID, targetID)
+	if err != nil {
+		return err
+	}
+	if err := checkMerge(ctx, tx, source, target, attrs); err != nil {
+		return err
+	}
+
+	for _, step := range []struct{ query, failure string }{
+		{mergePerformersQuery, "failed to merge performers"},
+		{mergeTicketJourneysQuery, "failed to merge ticket journeys"},
+		{mergeTicketSaleLinksQuery, "failed to merge ticket sale links"},
+	} {
+		if _, err := tx.Exec(ctx, step.query, sourceID, targetID); err != nil {
+			return toAppErr(err, step.failure, attrs...)
+		}
+	}
+	// A copy, never nil: pgx sends a nil slice as NULL, which the NOT NULL
+	// column refuses.
+	names := append([]string{}, target.OtherListedVenueNames...)
+	for _, n := range sourceNames(source) {
+		if !target.ListedUnder(n) {
+			names = append(names, n)
+			target.OtherListedVenueNames = names
+		}
+	}
+	if _, err := tx.Exec(ctx, setOtherListedVenueNamesQuery, targetID, names); err != nil {
+		return toAppErr(err, "failed to merge listed venue names", attrs...)
+	}
+	if _, err := tx.Exec(ctx, deleteMergedEventQuery, sourceID); err != nil {
+		return toAppErr(err, "failed to delete merged event", attrs...)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit merge", attrs...)
+	}
+	return nil
+}
+
+// checkMerge reports why the locked source and target cannot be merged: at
+// different venues or dates (InvalidArgument), an Organizer's event, or a
+// source that is the last event of a Series with ticket sales
+// (FailedPrecondition).
+func checkMerge(ctx context.Context, tx pgx.Tx, source, target *entity.Event, attrs []slog.Attr) error {
+	if source.VenueID != target.VenueID || !source.LocalDate.Equal(target.LocalDate) {
+		return apperr.New(codes.InvalidArgument, "merged events must be at the same venue and date", attrs...)
+	}
+	if source.PublishState != nil || target.PublishState != nil {
+		return apperr.New(codes.FailedPrecondition, "an Organizer's event is never merged", attrs...)
+	}
+	// The source's Series row is locked first: another Merge of an event of
+	// the Series locks it too, and inserting a TicketSale for it takes a key
+	// share lock on it for the foreign key, so neither can change the answer
+	// before this transaction commits. While one of them holds it, the lock
+	// fails with Unavailable.
+	if _, err := tx.Exec(ctx, lockMergedSeriesQuery, source.SeriesID); err != nil {
+		return toAppErr(err, "failed to lock the merged event's series", attrs...)
+	}
+	var sellsAlone bool
+	if err := tx.QueryRow(ctx, mergeSourceSellsAloneQuery, source.ID, source.SeriesID).Scan(&sellsAlone); err != nil {
+		return toAppErr(err, "failed to check the merged event's series", attrs...)
+	}
+	if sellsAlone {
+		return apperr.New(codes.FailedPrecondition, "the merged event is the last of a series with ticket sales", attrs...)
+	}
+	return nil
+}
+
+// lockMergedEvents locks and reads the source and target of a merge. It fails
+// with NotFound when either is not an event that is not DRAFT.
+func lockMergedEvents(ctx context.Context, tx pgx.Tx, sourceID, targetID string) (source, target *entity.Event, err error) {
+	rows, err := tx.Query(ctx, lockMergedEventsQuery, []string{sourceID, targetID})
+	if err != nil {
+		return nil, nil, toAppErr(err, "failed to lock merged events")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			e     entity.Event
+			state sql.NullString
+		)
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &e.LocalDate, &state, &e.ListedVenueName, &e.OtherListedVenueNames); err != nil {
+			return nil, nil, toAppErr(err, "failed to scan merged event")
+		}
+		e.PublishState = nullPublishState(state)
+		switch e.ID {
+		case sourceID:
+			source = &e
+		case targetID:
+			target = &e
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, toAppErr(err, "merged events iteration ended with error")
+	}
+	if source == nil || target == nil {
+		return nil, nil, apperr.New(codes.NotFound, "merged event not found",
+			slog.String("source_event_id", sourceID), slog.String("target_event_id", targetID))
+	}
+	return source, target, nil
+}
+
+// sourceNames returns the listed venue name and the other listed venue names
+// of a merged event.
+func sourceNames(e *entity.Event) []string {
+	var names []string
+	if e.ListedVenueName != nil && *e.ListedVenueName != "" {
+		names = append(names, *e.ListedVenueName)
+	}
+	return append(names, e.OtherListedVenueNames...)
 }
