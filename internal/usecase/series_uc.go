@@ -256,6 +256,9 @@ func generateUnlistedToken() (string, error) {
 type venuePlan struct {
 	venue  *entity.Venue
 	stored bool
+	// raced is set when another writer stored the place first, so venue is
+	// theirs and the events were planned against other values.
+	raced bool
 }
 
 // planVenue returns the Venue for one event's picked place without storing
@@ -318,28 +321,30 @@ func (uc *seriesUseCase) planVenue(ctx context.Context, inp *DraftEventInput, ne
 }
 
 // saveVenue stores a planned Venue that is not held yet and returns the id of
-// the Venue the event is at. When another writer stored the place first, the
-// event is checked again against that Venue, whose time zone may differ.
+// the Venue the event is at. When another writer stored the place first, every
+// event of the place is checked again against that Venue, whose time zone may
+// differ.
 func (uc *seriesUseCase) saveVenue(ctx context.Context, plan *venuePlan, inp *DraftEventInput) (string, error) {
-	if plan.stored {
-		return plan.venue.ID, nil
-	}
-	venueID, err := uc.venueRepo.Create(ctx, plan.venue)
-	if err != nil {
-		return "", fmt.Errorf("create venue: %w", err)
-	}
-	if venueID != plan.venue.ID {
-		held, err := uc.venueRepo.Get(ctx, venueID)
+	if !plan.stored {
+		venueID, err := uc.venueRepo.Create(ctx, plan.venue)
 		if err != nil {
-			return "", fmt.Errorf("get venue %s: %w", venueID, err)
+			return "", fmt.Errorf("create venue: %w", err)
 		}
-		if err := uc.checkTimesAtVenue(held, inp); err != nil {
+		if venueID != plan.venue.ID {
+			held, err := uc.venueRepo.Get(ctx, venueID)
+			if err != nil {
+				return "", fmt.Errorf("get venue %s: %w", venueID, err)
+			}
+			plan.venue, plan.raced = held, true
+		}
+		plan.stored = true
+	}
+	if plan.raced {
+		if err := uc.checkTimesAtVenue(plan.venue, inp); err != nil {
 			return "", err
 		}
-		plan.venue = held
 	}
-	plan.stored = true
-	return venueID, nil
+	return plan.venue.ID, nil
 }
 
 // newPlaceInputComplete checks that an event for a place no Venue holds gives
