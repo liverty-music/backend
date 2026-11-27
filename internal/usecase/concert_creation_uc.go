@@ -92,6 +92,9 @@ type ingestTally struct {
 	published, staged, filled, conflicts int
 }
 
+// seriesSweepTimeout bounds the orphan sweep at the end of a batch.
+const seriesSweepTimeout = 5 * time.Second
+
 // Outcomes of the concert.ingest.completed signal.
 const (
 	ingestOutcomeCompleted = "completed"
@@ -166,10 +169,15 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 }
 
 // sweepBatchSeries removes, after the batch stored its events, the series it
-// minted or merged an event away from that are left empty. A failure is only
-// logged: an orphaned series row is harmless.
+// minted or merged an event away from that are left empty. It runs detached
+// from ctx's cancellation, since a batch cut off by a shutdown is the one whose
+// merged-away series no retry looks at again. A failure is only logged: an
+// orphaned series row is harmless.
 func (uc *concertCreationUseCase) sweepBatchSeries(ctx context.Context, artistID string, seriesIDs []string) {
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, seriesIDs); err != nil {
+	sweepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), seriesSweepTimeout)
+	defer cancel()
+
+	if _, err := uc.seriesRepo.DeleteOrphaned(sweepCtx, seriesIDs); err != nil {
 		uc.logger.Error(ctx, "failed to clean up orphaned series", err,
 			slog.String("artist_id", artistID),
 		)

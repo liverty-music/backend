@@ -630,12 +630,23 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.findsArtistEvents(a, own, later)
 		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
 		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(nil).Once()
+		// The batch is cut off, as by a worker shutdown.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-v"}, []time.Time{dec31.AddDate(0, 0, 1)}).
-			Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
+			RunAndReturn(func(context.Context, []string, []time.Time) ([]*entity.Concert, error) {
+				cancel()
+				return nil, apperr.New(codes.Unavailable, "database down")
+			}).Once()
 		var swept []string
-		h.sweeps(&swept)
+		h.series.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).
+			RunAndReturn(func(sweepCtx context.Context, ids []string) (int64, error) {
+				require.NoError(t, sweepCtx.Err(), "the sweep outlives the batch")
+				swept = append(swept, ids...)
+				return 0, nil
+			}).Once()
 
-		err := h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle,
+		err := h.uc.CreateFromDiscovered(ctx, discovered(a, "Countdown", entity.SeriesTypeSingle,
 			found(zepp, dec31, at18), found(zepp, dec31.AddDate(0, 0, 1), at18)))
 
 		require.ErrorIs(t, err, apperr.ErrUnavailable)
