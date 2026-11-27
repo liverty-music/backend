@@ -356,7 +356,8 @@ type SeriesRepository interface {
 	//  - InvalidArgument: If the ids slice is empty.
 	ListByIDs(ctx context.Context, ids []string) ([]*Series, error)
 	// DeleteOrphaned removes, from among the given candidate series IDs, every row
-	// that has no member events AND no pending concert candidates referencing it.
+	// that has no member events, no pending concert candidates and no ticket
+	// sales referencing it.
 	// Eager series-row creation at discovery time allows a series to transiently
 	// exist with zero events (a provisional group mint that adopted a
 	// co-headliner's series, or a group later fully rejected); this sweep reclaims
