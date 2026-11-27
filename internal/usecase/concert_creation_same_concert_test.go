@@ -605,6 +605,43 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		assert.Empty(t, h.staged)
 	})
 
+	t.Run("Series being written during a merge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Series being written during a merge"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		h.findsArtistEvents(a, own)
+		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
+		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.Unavailable, "series locked")).Once()
+
+		err := h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18)))
+
+		// No Upsert expectation: nothing is staged, and the batch is retried.
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Empty(t, h.staged)
+	})
+
+	t.Run("Failed batch is swept", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Failed batch is swept"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		later := concertAt(entity.Event{ID: "event-c", SeriesID: "series-c", VenueID: "venue-v", LocalDate: dec31.AddDate(0, 0, 1), ListedVenueName: &zepp}, a)
+		h.findsArtistEvents(a, own, later)
+		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
+		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(nil).Once()
+		h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-v"}, []time.Time{dec31.AddDate(0, 0, 1)}).
+			Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
+		var swept []string
+		h.sweeps(&swept)
+
+		err := h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle,
+			found(zepp, dec31, at18), found(zepp, dec31.AddDate(0, 0, 1), at18)))
+
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Contains(t, swept, own.SeriesID, "the merged-away event's Series is swept")
+	})
+
 	t.Run("Slot taken meanwhile", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Slot taken meanwhile"

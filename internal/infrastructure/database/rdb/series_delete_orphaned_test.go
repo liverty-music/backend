@@ -57,7 +57,8 @@ func TestSeriesRepository_DeleteOrphaned_Requirements(t *testing.T) {
 		assert.True(t, kept(f, s))
 	})
 
-	t.Run("a series a ticket sale is being stored for is left", func(t *testing.T) {
+	t.Run("Series still being written", func(t *testing.T) {
+		// @spec components/entity/series/delete-orphaned "Series still being written"
 		f := newVisibilityFixture(t, db)
 		s := f.discoveredSeries()
 		sale, err := db.Pool.Begin(f.ctx)

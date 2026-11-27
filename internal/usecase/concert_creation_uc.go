@@ -104,9 +104,9 @@ const (
 // publish are stored in ONE Concert.Create call, which announces them
 // together, so a multi-date tour wakes the notification consumer once. A
 // collision at one slot stages that event and never fails the batch. A
-// lightweight cleanup at the end removes the series this batch minted or
-// merged an event away from that are left with no events and no pending
-// concert candidates.
+// lightweight cleanup at the end, run when the batch fails too, removes the
+// series this batch minted or merged an event away from that are left empty
+// (Series.DeleteOrphaned).
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) (err error) {
 	// Batch-local place cache: (listed_venue_name, admin_area) → *VenuePlace.
 	// Avoids redundant Places API calls for the same venue within one batch,
@@ -137,6 +137,13 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	// them alone and cannot delete another concurrently-processing run's
 	// just-created (still event-less) series.
 	var sweep []string
+	// A failed batch is swept too: the events it merged away are gone on the
+	// retry, which would never look at their series again.
+	defer func() {
+		if err == nil || len(sweep) > 0 {
+			uc.sweepBatchSeries(ctx, data.ArtistID, sweep)
+		}
+	}()
 	for _, series := range data.Series {
 		if series == nil || len(series.Events) == 0 {
 			continue
@@ -150,22 +157,23 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		}
 
 		swept, err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces, tally)
+		sweep = append(sweep, swept...)
 		if err != nil {
 			return err
 		}
-		sweep = append(sweep, swept...)
-	}
-
-	// Sweep, after every event of the batch is stored, the series this batch
-	// minted or merged an event away from that ended up with no events and no
-	// pending concert candidates.
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, sweep); err != nil {
-		uc.logger.Error(ctx, "failed to clean up orphaned series", err,
-			slog.String("artist_id", data.ArtistID),
-		)
-		// Non-fatal: an orphaned series row is harmless and swept next run.
 	}
 	return nil
+}
+
+// sweepBatchSeries removes, after the batch stored its events, the series it
+// minted or merged an event away from that are left empty. A failure is only
+// logged: an orphaned series row is harmless.
+func (uc *concertCreationUseCase) sweepBatchSeries(ctx context.Context, artistID string, seriesIDs []string) {
+	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, seriesIDs); err != nil {
+		uc.logger.Error(ctx, "failed to clean up orphaned series", err,
+			slog.String("artist_id", artistID),
+		)
+	}
 }
 
 // placedEvent is a discovered event of a series with its Venue decided.
@@ -185,8 +193,8 @@ type placedEvent struct {
 // each event, then chooses the series' Series, then decides each event
 // (decideFoundEvent) and stores every event to publish in one Concert.Create
 // call, which announces them together. It returns the series the end-of-batch
-// sweep is to look at: the one it minted and those of the events it merged
-// away.
+// sweep is to look at, with an error too: the one it minted and those of the
+// events it merged away.
 func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	ctx context.Context,
 	artistID string,
@@ -214,7 +222,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	b := &seriesBatch{artistID: artistID, seriesID: seriesID, series: series, artistEvents: artistEvents, claimed: map[string]bool{}, tally: tally}
 	for _, p := range placed {
 		if err := uc.decideEvent(ctx, b, p); err != nil {
-			return nil, err
+			return append(sweep, b.mergedSeries...), err
 		}
 	}
 	sweep = append(sweep, b.mergedSeries...)
@@ -226,7 +234,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	// about all of them at once.
 	insertedIDs, err := uc.concertRepo.Create(ctx, b.toPublish...)
 	if err != nil {
-		return nil, fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
+		return sweep, fmt.Errorf("auto-publish concerts of %q: %w", series.Title, err)
 	}
 	tally.published += len(insertedIDs)
 	if len(insertedIDs) > 0 {

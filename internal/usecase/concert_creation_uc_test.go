@@ -329,6 +329,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		h.slotsFree(2)
 		h.publishes(2)
+		h.sweepsOrphans()
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
 			Series: []*entity.DiscoveredSeries{
@@ -964,6 +965,7 @@ func TestCreateFromDiscovered_OneCreatePerSeries(t *testing.T) {
 		h := newCreationUC(t, "Venue A")
 		h.slotsFree(1)
 		h.concert.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.Unavailable, "database down")).Once()
+		h.sweepsOrphans()
 
 		err := h.uc.CreateFromDiscovered(ctx, tour(&entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: "Venue A", LocalDate: day, StartTime: start}))
 
