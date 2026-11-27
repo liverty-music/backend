@@ -34,6 +34,18 @@ const (
 // more than a healthy run needs.
 const discoveryQueueDeadline = 6 * time.Hour
 
+// discoveryQueueStart returns the start options of a run on
+// [ConcertDiscoveryQueue]: the queue and a deadline [discoveryQueueDeadline]
+// from now. The clock is read in a step, so a replay starts the run with the
+// deadline the first execution chose.
+func discoveryQueueStart(ctx context.Context, f Flow, clock Clock) ([]StartOption, error) {
+	now, err := Step(ctx, f, "discovery deadline", func(context.Context) (time.Time, error) { return clock(), nil })
+	if err != nil {
+		return nil, err
+	}
+	return []StartOption{WithQueue(ConcertDiscoveryQueue), WithDeadline(now.Add(discoveryQueueDeadline))}, nil
+}
+
 // WorkflowRemoveEmptyDiscoveredSeries is the registered name of
 // ConcertCreationUseCase.RunRemoveEmptyDiscoveredSeries. It runs on
 // [ConcertDiscoveryQueue], so it never overlaps a batch: a batch may choose an
@@ -85,9 +97,12 @@ func (uc *concertCreationUseCase) RemoveEmptyDiscoveredSeries(ctx context.Contex
 
 // ScheduleEmptySeriesRemoval implements [ConcertCreationUseCase].
 func (uc *concertCreationUseCase) ScheduleEmptySeriesRemoval(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error) {
+	opts, err := discoveryQueueStart(ctx, f, uc.clock)
+	if err != nil {
+		return struct{}{}, err
+	}
 	id := WorkflowRemoveEmptyDiscoveredSeries + ":" + strconv.FormatInt(scheduled.Unix(), 10)
-	return struct{}{}, f.Start(ctx, WorkflowRemoveEmptyDiscoveredSeries, id, scheduled,
-		WithQueue(ConcertDiscoveryQueue), WithDeadline(scheduled.Add(discoveryQueueDeadline)))
+	return struct{}{}, f.Start(ctx, WorkflowRemoveEmptyDiscoveredSeries, id, scheduled, opts...)
 }
 
 // RunRemoveEmptyDiscoveredSeries implements [ConcertCreationUseCase]. A

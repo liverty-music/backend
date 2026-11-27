@@ -330,9 +330,12 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 		return uc.endSearch(ctx, f, in, searchEnd{Called: called})
 	}
 
-	err := f.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(in.ArtistID, in.SearchTime),
-		entity.ConcertDiscoveredData{ArtistID: in.ArtistID, ArtistName: call.ArtistName, Series: call.Series},
-		WithQueue(ConcertDiscoveryQueue), WithDeadline(call.EndTime.Add(discoveryQueueDeadline)))
+	opts, err := discoveryQueueStart(ctx, f, uc.clock)
+	if err != nil {
+		return struct{}{}, err
+	}
+	err = f.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(in.ArtistID, in.SearchTime),
+		entity.ConcertDiscoveredData{ArtistID: in.ArtistID, ArtistName: call.ArtistName, Series: call.Series}, opts...)
 	if err != nil {
 		// A conflict or a cancellation of this run is the engine's to handle.
 		if errors.Is(err, apperr.ErrAborted) || errors.Is(err, apperr.ErrCanceled) {
