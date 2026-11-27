@@ -3,6 +3,13 @@ package di
 import (
 	"io"
 
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
 	adminareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/area/v1/areav1connect"
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
@@ -44,9 +51,6 @@ import (
 	"connectrpc.com/authn"
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/grpchealth/v2"
-	"context"
-	"errors"
-	"fmt"
 	"github.com/liverty-music/backend/internal/adapter/linkpreview"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/webhook"
@@ -64,15 +68,13 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"log/slog"
-	"net/http"
-	"time"
 )
 
 // apiRepos are the repositories of the API server process.
@@ -208,6 +210,7 @@ type apiWiring struct {
 	imageStorer                usecase.ImageStorer
 	mapCatalog                 *googlemaps.Client
 	seriesImageURLBuilder      *gcsstorage.SeriesImageURLBuilder
+	signIn                     route.Route
 	jwtValidator               *auth.JWTValidator
 	authFunc                   authn.AuthFunc
 	adminAuthFunc              authn.AuthFunc
@@ -545,10 +548,15 @@ func (w *apiWiring) buildAuth() error {
 	cfg := w.cfg
 	var err error
 	// Auth - JWT Validator and Interceptor
+	w.signIn, err = route.New(cfg.JWT.Issuer, cfg.JWT.ZitadelInternalURL)
+	if err != nil {
+		return err
+	}
 	w.jwtValidator, err = auth.NewJWTValidator(
 		cfg.JWT.Issuer,
 		cfg.JWT.Issuer+"/oauth/v2/keys",
 		cfg.JWT.JWKSRefreshInterval,
+		&http.Client{Transport: w.signIn.Transport(http.DefaultTransport)},
 	)
 	if err != nil {
 		return err
@@ -560,9 +568,24 @@ func (w *apiWiring) buildAuth() error {
 		w.jwtValidator = w.jwtValidator.WithAcceptedIssuers(all)
 	}
 
-	publicProcedures := auth.FanPublicProcedures()
+	// The fan, admin console and organizer servers accept only an active
+	// access token issued for their own app (SignInChecker). A deployment
+	// holds the introspection key of its own API only, so the other two
+	// servers it also runs refuse signed-in calls.
+	fanChecker, err := w.signInChecker("fan API", cfg.SignInCheck.ProductProjectID, cfg.SignInCheck.FanAPIKeyPath)
+	if err != nil {
+		return err
+	}
+	adminChecker, err := w.signInChecker("admin console API", cfg.SignInCheck.AdminConsoleProjectID, cfg.SignInCheck.AdminConsoleAPIKeyPath)
+	if err != nil {
+		return err
+	}
+	organizerChecker, err := w.signInChecker("organizer API", cfg.OrganizerConsoleProjectID, cfg.SignInCheck.OrganizerConsoleAPIKeyPath)
+	if err != nil {
+		return err
+	}
 
-	w.authFunc = auth.NewAuthFunc(w.jwtValidator, publicProcedures)
+	w.authFunc = auth.NewAuthFunc(fanChecker, auth.FanPublicProcedures())
 
 	// The admin server gets its own AuthFunc with NO public procedures, ever.
 	// It must NOT reuse the consumer w.authFunc above: the admin server also
@@ -572,20 +595,33 @@ func (w *apiWiring) buildAuth() error {
 	// entries for ListTop/ListSimilar/Search leak onto the admin host and let
 	// an unauthenticated caller reach RequireRoleInterceptor instead of being
 	// rejected with Unauthenticated by the authn middleware first (backend#481).
-	// Both AuthFuncs share the same w.jwtValidator, so token validation itself
-	// is identical; only the public-procedure allowlist differs.
-	w.adminAuthFunc = auth.NewAuthFunc(w.jwtValidator, nil)
+	w.adminAuthFunc = auth.NewAuthFunc(adminChecker, nil)
 
 	// The organizer server gets its own AuthFunc too. Its only public
 	// procedure is OrganizerService.SendSignInLinks; every other organizer
 	// call is a signed-in member's.
-	w.organizerAuthFunc = auth.NewAuthFunc(w.jwtValidator, auth.OrganizerPublicProcedures())
+	w.organizerAuthFunc = auth.NewAuthFunc(organizerChecker, auth.OrganizerPublicProcedures())
 
 	// The reception server's AuthFunc makes only the scanner device's procedures
 	// public (no sign-in; link token + device signature). Nothing else is
 	// mounted there.
 	w.receptionAuthFunc = auth.NewAuthFunc(w.jwtValidator, auth.ReceptionPublicProcedures())
 	return nil
+}
+
+// signInChecker returns the token check of the named API, which requires
+// audience in a token and asks the sign-in service with the key at keyPath.
+// Without both (another workload's API, or a local run without its key)
+// every signed-in call of that API fails with Internal.
+func (w *apiWiring) signInChecker(api, audience, keyPath string) (auth.TokenValidator, error) {
+	if audience == "" || keyPath == "" {
+		return auth.NewUnconfiguredChecker(api), nil
+	}
+	introspector, err := auth.NewIntrospector(w.cfg.JWT.Issuer, keyPath, w.signIn.Transport(http.DefaultTransport))
+	if err != nil {
+		return nil, fmt.Errorf("%s introspection: %w", api, err)
+	}
+	return auth.NewSignInChecker(w.jwtValidator, audience, introspector), nil
 }
 
 // buildServing builds the health check and the rate limiter the servers share.

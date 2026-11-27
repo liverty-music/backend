@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -70,19 +71,23 @@ var FanAPIProcedures = []string{
 // identityHandlers builds the identity-provider clients and returns the
 // handlers of the identity service's UserService and OrganizationService.
 func identityHandlers(ctx context.Context, cfg *config.IdentityConfig, logger *logging.Logger) ([]server.RPCHandlerFunc, error) {
-	emailVerifier, err := infrazitadel.NewEmailVerifier(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	signIn, err := route.New(cfg.IssuerURL, cfg.ZitadelInternalURL)
+	if err != nil {
+		return nil, err
+	}
+	emailVerifier, err := infrazitadel.NewEmailVerifier(ctx, signIn, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create zitadel email verifier: %w", err)
 	}
-	identityRemover, err := infrazitadel.NewIdentityRemover(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+	identityRemover, err := infrazitadel.NewIdentityRemover(ctx, signIn, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create zitadel identity remover: %w", err)
 	}
-	passkeyLinks, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
+	passkeyLinks, err := infrazitadel.NewPasskeyRegistrationLinkIssuer(ctx, signIn, cfg.ZitadelMachineKeyForFanPasskeyRecoveryPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create zitadel passkey registration link issuer: %w", err)
 	}
-	organizations, err := infrazitadel.NewOrganizationRepository(ctx, cfg.IssuerURL, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
+	organizations, err := infrazitadel.NewOrganizationRepository(ctx, signIn, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create organization repository: %w", err)
 	}
@@ -131,7 +136,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	listener := func(port int) server.BackendServerSettings {
 		return server.BackendServerSettings{Host: cfg.Listeners.Host, Port: port, HandlerTimeout: cfg.Listeners.HandlerTimeout}
 	}
-	workflowWorkerSrv := server.NewBackendServer(listener(cfg.Listeners.EventConsumerPort), logger, WorkflowWorkerProcedures, handlers...)
+	workflowWorkerSrv := server.NewBackendServer(listener(cfg.Listeners.WorkflowWorkerPort), logger, WorkflowWorkerProcedures, handlers...)
 	adminConsoleAPISrv := server.NewBackendServer(listener(cfg.Listeners.AdminConsoleAPIPort), logger, AdminConsoleAPIProcedures, handlers...)
 	fanAPISrv := server.NewBackendServer(listener(cfg.Listeners.FanAPIPort), logger, FanAPIProcedures, handlers...)
 
@@ -144,7 +149,7 @@ func InitializeIdentityApp(ctx context.Context) (*IdentityApp, error) {
 	shutdown.AddObservePhase(telemetryCloser)
 
 	logger.Info(ctx, "identity service initialized",
-		slog.Int("event_consumer_port", cfg.Listeners.EventConsumerPort),
+		slog.Int("workflow_worker_port", cfg.Listeners.WorkflowWorkerPort),
 		slog.Int("admin_console_api_port", cfg.Listeners.AdminConsoleAPIPort),
 		slog.Int("fan_api_port", cfg.Listeners.FanAPIPort),
 		slog.Int("health_port", cfg.Listeners.HealthPort),

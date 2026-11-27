@@ -10,17 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zitadel/oidc/v3/pkg/oidc"
+	"github.com/liverty-music/backend/internal/infrastructure/zitadel/route"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
-	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	policypb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
 	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -71,43 +68,25 @@ type OrganizationRepository struct {
 // to the Zitadel Management API using a machine user's private key JWT — the
 // same pattern as NewEmailVerifier in this package.
 //
-// issuerURL is the OIDC issuer URL (e.g., "https://auth.dev.liverty-music.app").
+// r is the route to the sign-in service.
 // provisionerKeyPath is the path to the organizer-provisioner machine key JSON.
 // organizerConsoleProjectID is the Zitadel project id for the organizer-console
 // application, used as the project-grant target and role container.
 func NewOrganizationRepository(
 	ctx context.Context,
-	issuerURL, provisionerKeyPath, organizerConsoleProjectID string,
+	r route.Route,
+	provisionerKeyPath, organizerConsoleProjectID string,
 	logger *logging.Logger,
 ) (*OrganizationRepository, error) {
-	apiEndpoint, err := grpcEndpoint(issuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse zitadel domain: %w", err)
-	}
-
+	issuerURL := r.Issuer()
 	consoleBaseURL, err := ConsoleBaseURLFromIssuer(issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("derive organizer console base url: %w", err)
 	}
 
-	connOpts := []zitadelconn.Option{
-		zitadelconn.WithJWTProfileTokenSource(
-			jwtProfileFromPath(ctx, provisionerKeyPath),
-		),
-		zitadelconn.WithDialOptions(
-			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-		),
-	}
-
-	conn, err := zitadelconn.NewConnection(
-		ctx,
-		issuerURL,
-		apiEndpoint,
-		[]string{oidc.ScopeOpenID, zitadelconn.ScopeZitadelAPI()},
-		connOpts...,
-	)
+	conn, err := dial(ctx, r, provisionerKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("create zitadel connection: %w", err)
+		return nil, err
 	}
 
 	return &OrganizationRepository{
