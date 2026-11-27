@@ -128,7 +128,8 @@ type ConcertCandidateUseCase interface {
 	//     name with the candidate's, keeping the replaced one, fills its start
 	//     and open time only where unknown, makes the Artist a performer of
 	//     the event, leaving venue identity and the shared series title
-	//     unchanged, then clears the concert candidate.
+	//     unchanged, then clears the concert candidate. An Organizer's event
+	//     is not changed: adopting onto one fails with FailedPrecondition.
 	//
 	// Making the Artist a performer of another Artist's Event merges the
 	// Artist's unknown-start Event at the Venue and date into it when there is
@@ -149,6 +150,8 @@ type ConcertCandidateUseCase interface {
 	//
 	//  - InvalidArgument: If no Area or no time zone can be decided, or the
 	//    given time zone is not one a Venue in that Area may have.
+	//  - FailedPrecondition: If adopt the candidate is chosen against an
+	//    Organizer's event.
 	//  - Unavailable: If the map catalog cannot be reached for a new Venue's
 	//    coordinates.
 	//  - Internal: If the venue, series, or event mutation fails.
@@ -428,6 +431,10 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 		}
 
 	case ApproveResolutionAdoptCandidate:
+		if existing.PublishState != nil {
+			return nil, apperr.New(codes.FailedPrecondition, "an Organizer's event keeps its listed venue name and times; keep it or reject the candidate",
+				slog.String("concert_candidate_id", sc.ID), slog.String("existing_event_id", existing.ID))
+		}
 		// Replace the display venue name (keeping the replaced one) and fill
 		// start/open only where unknown, leaving venue identity and the shared
 		// series title untouched.

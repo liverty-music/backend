@@ -143,12 +143,11 @@ func decideFill(found foundEvent, own, others []*entity.Concert, claimed map[str
 	if unknown == nil {
 		return sameConcertDecision{}, false
 	}
-	if unknown.PublishState != nil {
-		// An Organizer's event is never filled by discovery or approval.
-		return sameConcertDecision{outcome: outcomeStage, event: unknown}, true
-	}
 	holder := firstOf(others, func(e *entity.Concert) bool { return e.HasStartTime(found.startTime) })
 	switch {
+	case holder == nil && unknown.PublishState != nil:
+		// An Organizer's event is never filled by discovery or approval.
+		return sameConcertDecision{outcome: outcomeStage, event: unknown}, true
 	case holder == nil:
 		return sameConcertDecision{outcome: outcomeFill, event: unknown}, true
 	case holder.ListedUnder(found.listedVenueName) && holder.PublishState == nil && unknown.PublishState == nil:

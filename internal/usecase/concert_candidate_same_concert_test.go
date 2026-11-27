@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -219,6 +220,18 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		result, err := approveWith(d, sc, usecase.ApproveResolutionKeepExisting)
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
+	})
+
+	t.Run("adopting onto an Organizer's event changes nothing", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, sim)
+		organizers := concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-1", LocalDate: aug1,
+			ListedVenueName: new("Zepp Osaka Bayside"), PublishState: published()}, sim.ID)
+		sc := approvalAt(d, "ゼップ大阪ベイサイド", aug1, at18, []*entity.Concert{organizers}, []*entity.Concert{organizers})
+
+		// No UpdateEventListedVenueName, FillEventStartTimes or Delete expectation.
+		_, err := approveWith(d, sc, usecase.ApproveResolutionAdoptCandidate)
+		require.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("Artist's unknown-start event merged", func(t *testing.T) {

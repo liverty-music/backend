@@ -135,6 +135,15 @@ func TestDecideFoundEvent(t *testing.T) {
 			wantOutcome: "stage", wantEvent: "e1",
 		},
 		{
+			name:  "own unknown-start Organizer's event, slot held by another Artist's event: stage against the holder",
+			found: found(zeppHa, at18),
+			venueEvents: []*entity.Concert{
+				stored("e1", venue, "", zeppHa, nil, "PUBLISHED", a),
+				stored("e2", venue, "18:00", zeppHa, nil, "", b),
+			},
+			wantOutcome: "stage", wantEvent: "e2",
+		},
+		{
 			name:  "own unknown-start event already claimed: a new event",
 			found: found(zeppHa, at18),
 			venueEvents: []*entity.Concert{
