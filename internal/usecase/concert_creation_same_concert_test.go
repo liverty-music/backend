@@ -496,6 +496,25 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		require.Len(t, h.staged, 1)
 	})
 
+	t.Run("Tour with a ticket sale is not merged away", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Tour with a ticket sale is not merged away"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		h.findsArtistEvents(a, own)
+		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
+		// Concert.Merge refuses: A's Event is the last of a Series with a ticket sale.
+		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.FailedPrecondition, "sells alone")).Once()
+		h.stages(1)
+		var swept []string
+		h.sweeps(&swept)
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
+
+		require.Len(t, h.staged, 1, "A's event is staged")
+		assert.NotContains(t, swept, "series-a", "A's Series is not swept")
+	})
+
 	t.Run("Held under another name", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Held under another name"

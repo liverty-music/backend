@@ -480,8 +480,10 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 // Artist does not perform there and it has no publish state ("Another
 // Artist's Event becomes a shared bill"): it merges the Artist's
 // unknown-start event at the Venue and date into it when there is one,
-// removing that event's Series if it is left empty, and otherwise stores the
-// Artist's concert in its slot, which tells the Artist's followers.
+// removing that event's Series if it is left empty, and otherwise (or when
+// that event is the last of a Series with ticket sales, which Merge refuses)
+// stores the Artist's concert in its slot, which tells the Artist's
+// followers.
 func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Concert, venueEvents []*entity.Concert) error {
 	if existing.HasPerformer(sc.ArtistID) || existing.PublishState != nil {
 		return nil
@@ -490,11 +492,17 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 		return e.ID != existing.ID && e.HasPerformer(sc.ArtistID) && e.StartTime == nil && e.PublishState == nil
 	})
 	if own != nil {
-		if err := uc.concertRepo.Merge(ctx, own.ID, existing.ID); err != nil {
+		err := uc.concertRepo.Merge(ctx, own.ID, existing.ID)
+		switch {
+		case err == nil:
+			uc.sweepSeries(ctx, own.SeriesID, sc.ID)
+			return nil
+		case errors.Is(err, apperr.ErrFailedPrecondition):
+			// The Artist's event is the last of a Series with ticket sales:
+			// it stays, and the Artist joins the event below instead.
+		default:
 			return fmt.Errorf("shared bill: merge event %s into %s: %w", own.ID, existing.ID, err)
 		}
-		uc.sweepSeries(ctx, own.SeriesID, sc.ID)
-		return nil
 	}
 	// The Concert takes the Event's own times, so storing it in the slot
 	// changes neither of them.

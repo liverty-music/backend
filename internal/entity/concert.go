@@ -762,7 +762,9 @@ type ConcertRepository interface {
 	//    Venues or local dates.
 	//  - NotFound: either is not an event that is not DRAFT.
 	//  - FailedPrecondition: either has a publish state (an Organizer's
-	//    event).
+	//    event), or the source is the last event of its Series and that
+	//    Series has a TicketSale: removing the source would leave the sales
+	//    on a Series without events.
 	Merge(ctx context.Context, sourceID, targetID string) error
 	// List retrieves every published concert with Series, Venue, and Artists
 	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /

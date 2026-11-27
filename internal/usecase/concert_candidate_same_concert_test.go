@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -236,6 +237,27 @@ func TestConcertCandidateUseCase_Approve_SharedBill(t *testing.T) {
 		result, err := approveWith(d, sc, usecase.ApproveResolutionKeepExisting)
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
+	})
+
+	t.Run("Tour with a ticket sale is kept", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Tour with a ticket sale is kept"
+		d := newApprovalTestDeps(t, sim)
+		simUnknown := concertAt(entity.Event{ID: "event-s", SeriesID: "series-s", VenueID: "venue-1", LocalDate: aug1, ListedVenueName: new("ゼップ大阪ベイサイド")}, sim.ID)
+		sc := approvalAt(d, "ゼップ大阪ベイサイド", aug1, at18, []*entity.Concert{simUnknown, horumonEvent(nil)}, []*entity.Concert{simUnknown})
+		d.logsRejection()
+		d.concertRepo.EXPECT().AddOtherListedVenueName(mock.Anything, "event-h", "ゼップ大阪ベイサイド").Return(nil).Once()
+		d.concertRepo.EXPECT().Merge(mock.Anything, "event-s", "event-h").Return(apperr.New(codes.FailedPrecondition, "sells alone")).Once()
+		d.inserts()
+		d.deletes(sc.ID)
+
+		// No DeleteOrphaned expectation: SiM's Event and its Series stay.
+		result, err := approveWith(d, sc, usecase.ApproveResolutionKeepExisting)
+		require.NoError(t, err)
+		assert.Nil(t, result.Conflict)
+		require.Len(t, d.createdConcerts, 1)
+		assert.Equal(t, "series-h", d.createdConcerts[0].SeriesID, "SiM joins the 18:00 Event")
+		assert.Equal(t, []string{sim.ID}, d.createdConcerts[0].ArtistIDs())
 	})
 
 	t.Run("adopting onto an Organizer's event changes nothing", func(t *testing.T) {

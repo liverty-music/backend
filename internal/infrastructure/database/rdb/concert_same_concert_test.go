@@ -456,6 +456,30 @@ func TestConcertRepository_Merge(t *testing.T) {
 		assert.Equal(t, []string{b}, f.read(target).performers)
 	})
 
+	t.Run("Last event of a series with a ticket sale", func(t *testing.T) {
+		// @spec components/entity/concert/merge "Last event of a series with a ticket sale"
+		f := newVisibilityFixture(t, db)
+		source, target, sourceSeries, _, b := pair(f)
+		f.exec(`INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time, find_time)
+			VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), sourceSeries)
+
+		err := f.repo.Merge(f.ctx, source, target)
+		require.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.True(t, f.read(source).exists, "nothing changes")
+		assert.Equal(t, []string{b}, f.read(target).performers)
+	})
+
+	t.Run("a series with a ticket sale and another event is merged away from", func(t *testing.T) {
+		f := newVisibilityFixture(t, db)
+		source, target, sourceSeries, a, b := pair(f)
+		f.exec(`INSERT INTO ticket_sales (id, series_id, name, method, time_zone, local_start_time, local_end_time, find_time)
+			VALUES ($1, $2, 'FC先行', 2, 'Asia/Tokyo', '2026-12-01 12:00', '2026-12-05 23:59', now())`, entity.NewID(), sourceSeries)
+		f.store(slotEvent{series: sourceSeries, venue: f.venue("JP-27", nil, nil), date: nextDate, artists: []string{a}})
+
+		require.NoError(t, f.repo.Merge(f.ctx, source, target))
+		assert.ElementsMatch(t, []string{a, b}, f.read(target).performers)
+	})
+
 	t.Run("an event is not merged into itself", func(t *testing.T) {
 		f := newVisibilityFixture(t, db)
 		source, _, _, _, _ := pair(f)

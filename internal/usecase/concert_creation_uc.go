@@ -446,10 +446,11 @@ func (uc *concertCreationUseCase) decideEvent(ctx context.Context, b *seriesBatc
 		return uc.fill(ctx, b, candidate, d.event, ev)
 	case outcomeMergeInto:
 		err := uc.concertRepo.Merge(ctx, d.source.ID, d.event.ID)
-		if errors.Is(err, apperr.ErrNotFound) {
+		if errors.Is(err, apperr.ErrNotFound) || errors.Is(err, apperr.ErrFailedPrecondition) {
 			// Another run or an approval merged or removed one of them
-			// meanwhile: an admin decides instead of the batch failing.
-			return uc.stage(ctx, b, candidate, &d.event.Event, "merged meanwhile")
+			// meanwhile, or the Artist's event is the last of a Series with
+			// ticket sales: an admin decides instead of the batch failing.
+			return uc.stage(ctx, b, candidate, &d.event.Event, "not merged")
 		}
 		if err != nil {
 			return fmt.Errorf("merge event %s into %s: %w", d.source.ID, d.event.ID, err)

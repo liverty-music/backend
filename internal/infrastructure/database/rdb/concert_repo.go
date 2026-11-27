@@ -1255,11 +1255,20 @@ const (
 	// two merges that share an event cannot deadlock. A DRAFT event is not
 	// returned.
 	lockMergedEventsQuery = `
-		SELECT e.id, e.venue_id, e.local_event_date, e.publish_state, e.listed_venue_name, e.other_listed_venue_names
+		SELECT e.id, e.series_id, e.venue_id, e.local_event_date, e.publish_state, e.listed_venue_name, e.other_listed_venue_names
 		FROM events e
 		WHERE e.id = ANY($1::uuid[]) AND ` + catalogEventCondition + `
 		ORDER BY e.id
 		FOR UPDATE
+	`
+	// mergeSourceSellsAloneQuery reports whether the source ($1) is the last
+	// event of its Series ($2) and that Series has a TicketSale: removing the
+	// source would leave the sales on a Series without events, which the
+	// Series sweep removes with them. A ConcertCandidate of the Series does
+	// not count: the one being approved is removed right after.
+	mergeSourceSellsAloneQuery = `
+		SELECT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = $2)
+			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = $2 AND e.id <> $1)
 	`
 	// mergePerformersQuery adds the source's performers to the target.
 	mergePerformersQuery = `
@@ -1309,11 +1318,8 @@ func (r *ConcertRepository) Merge(ctx context.Context, sourceID, targetID string
 	if err != nil {
 		return err
 	}
-	if source.VenueID != target.VenueID || !source.LocalDate.Equal(target.LocalDate) {
-		return apperr.New(codes.InvalidArgument, "merged events must be at the same venue and date", attrs...)
-	}
-	if source.PublishState != nil || target.PublishState != nil {
-		return apperr.New(codes.FailedPrecondition, "an Organizer's event is never merged", attrs...)
+	if err := checkMerge(ctx, tx, source, target, attrs); err != nil {
+		return err
 	}
 
 	for _, step := range []struct{ query, failure string }{
@@ -1346,6 +1352,27 @@ func (r *ConcertRepository) Merge(ctx context.Context, sourceID, targetID string
 	return nil
 }
 
+// checkMerge reports why the locked source and target cannot be merged: at
+// different venues or dates (InvalidArgument), an Organizer's event, or a
+// source that is the last event of a Series with ticket sales
+// (FailedPrecondition).
+func checkMerge(ctx context.Context, tx pgx.Tx, source, target *entity.Event, attrs []slog.Attr) error {
+	if source.VenueID != target.VenueID || !source.LocalDate.Equal(target.LocalDate) {
+		return apperr.New(codes.InvalidArgument, "merged events must be at the same venue and date", attrs...)
+	}
+	if source.PublishState != nil || target.PublishState != nil {
+		return apperr.New(codes.FailedPrecondition, "an Organizer's event is never merged", attrs...)
+	}
+	var sellsAlone bool
+	if err := tx.QueryRow(ctx, mergeSourceSellsAloneQuery, source.ID, source.SeriesID).Scan(&sellsAlone); err != nil {
+		return toAppErr(err, "failed to check the merged event's series", attrs...)
+	}
+	if sellsAlone {
+		return apperr.New(codes.FailedPrecondition, "the merged event is the last of a series with ticket sales", attrs...)
+	}
+	return nil
+}
+
 // lockMergedEvents locks and reads the source and target of a merge. It fails
 // with NotFound when either is not an event that is not DRAFT.
 func lockMergedEvents(ctx context.Context, tx pgx.Tx, sourceID, targetID string) (source, target *entity.Event, err error) {
@@ -1359,7 +1386,7 @@ func lockMergedEvents(ctx context.Context, tx pgx.Tx, sourceID, targetID string)
 			e     entity.Event
 			state sql.NullString
 		)
-		if err := rows.Scan(&e.ID, &e.VenueID, &e.LocalDate, &state, &e.ListedVenueName, &e.OtherListedVenueNames); err != nil {
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &e.LocalDate, &state, &e.ListedVenueName, &e.OtherListedVenueNames); err != nil {
 			return nil, nil, toAppErr(err, "failed to scan merged event")
 		}
 		e.PublishState = nullPublishState(state)
