@@ -9,9 +9,20 @@ import (
 )
 
 // inlineFlow runs a workflow's steps at once, in the test's goroutine, as a
-// first run with no recorded step does. Starts are recorded in started.
+// first run with no recorded step does. Starts are recorded in started, and
+// with their input and options in starts. A run marked beforePatch started
+// before every patch, so Patched reports false.
 type inlineFlow struct {
-	started []string
+	started     []string
+	starts      []startCall
+	beforePatch bool
+}
+
+// startCall is one Start of a workflow.
+type startCall struct {
+	workflow, id string
+	input        any
+	options      usecase.StartOptions
 }
 
 var _ usecase.Flow = (*inlineFlow)(nil)
@@ -20,8 +31,9 @@ func (f *inlineFlow) Step(ctx context.Context, _ string, fn func(context.Context
 	return fn(ctx)
 }
 
-func (f *inlineFlow) Start(_ context.Context, _, id string, _ any, _ ...usecase.StartOption) error {
+func (f *inlineFlow) Start(_ context.Context, workflow, id string, input any, opts ...usecase.StartOption) error {
 	f.started = append(f.started, id)
+	f.starts = append(f.starts, startCall{workflow: workflow, id: id, input: input, options: usecase.NewStartOptions(opts...)})
 	return nil
 }
 
@@ -29,7 +41,7 @@ func (f *inlineFlow) Recv(context.Context, string, time.Duration) ([]byte, bool,
 	return nil, false, nil
 }
 
-func (f *inlineFlow) Patched(context.Context, string) (bool, error) { return true, nil }
+func (f *inlineFlow) Patched(context.Context, string) (bool, error) { return !f.beforePatch, nil }
 
 func (f *inlineFlow) DeprecatePatch(context.Context, string) error { return nil }
 

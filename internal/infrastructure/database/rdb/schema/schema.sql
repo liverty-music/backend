@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS deleted_user_identities (
     provider_user_id TEXT PRIMARY KEY
 );
 
-COMMENT ON TABLE deleted_user_identities IS 'Identity-provider IDs of removed users. A recorded ID never gets a new user: its identity can still sign in until the identity provider removes it.';
+COMMENT ON TABLE deleted_user_identities IS 'Identity-provider IDs of removed users. A recorded ID gets no new user until it is forgotten, 90 seconds after the identity provider removed the identity, when no token of it is accepted any more.';
 COMMENT ON COLUMN deleted_user_identities.provider_user_id IS 'The identity provider''s ID the removed user had';
 
 -- Artists table

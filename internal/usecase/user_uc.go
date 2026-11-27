@@ -102,7 +102,9 @@ type UserUseCase interface {
 	Delete(ctx context.Context, id string) error
 
 	// RunDeleteUser is the delete-user workflow Delete starts: it removes the
-	// User (User.Delete) and then its sign-in identity (User.DeleteIdentity);
+	// User (User.Delete) and then its sign-in identity (User.DeleteIdentity),
+	// and starts the forget-removed-identity workflow to run 90 seconds after
+	// the identity is gone;
 	// the User's Orders, Tickets, Checkouts, lottery entries and resale
 	// listings are kept. The removal of the User runs under its deletion lock
 	// (User.SerializeDeletion), counts a User already gone as removed and fails
@@ -116,6 +118,19 @@ type UserUseCase interface {
 	//  - Any other failure of the reads or the removals, with its own code.
 	//  - The error of the workflow runtime (Canceled, Aborted).
 	RunDeleteUser(ctx context.Context, f Flow, in UserDeletion) (struct{}, error)
+
+	// RunForgetRemovedIdentity is the forget-removed-identity workflow that
+	// RunDeleteUser starts 90 seconds after it removed the identity: it
+	// removes the record that the identity belonged to a removed User
+	// (User.ForgetRemovedIdentity). By then no token of the identity is
+	// accepted, and no request it signed is still running. A step that fails
+	// with Unavailable is tried again.
+	//
+	// # Possible errors
+	//
+	//  - Any failure of the removal, with its own code.
+	//  - The error of the workflow runtime (Canceled, Aborted).
+	RunForgetRemovedIdentity(ctx context.Context, f Flow, providerUserID string) (struct{}, error)
 
 	// ListDeletionBlockers returns what currently stops the user from being
 	// deleted: one blocker per kind the user has, in the order upcoming

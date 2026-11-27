@@ -872,6 +872,78 @@ func (_c *MockUserUseCase_RunDeleteUser_Call) RunAndReturn(run func(ctx context.
 	return _c
 }
 
+// RunForgetRemovedIdentity provides a mock function for the type MockUserUseCase
+func (_mock *MockUserUseCase) RunForgetRemovedIdentity(ctx context.Context, f usecase.Flow, providerUserID string) (struct{}, error) {
+	ret := _mock.Called(ctx, f, providerUserID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunForgetRemovedIdentity")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, string) (struct{}, error)); ok {
+		return returnFunc(ctx, f, providerUserID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, string) struct{}); ok {
+		r0 = returnFunc(ctx, f, providerUserID)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, string) error); ok {
+		r1 = returnFunc(ctx, f, providerUserID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockUserUseCase_RunForgetRemovedIdentity_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunForgetRemovedIdentity'
+type MockUserUseCase_RunForgetRemovedIdentity_Call struct {
+	*mock.Call
+}
+
+// RunForgetRemovedIdentity is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - providerUserID string
+func (_e *MockUserUseCase_Expecter) RunForgetRemovedIdentity(ctx any, f any, providerUserID any) *MockUserUseCase_RunForgetRemovedIdentity_Call {
+	return &MockUserUseCase_RunForgetRemovedIdentity_Call{Call: _e.mock.On("RunForgetRemovedIdentity", ctx, f, providerUserID)}
+}
+
+func (_c *MockUserUseCase_RunForgetRemovedIdentity_Call) Run(run func(ctx context.Context, f usecase.Flow, providerUserID string)) *MockUserUseCase_RunForgetRemovedIdentity_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_RunForgetRemovedIdentity_Call) Return(val struct{}, err error) *MockUserUseCase_RunForgetRemovedIdentity_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockUserUseCase_RunForgetRemovedIdentity_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, providerUserID string) (struct{}, error)) *MockUserUseCase_RunForgetRemovedIdentity_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RunNotifyPasskeyChange provides a mock function for the type MockUserUseCase
 func (_mock *MockUserUseCase) RunNotifyPasskeyChange(ctx context.Context, f usecase.Flow, in usecase.PasskeyChangeNotice) (struct{}, error) {
 	ret := _mock.Called(ctx, f, in)

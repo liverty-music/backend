@@ -95,6 +95,7 @@ func newDeletionStory(t *testing.T, apiClock usecase.Clock) *deletionStory {
 	worker := usecase.NewUserUseCase(users, nil, reads, nil, nil, nil, identities, usecase.PasskeyMailers{}, time.Now, logger)
 	startWorker(t, dsn, func(rt *workflow.Runtime) {
 		workflow.Register(rt, usecase.WorkflowDeleteUser, worker.RunDeleteUser)
+		workflow.Register(rt, usecase.WorkflowForgetRemovedIdentity, worker.RunForgetRemovedIdentity)
 	})
 	api := usecase.NewUserUseCase(users, nil, reads, newClient(t, dsn), nil, nil, nil, usecase.PasskeyMailers{}, apiClock, logger)
 	return &deletionStory{dsn: dsn, db: db, users: users, identities: identities, fan: fan, api: api}
