@@ -656,7 +656,6 @@ func TestRunSearch_ChecksAgain(t *testing.T) {
 func TestRunSearch_Outcome(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/usecase/concert/search-new-concerts "Two series found"
 	t.Run("a run started before the discovery queue starts the batch as it did then", func(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
@@ -674,6 +673,7 @@ func TestRunSearch_Outcome(t *testing.T) {
 		assert.Equal(t, usecase.StartOptions{}, f.starts[0].options, "no deadline step, the default queue")
 	})
 
+	// @spec components/usecase/concert/search-new-concerts "Two series found"
 	// @spec components/usecase/concert/search-new-concerts "Productive search"
 	t.Run("hands both series on once and records the find", func(t *testing.T) {
 		t.Parallel()
