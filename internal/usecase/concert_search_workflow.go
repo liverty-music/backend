@@ -330,9 +330,17 @@ func (uc *concertUseCase) handOn(ctx context.Context, f Flow, in ConcertSearchAt
 		return uc.endSearch(ctx, f, in, searchEnd{Called: called})
 	}
 
-	opts, err := discoveryQueueStart(ctx, f, uc.clock)
+	// A run started before the discovery queue replays without its deadline
+	// step and starts the batch as it did then, on the default queue.
+	patched, err := f.Patched(ctx, "discovery-queue")
 	if err != nil {
 		return struct{}{}, err
+	}
+	var opts []StartOption
+	if patched {
+		if opts, err = discoveryQueueStart(ctx, f, uc.clock); err != nil {
+			return struct{}{}, err
+		}
 	}
 	err = f.Start(ctx, WorkflowCreateFromDiscovered, discoveryWorkflowID(in.ArtistID, in.SearchTime),
 		entity.ConcertDiscoveredData{ArtistID: in.ArtistID, ArtistName: call.ArtistName, Series: call.Series}, opts...)

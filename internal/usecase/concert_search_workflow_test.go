@@ -657,6 +657,23 @@ func TestRunSearch_Outcome(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/usecase/concert/search-new-concerts "Two series found"
+	t.Run("a run started before the discovery queue starts the batch as it did then", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+		artist := searchedArtist()
+		in := firstAttempt(artist, usecase.SearchTriggerFirstFollow)
+		expectSearch(d, artist, in, newShows(), nil)
+		d.concertSearchRepo.EXPECT().MarkFound(mock.Anything, artist.ID).Return(nil).Once()
+		expectStatus(d, artist.ID, entity.ConcertSearchStatusCompleted)
+		f := &inlineFlow{beforePatch: true}
+
+		_, err := d.uc.RunSearch(context.Background(), f, in)
+
+		require.NoError(t, err)
+		require.Len(t, f.starts, 1)
+		assert.Equal(t, usecase.StartOptions{}, f.starts[0].options, "no deadline step, the default queue")
+	})
+
 	// @spec components/usecase/concert/search-new-concerts "Productive search"
 	t.Run("hands both series on once and records the find", func(t *testing.T) {
 		t.Parallel()
