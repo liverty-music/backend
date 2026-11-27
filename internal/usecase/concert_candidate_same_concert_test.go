@@ -76,6 +76,22 @@ func TestConcertCandidateUseCase_Approve_Collision(t *testing.T) {
 		assert.Equal(t, "event-b", result.Conflict.Existing.EventID)
 	})
 
+	t.Run("Organizer's event without a start time", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert-candidate/approve "Organizer's event without a start time"
+		d := newApprovalTestDeps(t, artist)
+		organizers := concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-1", LocalDate: aug1,
+			ListedVenueName: new("Organizer Hall"), PublishState: published()}, artist.ID)
+		sc := approvalAt(d, "Hall", aug1, at18, []*entity.Concert{organizers}, []*entity.Concert{organizers})
+		d.showsConflict("series-o")
+
+		// No FillEventStartTimes or Create expectation: nothing is filled or added.
+		result, err := approveWith(d, sc, usecase.ApproveResolutionUnspecified)
+		require.NoError(t, err)
+		require.NotNil(t, result.Conflict)
+		assert.Equal(t, "event-o", result.Conflict.Existing.EventID)
+	})
+
 	t.Run("Same artist at another venue", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert-candidate/approve "Same artist at another venue"
