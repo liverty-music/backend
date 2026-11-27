@@ -45,6 +45,8 @@ func NewOTelAnalyticsConsumerMetrics() *OTelAnalyticsConsumerMetrics {
 	lag, _ := meter.Float64Histogram("analytics_consumer.lag.seconds",
 		metric.WithUnit("s"),
 		metric.WithDescription("Per-message lag from CloudEvent publish time to consumer Handle return"),
+		// The default bounds suit milliseconds, not seconds.
+		metric.WithExplicitBucketBoundaries(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900, 3600),
 	)
 	return &OTelAnalyticsConsumerMetrics{messages: messages, lag: lag}
 }

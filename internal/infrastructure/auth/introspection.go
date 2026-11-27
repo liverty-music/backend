@@ -90,6 +90,10 @@ func newIntrospector(issuer, clientID string, signer jose.Signer, transport http
 	duration, _ := meter.Float64Histogram("sign_in.introspection.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Time of one introspection ask to the sign-in service, by outcome"),
+		// The default bounds suit milliseconds: in seconds every ask falls
+		// into one bucket. 0.3 is the p95 the ask must stay under, and 5 is
+		// its timeout.
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 1, 2.5, 5),
 	)
 	lookups, _ := meter.Int64Counter("sign_in.introspection.lookups",
 		metric.WithDescription("Token checks, by whether a reused answer served them (hit) or the sign-in service was asked (miss)"),
