@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS events (
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     listed_venue_name TEXT,
+    other_listed_venue_names TEXT[] NOT NULL DEFAULT '{}',
     local_event_date DATE NOT NULL,
     local_start_time TIME,
     local_open_time TIME,
@@ -228,6 +229,7 @@ COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7, application-gen
 COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggregates this event with any sibling events. Not part of the natural key — series is a grouping parent, not a component of event identity.';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
+COMMENT ON COLUMN events.other_listed_venue_names IS 'Other venue names, normalized, that the event is also listed under: names an admin did not choose when resolving a duplicate, names replaced by another, and names of events merged into this one. A later discovery under one of them is a re-discovery of this event.';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.local_start_time IS 'Wall-clock time the event starts at its venue, a time of day in whole minutes on local_event_date, read in the venue''s time_zone; NULL when not announced. The instant is computed by the application from the date, this time and the zone';
 COMMENT ON COLUMN events.local_open_time IS 'Wall-clock time the doors open at the venue, read like local_start_time; NULL when not announced';
