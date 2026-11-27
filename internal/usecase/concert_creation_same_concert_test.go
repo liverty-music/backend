@@ -481,6 +481,21 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		assert.Contains(t, swept, "series-a", "the merged Event's Series is swept at the end of the batch")
 	})
 
+	t.Run("a merge that finds the event gone stages the event", func(t *testing.T) {
+		t.Parallel()
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		h.findsArtistEvents(a, own)
+		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
+		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.NotFound, "gone")).Once()
+		h.stages(1)
+		h.sweepsOrphans()
+
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))),
+			"the batch does not fail")
+		require.Len(t, h.staged, 1)
+	})
+
 	t.Run("Held under another name", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Held under another name"

@@ -1325,7 +1325,9 @@ func (r *ConcertRepository) Merge(ctx context.Context, sourceID, targetID string
 			return toAppErr(err, step.failure, attrs...)
 		}
 	}
-	names := target.OtherListedVenueNames
+	// A copy, never nil: pgx sends a nil slice as NULL, which the NOT NULL
+	// column refuses.
+	names := append([]string{}, target.OtherListedVenueNames...)
 	for _, n := range sourceNames(source) {
 		if !target.ListedUnder(n) {
 			names = append(names, n)

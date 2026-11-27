@@ -370,6 +370,18 @@ func TestConcertRepository_Merge(t *testing.T) {
 		assert.Equal(t, outboxBefore, f.count(`SELECT COUNT(*) FROM watermill_events_outbox`), "nothing is announced")
 	})
 
+	t.Run("a source under the target's name and no other names", func(t *testing.T) {
+		f := newVisibilityFixture(t, db)
+		a, b, v := f.artist(), f.artist(), f.venue("JP-13", nil, nil)
+		source := f.store(slotEvent{series: f.discoveredSeries(), venue: v, date: slotDate, listed: "Zepp Haneda", artists: []string{a}})
+		target := f.store(slotEvent{series: f.discoveredSeries(), venue: v, date: slotDate, start: "18:00", listed: "Zepp Haneda", artists: []string{b}})
+
+		require.NoError(t, f.repo.Merge(f.ctx, source, target))
+		got := f.read(target)
+		assert.Empty(t, got.others)
+		assert.ElementsMatch(t, []string{a, b}, got.performers)
+	})
+
 	t.Run("Series kept", func(t *testing.T) {
 		// @spec components/entity/concert/merge "Series kept"
 		f := newVisibilityFixture(t, db)

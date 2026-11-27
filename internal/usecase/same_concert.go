@@ -80,7 +80,8 @@ type sameConcertDecision struct {
 //     venues at once (checked before a fill, so an approval reports it as a
 //     collision and a discovery never fills such a time);
 //  6. with a found start, an unknown-start event of the Artist at the Venue
-//     not yet claimed → Fill, unless another event holds the slot: MergeInto
+//     not yet claimed → Fill (Stage when it is an Organizer's event), unless
+//     another event holds the slot: MergeInto
 //     it when it is listed under the found name and neither has a publish
 //     state, Stage otherwise;
 //  7. another Artist's event at the Venue with no publish state, the same
@@ -141,6 +142,10 @@ func decideFill(found foundEvent, own, others []*entity.Concert, claimed map[str
 	unknown := firstOf(own, func(e *entity.Concert) bool { return e.StartTime == nil && !claimed[e.ID] })
 	if unknown == nil {
 		return sameConcertDecision{}, false
+	}
+	if unknown.PublishState != nil {
+		// An Organizer's event is never filled by discovery or approval.
+		return sameConcertDecision{outcome: outcomeStage, event: unknown}, true
 	}
 	holder := firstOf(others, func(e *entity.Concert) bool { return e.HasStartTime(found.startTime) })
 	switch {
