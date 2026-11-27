@@ -238,11 +238,7 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 		if ctx.Err() != nil {
 			return searchCall{}, err
 		}
-		uc.logger.Warn(ctx, "concert search attempt failed",
-			slog.String("artist_id", in.ArtistID),
-			slog.Int("attempt", in.Attempt),
-			slog.Any("error", err),
-		)
+		uc.logSearchFailure(ctx, in, err)
 		return searchCall{
 			Called:    true,
 			Busy:      isTransient(err),
@@ -256,6 +252,22 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 		ArtistName: artist.Name,
 		Series:     uc.filterNewSeries(ctx, in.ArtistID, scraped, existing, pendingKeys),
 	}, nil
+}
+
+// logSearchFailure records a failed call of the external search. A transient
+// failure is a warning, since the search is tried again; any other fails the
+// search and is an error, which alerts: a refused account or a broken request
+// needs an admin.
+func (uc *concertUseCase) logSearchFailure(ctx context.Context, in ConcertSearchAttempt, err error) {
+	attrs := []slog.Attr{
+		slog.String("artist_id", in.ArtistID),
+		slog.Int("attempt", in.Attempt),
+	}
+	if isTransient(err) {
+		uc.logger.Warn(ctx, "concert search attempt failed", append(attrs, slog.Any("error", err))...)
+		return
+	}
+	uc.logger.Error(ctx, "concert search failed", err, attrs...)
 }
 
 // readFailed turns the failure of a read before the external search into the

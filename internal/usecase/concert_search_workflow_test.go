@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -898,6 +900,38 @@ func TestRunSearch_Outcome(t *testing.T) {
 		assert.ErrorIs(t, err, context.Canceled)
 		assert.Empty(t, d.signals.sent(usecase.EventConcertSearchCompleted))
 	})
+
+	// A permanent failure alerts; a busy search that is tried again does not.
+	for _, tt := range []struct {
+		name  string
+		err   error
+		level string
+	}{
+		{name: "logs a permanent failure at ERROR", err: apperr.New(codes.FailedPrecondition, "credits depleted"), level: "ERROR"},
+		{name: "logs a busy answer at WARN", err: apperr.New(codes.Unavailable, "busy"), level: "WARN"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newConcertTestDeps(t)
+			artist := searchedArtist()
+			in := firstAttempt(artist, usecase.SearchTriggerDaily)
+			expectSearch(d, artist, in, nil, tt.err)
+			d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, artist.ID, in.SearchTime, entity.ConcertSearchStatusFailed).Return(nil).Maybe()
+			var logs bytes.Buffer
+			logger, err := logging.New(logging.WithWriter(&logs), logging.WithFormat(logging.FormatJSON))
+			require.NoError(t, err)
+			uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo,
+				d.rejectedConcertRepo, d.searcher, d.areas, d.workflows, anyConcertMetrics(t), nil, testSearchCacheTTL, testDiscoveryWindow, time.Now, logger)
+
+			_, err = uc.RunSearch(context.Background(), &inlineFlow{}, in)
+
+			require.NoError(t, err)
+			assert.Contains(t, logs.String(), `"level":"`+tt.level+`"`)
+			if tt.level != "ERROR" {
+				assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+			}
+		})
+	}
 
 	// A resumed run must not search, hand on or record twice.
 	t.Run("a run resumed after the search step does not call the search again", func(t *testing.T) {
