@@ -23,6 +23,7 @@ func provideConcertSearcher(ctx context.Context, cfg config.GCPConfig, reporter 
 		Model:           cfg.ConcertSearchModel(),
 		ThinkingLevel:   cfg.ConcertSearchThinkingLevel(),
 		OmitTemperature: true,
+		ServiceTier:     cfg.GeminiConcertSearchServiceTier,
 
 		IncludeServerSideToolInvocations: true,
 		Reporter:                         reporter,

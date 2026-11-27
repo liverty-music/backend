@@ -96,6 +96,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 				GCP: GCPConfig{
 					ProjectID: "test-project",
 					Location:  "us-central1",
+
+					GeminiConcertSearchServiceTier: "flex",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -195,6 +197,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 				GCP: GCPConfig{
 					ProjectID: "custom-project",
 					Location:  "us-central1",
+
+					GeminiConcertSearchServiceTier: "flex",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
@@ -554,6 +558,37 @@ func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
 		err := c.Validate()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_THINKING_LEVEL")
+	})
+}
+
+func TestGCPConfig_ConcertSearchServiceTier(t *testing.T) {
+	load := func(t *testing.T) *WorkerConfig {
+		t.Helper()
+		t.Setenv("ENVIRONMENT", "local")
+		t.Setenv("DATABASE_NAME", "testdb")
+		t.Setenv("DATABASE_USER", "testuser")
+		got, err := Load[WorkerConfig]()
+		require.NoError(t, err)
+		return got
+	}
+	t.Run("defaults to flex", func(t *testing.T) {
+		got := load(t)
+		assert.Equal(t, "flex", got.GCP.GeminiConcertSearchServiceTier)
+		assert.NoError(t, got.GCP.Validate())
+	})
+	for _, tier := range []string{"flex", "standard"} {
+		t.Run("reads "+tier, func(t *testing.T) {
+			t.Setenv("GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER", tier)
+			got := load(t)
+			assert.Equal(t, tier, got.GCP.GeminiConcertSearchServiceTier)
+			assert.NoError(t, got.GCP.Validate())
+		})
+	}
+	t.Run("rejects an unknown value", func(t *testing.T) {
+		t.Setenv("GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER", "priority")
+		got := load(t)
+		assert.ErrorContains(t, got.GCP.Validate(), "GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER")
+		assert.ErrorContains(t, got.Validate(), "GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER")
 	})
 }
 
@@ -1168,14 +1203,35 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, "+
+	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_PROJECT_ID, "+
 		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY")
 
 	cfg.FanartTVAPIKey = "fanart-key"
-	cfg.GCP = GCPConfig{GeminiSearchAPIKey: "gemini-key", ProjectID: "project"}
+	cfg.GCP = GCPConfig{ProjectID: "project"}
 	cfg.PostHog.ProjectAPIKey = "phc_x"
 	cfg.VAPID = VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"}
 	assert.NoError(t, cfg.Validate())
+}
+
+// The workflow worker runs the concert searcher, so it needs the Gemini key.
+func TestWorkerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &WorkerConfig{
+		Environment: "development",
+		Database: DatabaseConfig{
+			Port:                   5432,
+			InstanceConnectionName: "project:region:instance",
+		},
+		Logging:   LoggingConfig{Level: "info", Format: "json"},
+		Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		NATS:      NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_API_KEY")
 }
 
 // validIdentityConfig returns an IdentityConfig that passes Validate outside

@@ -87,9 +87,38 @@ type Config struct {
 	// the model default in place.
 	ThinkingLevel string
 
+	// ServiceTier is the Gemini API service tier of every request: [ServiceTierFlex]
+	// asks for the lower-priced tier, which may answer later and refuses
+	// requests while it is busy. Empty or [ServiceTierStandard] sends no tier,
+	// so the API's standard tier applies.
+	ServiceTier string
+
 	// Reporter receives one generation per request sent to the model. Nil
 	// reports nothing.
 	Reporter GenerationReporter
+}
+
+// Service tiers of [Config.ServiceTier].
+const (
+	ServiceTierFlex     = "flex"
+	ServiceTierStandard = "standard"
+)
+
+// callTimeout returns the budget of one request at the service tier.
+func (c *Config) callTimeout() time.Duration {
+	if c.ServiceTier == ServiceTierFlex {
+		return flexCallTimeout
+	}
+	return standardCallTimeout
+}
+
+// requestedTier is the service tier a request asks for, as reported with its
+// generation.
+func (c *Config) requestedTier() string {
+	if c.ServiceTier == ServiceTierFlex {
+		return ServiceTierFlex
+	}
+	return ServiceTierStandard
 }
 
 // temperature returns the request temperature, or nil when OmitTemperature
@@ -171,8 +200,14 @@ Official site: %[3]s
 	// billed.
 	maxOutputTokens = int32(65536)
 
-	maxRawTextLogLen  = 1000
-	geminiCallTimeout = 120 * time.Second
+	maxRawTextLogLen = 1000
+
+	// standardCallTimeout bounds one request at the standard tier.
+	standardCallTimeout = 120 * time.Second
+	// flexCallTimeout bounds one request at the flex tier, whose target
+	// latency is 1 to 15 minutes (Gemini API docs, "Flex inference", whose
+	// example sets a 900-second client timeout).
+	flexCallTimeout = 15 * time.Minute
 )
 
 // Prompt is the system instruction and user prompt template of the grounded
@@ -322,6 +357,11 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient 
 	if cfg.Model == "" {
 		return nil, fmt.Errorf("gemini.NewConcertSearcher: Model is empty; set GCP_GEMINI_SEARCH_MODEL_EXTRACT (grounded extract model)")
 	}
+	switch cfg.ServiceTier {
+	case "", ServiceTierStandard, ServiceTierFlex:
+	default:
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: unknown ServiceTier %q (allowed: %q, %q)", cfg.ServiceTier, ServiceTierFlex, ServiceTierStandard)
+	}
 
 	cc := &genai.ClientConfig{
 		HTTPClient: httpClient,
@@ -385,7 +425,8 @@ func (s *ConcertSearcher) SearchExt(
 	// Every request sent below is reported once, after the response is
 	// parsed so the last one carries the parse result.
 	base := posthog.LLMGeneration{
-		Model: s.config.Model,
+		Model:       s.config.Model,
+		ServiceTier: s.config.requestedTier(),
 		Request: posthog.LLMRequest{
 			ArtistID:        artist.ID,
 			OfficialSiteURL: officialSiteURL,
@@ -506,6 +547,9 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links
 	if level := thinkingLevelFromConfig(s.config.ThinkingLevel); level != genai.ThinkingLevelUnspecified {
 		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
 	}
+	if s.config.ServiceTier == ServiceTierFlex {
+		cfg.ServiceTier = genai.ServiceTierFlex
+	}
 	if s.config.IncludeServerSideToolInvocations {
 		include := true
 		cfg.ToolConfig = &genai.ToolConfig{IncludeServerSideToolInvocations: &include}
@@ -605,7 +649,8 @@ func invalidJSONError(err error, rawText string, attrs []slog.Attr) error {
 }
 
 // executePass runs one Gemini call wrapped in exponential backoff
-// (3 attempts, 1s/2s/4s, 60s max). It captures all observable metadata
+// (3 attempts, 1s/2s/4s, 60s max; a request not answered within its budget
+// counts as transient). It captures all observable metadata
 // into a fresh PassMetadata. Returns:
 //   - (pm, rawText, false, nil) on success
 //   - (pm, "", true, nil) when retries are exhausted with transient errors
@@ -638,7 +683,9 @@ func (s *ConcertSearcher) executePass(
 	rawText, err := backoff.Retry(ctx, func() (string, error) {
 		pm.RetryCount++
 		return s.attemptPass(ctx, modelName, prompt, cfg, attrs, base, gens, pm, &out)
-	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3))
+		// The attempt count alone bounds the retries: the default elapsed-time
+		// limit of 15 minutes is one flex-tier request.
+	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3), backoff.WithMaxElapsedTime(0))
 
 	if err != nil {
 		return s.failedPass(ctx, pm, err, attrs, out)
@@ -669,7 +716,7 @@ func (s *ConcertSearcher) attemptPass(
 	out *passOutcome,
 ) (string, error) {
 	// Detach from the parent context for the duration of one Gemini call,
-	// then re-impose a per-attempt 120 s budget. Parent cancellation
+	// then re-impose a per-attempt budget (Config.callTimeout). Parent cancellation
 	// (handler timeout, SIGTERM on the CronJob) still stops `backoff.Retry`
 	// from scheduling another attempt — the outer `ctx` is what backoff
 	// monitors — so cancellation propagation is preserved at the retry
@@ -677,8 +724,9 @@ func (s *ConcertSearcher) attemptPass(
 	// response cancellation, which would otherwise leave Gemini in an
 	// ambiguous state (URLContext fetch partially started, grounding
 	// chunks recorded but not delivered). Worst-case teardown is one
-	// stuck request × 120 s on top of the parent's deadline.
-	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
+	// stuck request × that budget on top of the parent's deadline.
+	timeout := s.config.callTimeout()
+	reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
 	start := time.Now()
@@ -693,7 +741,8 @@ func (s *ConcertSearcher) attemptPass(
 		*gens = append(*gens, gen)
 	}
 	if err != nil {
-		return "", s.callFailed(ctx, err, attrs, record, out)
+		timedOut := errors.Is(reqCtx.Err(), context.DeadlineExceeded)
+		return "", s.callFailed(ctx, err, timedOut, attrs, record, out)
 	}
 
 	// Reset per-attempt accumulators BEFORE we read the new response.
@@ -722,13 +771,14 @@ func (s *ConcertSearcher) attemptPass(
 }
 
 // callFailed records a failed Gemini call and returns its error, wrapped in
-// [backoff.Permanent] when it is not retryable.
-func (s *ConcertSearcher) callFailed(ctx context.Context, err error, attrs []slog.Attr, record func(string), out *passOutcome) error {
+// [backoff.Permanent] when it is not retryable. timedOut reports that the
+// request's own budget passed without an answer, which is transient.
+func (s *ConcertSearcher) callFailed(ctx context.Context, err error, timedOut bool, attrs []slog.Attr, record func(string), out *passOutcome) error {
 	record(callErrorKind(ctx, err))
 	out.lastWasFinish = false
 	s.logger.Warn(ctx, "gemini model call failed",
 		append(attrs, slog.String("error", err.Error()))...)
-	if !isRetryable(err) {
+	if !timedOut && !isRetryable(err) {
 		out.sawPermanent = true
 		return backoff.Permanent(err)
 	}

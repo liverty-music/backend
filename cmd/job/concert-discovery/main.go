@@ -77,12 +77,10 @@ func run(bootLogger *logging.Logger) error {
 		slog.Int("count", len(artists)),
 	)
 
-	// SearchNewConcerts calls the external API, deduplicates, and starts
-	// create-from-discovered. Concert persistence runs in the workflow worker;
-	// notification and venue enrichment are handled by event consumers.
+	// SearchNewConcerts records the search and starts it as a workflow, which
+	// the workflow worker runs; the job does not wait for the search.
 	result := searchArtists(ctx, app.Logger, artists, func(ctx context.Context, artist *entity.Artist) error {
-		_, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
-		return err
+		return app.ConcertUC.SearchNewConcerts(ctx, artist.ID, usecase.SearchTriggerDaily)
 	})
 
 	// Go 1.26: context.Cause returns the specific OS signal if shutdown was triggered.

@@ -14,7 +14,8 @@ The past evaluations in `docs/gemini-concert-searcher-tuning.md` §10 and `inter
 Find every place the change touches, from the code, not from memory:
 
 - Callers of `google.golang.org/genai` under `internal/infrastructure/gcp/gemini` and the config resolvers in `pkg/config` (`*SearchModel()`, `*Thinking*()`).
-- Every process that builds each searcher (`internal/di`: the jobs, the event consumer, the API server) and whether it reports usage. A model change reaches all of them; checking only the job misses the consumer's searches.
+- Every process that builds each searcher (`internal/di`) and whether it reports usage: the workflow worker builds the concert searcher (the `search-concerts` workflow), the sales-phase-discovery job the ticket sale searcher. A model change reaches all of them.
+- The service tier of each searcher: the prod concert search runs at the flex tier (`GCP_GEMINI_CONCERT_SEARCH_SERVICE_TIER`: half the token price, answers up to 15 minutes later, refuses requests while busy), while the harnesses set no tier and so measure the standard tier. State which tier a latency or cost figure is for.
 - The prod pins in cloud-provisioning's `k8s/namespaces/backend` ConfigMaps (base and prod overlay), resolved the way `pkg/config` resolves them: the model from `GCP_GEMINI_SEARCH_MODEL_EXTRACT`, then the code default; the thinking level from `GCP_GEMINI_SEARCH_THINKING_EXTRACT`, then `GCP_GEMINI_SEARCH_THINKING_LEVEL`, then the code default. Read the rendered ConfigMap of each process (`kustomize build`), since a base value and an overlay value combine; a process with neither variable runs the code default.
 - Prod usage per process from PostHog `$ai_generation` (`properties.process`): calls, search queries, errors, over the last month. This is the baseline any result is compared with.
 

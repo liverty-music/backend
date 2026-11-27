@@ -26,6 +26,7 @@ func TestLLMGeneration_Properties(t *testing.T) {
 			gen: posthog.LLMGeneration{
 				Model:        "gemini-3.8-flash",
 				ModelVersion: "gemini-3.8-flash-001",
+				ServiceTier:  "flex",
 				Request: posthog.LLMRequest{
 					ArtistID: "artist-1", OfficialSiteURL: "https://example.com",
 					LinkedPageURLs: []string{"https://example.com/live"}, SearchFrom: "2026-10-23",
@@ -50,6 +51,7 @@ func TestLLMGeneration_Properties(t *testing.T) {
 				"$ai_is_error":                false,
 				"$ai_stop_reason":             "STOP",
 				"model_version":               "gemini-3.8-flash-001",
+				"service_tier":                "flex",
 				"prompt_tokens":               100,
 				"candidates_tokens":           20,
 				"thinking_tokens":             30,

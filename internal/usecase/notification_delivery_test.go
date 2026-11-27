@@ -37,13 +37,15 @@ func captureStarts(w *ucmocks.MockWorkflows) func() []workflowStart {
 		mu     sync.Mutex
 		starts []workflowStart
 	)
-	w.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, workflow, id string, input any, _ ...usecase.StartOption) error {
-			mu.Lock()
-			defer mu.Unlock()
-			starts = append(starts, workflowStart{workflow: workflow, id: id, input: input})
-			return nil
-		}).Maybe()
+	record := func(_ context.Context, workflow, id string, input any, _ ...usecase.StartOption) error {
+		mu.Lock()
+		defer mu.Unlock()
+		starts = append(starts, workflowStart{workflow: workflow, id: id, input: input})
+		return nil
+	}
+	// A start without an option and one with an option (a queue).
+	w.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(record).Maybe()
+	w.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(record).Maybe()
 	return func() []workflowStart {
 		mu.Lock()
 		defer mu.Unlock()

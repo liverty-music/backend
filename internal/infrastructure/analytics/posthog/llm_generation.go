@@ -27,6 +27,11 @@ type LLMGeneration struct {
 	Model        string
 	ModelVersion string
 
+	// ServiceTier is the Gemini API service tier the request asked for
+	// ("flex" or "standard"); empty for a search that does not choose one.
+	// PostHog's own price table reads every tier at the standard price.
+	ServiceTier string
+
 	// Request describes what was searched.
 	Request LLMRequest
 
@@ -139,6 +144,7 @@ func (g LLMGeneration) Properties(traceID, spanID string) usecase.AnalyticsPrope
 		p["$ai_trace_id"] = traceID
 	}
 	setIf(p, "model_version", g.ModelVersion)
+	setIf(p, "service_tier", g.ServiceTier)
 	setIf(p, "$ai_stop_reason", g.FinishReason)
 	setIf(p, "finish_message", g.FinishMessage)
 	setIf(p, "block_reason", g.BlockReason)

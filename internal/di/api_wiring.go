@@ -231,13 +231,6 @@ func (w *apiWiring) buildCatalogue() error {
 	ctx := w.ctx
 	cfg, db, logger := w.cfg, w.db, w.logger
 	var err error
-	// Infrastructure - Gemini (optional)
-	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	geminiSearcher, err := provideConcertSearcher(ctx, cfg.GCP, nil, geminiHTTPClient, w.areaRepo, logger)
-	if err != nil {
-		return err
-	}
-
 	// Infrastructure - Music
 	musicHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, musicHTTPClient, logger)
@@ -261,7 +254,7 @@ func (w *apiWiring) buildCatalogue() error {
 	}, w.workflows, nil, emailCodes, nil, usecase.PasskeyMailers{}, time.Now, logger)
 	w.passkeyUC = usecase.NewPasskeyUseCase(rdb.NewPasskeyRepository(db, newOutbox(logger)), w.userRepo, w.workflows, time.Now, logger)
 
-	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, geminiSearcher, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
+	concertUC := usecase.NewConcertUseCase(w.artistRepo, w.concertRepo, w.venueRepo, w.seriesRepo, w.organizerRepo, w.concertSearchRepo, w.concertCandidateRepo, w.rejectedConcertRepo, nil, w.areaRepo, w.workflows, w.businessMetrics, nil, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), time.Now, logger)
 	w.concertUC = concertUC
 	// Map catalog (Google Maps Places API) that members pick event venues
 	// from, and that gives a Venue made on approval its coordinates.

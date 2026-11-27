@@ -674,32 +674,93 @@ func (_c *MockConcertUseCase_ListFollowed_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
+// RunSearch provides a mock function for the type MockConcertUseCase
+func (_mock *MockConcertUseCase) RunSearch(ctx context.Context, f usecase.Flow, in usecase.ConcertSearchAttempt) (struct{}, error) {
+	ret := _mock.Called(ctx, f, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RunSearch")
+	}
+
+	var r0 struct{}
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ConcertSearchAttempt) (struct{}, error)); ok {
+		return returnFunc(ctx, f, in)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, usecase.Flow, usecase.ConcertSearchAttempt) struct{}); ok {
+		r0 = returnFunc(ctx, f, in)
+	} else {
+		r0 = ret.Get(0).(struct{})
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, usecase.Flow, usecase.ConcertSearchAttempt) error); ok {
+		r1 = returnFunc(ctx, f, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockConcertUseCase_RunSearch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunSearch'
+type MockConcertUseCase_RunSearch_Call struct {
+	*mock.Call
+}
+
+// RunSearch is a helper method to define mock.On call
+//   - ctx context.Context
+//   - f usecase.Flow
+//   - in usecase.ConcertSearchAttempt
+func (_e *MockConcertUseCase_Expecter) RunSearch(ctx any, f any, in any) *MockConcertUseCase_RunSearch_Call {
+	return &MockConcertUseCase_RunSearch_Call{Call: _e.mock.On("RunSearch", ctx, f, in)}
+}
+
+func (_c *MockConcertUseCase_RunSearch_Call) Run(run func(ctx context.Context, f usecase.Flow, in usecase.ConcertSearchAttempt)) *MockConcertUseCase_RunSearch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 usecase.Flow
+		if args[1] != nil {
+			arg1 = args[1].(usecase.Flow)
+		}
+		var arg2 usecase.ConcertSearchAttempt
+		if args[2] != nil {
+			arg2 = args[2].(usecase.ConcertSearchAttempt)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_RunSearch_Call) Return(val struct{}, err error) *MockConcertUseCase_RunSearch_Call {
+	_c.Call.Return(val, err)
+	return _c
+}
+
+func (_c *MockConcertUseCase_RunSearch_Call) RunAndReturn(run func(ctx context.Context, f usecase.Flow, in usecase.ConcertSearchAttempt) (struct{}, error)) *MockConcertUseCase_RunSearch_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SearchNewConcerts provides a mock function for the type MockConcertUseCase
-func (_mock *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger usecase.SearchTrigger) ([]*entity.Concert, error) {
+func (_mock *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string, trigger usecase.SearchTrigger) error {
 	ret := _mock.Called(ctx, artistID, trigger)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchNewConcerts")
 	}
 
-	var r0 []*entity.Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.SearchTrigger) ([]*entity.Concert, error)); ok {
-		return returnFunc(ctx, artistID, trigger)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.SearchTrigger) []*entity.Concert); ok {
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, usecase.SearchTrigger) error); ok {
 		r0 = returnFunc(ctx, artistID, trigger)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Concert)
-		}
+		r0 = ret.Error(0)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, usecase.SearchTrigger) error); ok {
-		r1 = returnFunc(ctx, artistID, trigger)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
+	return r0
 }
 
 // MockConcertUseCase_SearchNewConcerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcerts'
@@ -738,12 +799,12 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Co
 	return _c
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(concerts []*entity.Concert, err error) *MockConcertUseCase_SearchNewConcerts_Call {
-	_c.Call.Return(concerts, err)
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(err error) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(ctx context.Context, artistID string, trigger usecase.SearchTrigger) ([]*entity.Concert, error)) *MockConcertUseCase_SearchNewConcerts_Call {
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(ctx context.Context, artistID string, trigger usecase.SearchTrigger) error) *MockConcertUseCase_SearchNewConcerts_Call {
 	_c.Call.Return(run)
 	return _c
 }

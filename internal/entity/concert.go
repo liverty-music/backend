@@ -189,7 +189,7 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 // ConcertDiscoveredData is the input of the create-from-discovered workflow.
 // It carries the newly discovered concerts for one artist (post-deduplication),
 // grouped by series so a tour's dates persist under one series by construction.
-// Started by SearchNewConcerts after the external API call and dedup.
+// A concert search starts it after the external search and dedup.
 type ConcertDiscoveredData struct {
 	// ArtistID is the internal UUID of the artist.
 	ArtistID string `json:"artist_id"`
