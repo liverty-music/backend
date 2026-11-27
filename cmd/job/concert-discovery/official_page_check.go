@@ -85,6 +85,11 @@ func (c *pageChecker) checkArtist(ctx context.Context, artist *entity.Artist, re
 	}
 
 	checks := c.check(ctx, site.URL)
+	if ctx.Err() != nil {
+		// Reads cut off by a shutdown say nothing about the site: the
+		// artist counts as not reached, and its pages are not logged.
+		return
+	}
 	failed := 0
 	for _, p := range checks {
 		if p.Status != gemini.PageStatusOK {

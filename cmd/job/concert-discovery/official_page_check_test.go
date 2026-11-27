@@ -36,6 +36,7 @@ func TestParseMode(t *testing.T) {
 		{name: "official page check", args: []string{"-mode=official-page-check"}, want: modeOfficialPageCheck},
 		{name: "unknown mode names the allowed values", args: []string{"-mode=crawl"}, wantErr: `unknown -mode "crawl" (allowed: "search", "official-page-check")`},
 		{name: "unknown flag", args: []string{"-dry-run"}, wantErr: "flag provided but not defined: -dry-run"},
+		{name: "a bare mode name does not fall back to the search", args: []string{"official-page-check"}, wantErr: `unexpected argument "official-page-check"; choose the mode with -mode`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -154,4 +155,35 @@ func TestPageChecker_RunStopsOnCancel(t *testing.T) {
 
 	assert.Zero(t, result.Artists)
 	assert.True(t, errors.Is(ctx.Err(), context.Canceled))
+}
+
+func TestPageChecker_RunDropsChecksCutOffByCancel(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger, err := logging.New(logging.WithWriter(&logs), logging.WithFormat(logging.FormatJSON))
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	artists := mocks.NewMockArtistRepository(t)
+	organizers := mocks.NewMockOrganizerRepository(t)
+	organizers.EXPECT().IsArtistRepresentedByActiveOrganizer(mock.Anything, "a").Return(false, nil)
+	artists.EXPECT().GetOfficialSite(mock.Anything, "a").Return(&entity.OfficialSite{URL: "https://a.example/"}, nil)
+	checker := &pageChecker{
+		artists:    artists,
+		organizers: organizers,
+		check: func(context.Context, string) []gemini.OfficialPageCheck {
+			// A shutdown arrives while the site is being read.
+			cancel()
+			return []gemini.OfficialPageCheck{{URL: "https://a.example/", Kind: gemini.PageKindTop, Status: gemini.PageStatusFetchError}}
+		},
+		logger: logger,
+	}
+
+	result := checker.run(ctx, []*entity.Artist{{ID: "a"}})
+
+	assert.Zero(t, result.Artists)
+	assert.Zero(t, result.FailedPages)
+	assert.NotContains(t, logs.String(), "official page checked")
 }

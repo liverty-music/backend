@@ -118,6 +118,35 @@ func TestCheckOfficialPages(t *testing.T) {
 		assert.Equal(t, gemini.OfficialPageCheck{URL: "http://example.jp/flyer", Kind: gemini.PageKindLinked, Status: gemini.PageStatusNotHTML, HTTPStatus: 200}, checks[4])
 	})
 
+	t.Run("a body cut off mid-read is not hashed", func(t *testing.T) {
+		t.Parallel()
+		client := newSiteClient(t, map[string]http.HandlerFunc{
+			"example.jp": func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/":
+					htmlPage(link("/cut", "CUT"))(w, r)
+				case "/cut":
+					// Promise more bytes than are sent, then drop the
+					// connection, as a reset mid-body does.
+					w.Header().Set("Content-Type", "text/html")
+					w.Header().Set("Content-Length", "1000")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("<p>first half"))
+					w.(http.Flusher).Flush()
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err == nil {
+						_ = conn.Close()
+					}
+				}
+			},
+		})
+
+		checks := gemini.CheckOfficialPages(context.Background(), client, "http://example.jp/")
+
+		require.Len(t, checks, 2)
+		assert.Equal(t, gemini.OfficialPageCheck{URL: "http://example.jp/cut", Kind: gemini.PageKindLinked, Status: gemini.PageStatusFetchError}, checks[1])
+	})
+
 	t.Run("an unreadable top page is one check and no links", func(t *testing.T) {
 		t.Parallel()
 		client := newSiteClient(t, map[string]http.HandlerFunc{

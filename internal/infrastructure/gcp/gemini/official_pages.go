@@ -195,6 +195,11 @@ type officialPage struct {
 	URL        string
 	HTTPStatus int
 	Text       string
+	// ReadErr is the error that ended reading the body before its end or
+	// the officialPageMaxBytes cap (a timeout, a reset connection); Links
+	// and Text then hold only what was read before it. The searcher lists
+	// those links anyway; a page check reports the page as not read.
+	ReadErr error
 }
 
 // pageStatusError is the error of a page that answered a status outside
@@ -282,17 +287,40 @@ func fetchOfficialPage(ctx context.Context, client *http.Client, page *url.URL) 
 	// Labels are text the model reads, so the page is decoded to UTF-8 from
 	// its declared charset (Content-Type, then <meta charset>): older
 	// Japanese artist sites serve Shift_JIS or EUC-JP.
-	body, err := charset.NewReader(io.LimitReader(resp.Body, officialPageMaxBytes), resp.Header.Get("Content-Type"))
+	rec := &readErrRecorder{r: io.LimitReader(resp.Body, officialPageMaxBytes)}
+	body, err := charset.NewReader(rec, resp.Header.Get("Content-Type"))
 	if err != nil {
 		return officialPage{}, fmt.Errorf("official top page charset: %w", err)
 	}
 	scan := scanPage(body)
+	readErr := rec.err
+	if readErr == nil {
+		readErr = scan.err
+	}
 	return officialPage{
 		Links:      listedLinks(scan.anchors, final, domain),
 		URL:        final.String(),
 		HTTPStatus: resp.StatusCode,
 		Text:       scan.text,
+		ReadErr:    readErr,
 	}, nil
+}
+
+// readErrRecorder remembers the first error other than io.EOF that reading r
+// returned. charset.NewReader takes io.ErrUnexpectedEOF within the first
+// 1024 bytes for a short page, and that is also the error of a body cut off
+// before its Content-Length, so the error is taken from the body itself.
+type readErrRecorder struct {
+	r   io.Reader
+	err error
+}
+
+func (rr *readErrRecorder) Read(p []byte) (int, error) {
+	n, err := rr.r.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) && rr.err == nil {
+		rr.err = err
+	}
+	return n, err
 }
 
 // anchor is one <a> tag: its href and its label.
@@ -306,12 +334,15 @@ type anchor struct {
 type pageScan struct {
 	anchors []anchor
 	text    string
+	// err is the error that ended reading before the end of the input.
+	err error
 }
 
 // scanPage reads the HTML once and returns, in document order, its <a> tags,
 // each with its href and its label (the text inside the tag, or else the
 // alternative text of the first image inside it, with whitespace collapsed),
-// and its visible text (see textScanner).
+// and its visible text (see textScanner). A read error other than the end of
+// the input ends the scan and is returned with what was collected before it.
 func scanPage(r io.Reader) pageScan {
 	var sc anchorScanner
 	var tx textScanner
@@ -319,7 +350,11 @@ func scanPage(r io.Reader) pageScan {
 	for {
 		switch tt := z.Next(); tt {
 		case html.ErrorToken:
-			return pageScan{anchors: sc.out, text: tx.String()}
+			scan := pageScan{anchors: sc.out, text: tx.String()}
+			if err := z.Err(); !errors.Is(err, io.EOF) {
+				scan.err = err
+			}
+			return scan
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, hasAttr := z.TagName()
 			sc.startTag(z, string(name), hasAttr)

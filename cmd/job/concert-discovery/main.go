@@ -67,13 +67,18 @@ func main() {
 }
 
 // parseMode returns the mode the command-line arguments choose, modeSearch
-// when they name none.
+// when they name none. Any argument other than the -mode flag is refused.
 func parseMode(args []string) (string, error) {
 	fs := flag.NewFlagSet("concert-discovery", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	mode := fs.String("mode", modeSearch, "what the run does: search or official-page-check")
 	if err := fs.Parse(args); err != nil {
 		return "", err
+	}
+	// A bare word such as "official-page-check" would otherwise fall through
+	// to the default and run the search.
+	if fs.NArg() > 0 {
+		return "", fmt.Errorf("unexpected argument %q; choose the mode with -mode", fs.Arg(0))
 	}
 	switch *mode {
 	case modeSearch, modeOfficialPageCheck:

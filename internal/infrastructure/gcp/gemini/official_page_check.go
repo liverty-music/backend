@@ -46,10 +46,15 @@ type OfficialPageCheck struct {
 // another, and returns one check per page, the top page first. The links are
 // read only when the top page was; each is read with the same client and
 // guards, and its own registrable domain is its site's. A page that cannot
-// be read is a check with its status, never an error. Cancelling ctx stops
-// before the next link.
+// be read, or whose body could not be read to its end, is a check with its
+// status, never an error, so a partial page is never hashed. Cancelling ctx
+// stops before the next link; the checks of a cancelled call say nothing
+// about the site, and the caller drops them.
 func CheckOfficialPages(ctx context.Context, client *http.Client, siteURL string) []OfficialPageCheck {
 	top, err := readOfficialTopPage(ctx, client, siteURL)
+	if err == nil {
+		err = top.ReadErr
+	}
 	if err != nil {
 		return []OfficialPageCheck{failedCheck(siteURL, PageKindTop, err)}
 	}
@@ -70,6 +75,9 @@ func checkLinkedPage(ctx context.Context, client *http.Client, link string) Offi
 		return failedCheck(link, PageKindLinked, err)
 	}
 	page, err := fetchOfficialPage(ctx, client, u)
+	if err == nil {
+		err = page.ReadErr
+	}
 	if err != nil {
 		return failedCheck(link, PageKindLinked, err)
 	}
