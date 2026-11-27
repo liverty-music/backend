@@ -89,7 +89,7 @@ require (
 	google.golang.org/api v0.316.0
 	google.golang.org/genai v1.79.1
 	google.golang.org/genproto v0.0.0-20261123191846-1e707ab9fbc2
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261123191846-1e707ab9fbc2
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.37.0-rc.1
 	pgregory.net/rapid v1.3.0
