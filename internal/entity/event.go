@@ -33,6 +33,11 @@ type Event struct {
 	// It preserves the original scraped text separately from the normalized Venue.Name.
 	// Nullable: legacy rows inserted before this field was added will have NULL.
 	ListedVenueName *string
+	// OtherListedVenueNames are the other venue names, normalized
+	// ([NormalizeVenueName]), the event is also listed under: a name an admin
+	// did not choose when resolving a duplicate, a name another one replaced,
+	// and the names of an event merged into this one. See [Event.ListedUnder].
+	OtherListedVenueNames []string
 	// LocalDate represents the calendar date of the event in the local timezone.
 	//
 	// Specifications:
@@ -236,6 +241,25 @@ func (e *Event) NamesVenue(venueName string, placeID *string) bool {
 		return true
 	}
 	return *placeID == *e.Venue.GooglePlaceID
+}
+
+// ListedUnder reports whether the event is listed under the venue name: its
+// listed venue name or one of its other listed venue names is the same listed
+// venue as name ([SameListedVenue]). A name that is missing (an empty
+// [ListedVenueKey]) is never one the event is listed under.
+func (e *Event) ListedUnder(name string) bool {
+	if ListedVenueKey(name) == "" {
+		return false
+	}
+	if e.ListedVenueName != nil && SameListedVenue(*e.ListedVenueName, name) {
+		return true
+	}
+	for _, other := range e.OtherListedVenueNames {
+		if SameListedVenue(other, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // HasStartTime reports whether the event's start time is t, where an unknown

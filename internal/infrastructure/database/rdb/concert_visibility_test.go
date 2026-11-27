@@ -221,12 +221,12 @@ func TestConcertReads_NoDraftOrCancelledLeak(t *testing.T) {
 			}
 			got, err := f.repo.FindEventsByVenueAndDate(f.ctx, venues, dates)
 			require.NoError(t, err)
-			return eventIDs(got)
+			return concertIDs(got)
 		}, catalog},
 		"FindEventsByArtistAndDate": {func(t *testing.T) []string {
 			got, err := f.repo.FindEventsByArtistAndDate(f.ctx, artistID, dates)
 			require.NoError(t, err)
-			return eventIDs(got)
+			return concertIDs(got)
 		}, catalog},
 		"ListEventsBySeries": {func(t *testing.T) []string {
 			got, err := f.repo.ListEventsBySeries(f.ctx, public)

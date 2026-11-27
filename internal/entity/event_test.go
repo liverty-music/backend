@@ -361,3 +361,49 @@ func TestEvent_IsInCatalog(t *testing.T) {
 		assert.Equal(t, tt.want, (&entity.Event{PublishState: tt.state}).IsInCatalog(), name)
 	}
 }
+
+func TestEvent_ListedUnder(t *testing.T) {
+	t.Parallel()
+
+	name := func(s string) *string { return &s }
+	tests := []struct {
+		name  string
+		event *entity.Event
+		given string
+		want  bool
+	}{
+		{
+			// @spec components/entity/event "Listed venue name"
+			name:  "Listed venue name",
+			event: &entity.Event{ListedVenueName: name("Zepp Haneda(TOKYO)")},
+			given: "ZEPP HANEDA (TOKYO)",
+			want:  true,
+		},
+		{
+			// @spec components/entity/event "Other listed venue name"
+			name:  "Other listed venue name",
+			event: &entity.Event{ListedVenueName: name("京セラドーム大阪"), OtherListedVenueNames: []string{"Kyocera Dome Osaka"}},
+			given: "Kyocera Dome Osaka",
+			want:  true,
+		},
+		{
+			// @spec components/entity/event "Name of another venue"
+			name:  "Name of another venue",
+			event: &entity.Event{ListedVenueName: name("京セラドーム大阪")},
+			given: "Kyocera Dome Osaka",
+			want:  false,
+		},
+		{
+			name:  "an event with no name is listed under no name",
+			event: &entity.Event{},
+			given: "",
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.event.ListedUnder(tt.given))
+		})
+	}
+}

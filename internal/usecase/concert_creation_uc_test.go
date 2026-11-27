@@ -72,6 +72,9 @@ type creationHarness struct {
 	createCalls [][]*entity.Concert
 	staged      []*entity.ConcertCandidate
 	signals     []ingestSignal
+	// upcomingTours are the Artist's upcoming discovered tours
+	// Series.ListUpcomingToursByArtist returns.
+	upcomingTours []*entity.Series
 }
 
 func newCreationHarness(t *testing.T) *creationHarness {
@@ -88,6 +91,10 @@ func newCreationHarness(t *testing.T) *creationHarness {
 		RunAndReturn(func(ctx context.Context, e usecase.AnalyticsEvent) error {
 			h.signals = append(h.signals, ingestSignal{event: e, traceID: trace.SpanContextFromContext(ctx).TraceID().String()})
 			return nil
+		}).Maybe()
+	h.series.EXPECT().ListUpcomingToursByArtist(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, string, time.Time) ([]*entity.Series, error) {
+			return h.upcomingTours, nil
 		}).Maybe()
 	h.uc = usecase.NewConcertCreationUseCase(
 		h.candidate, h.venue, h.concert, h.series,
@@ -172,7 +179,13 @@ func (h *creationHarness) slotsFree(n int) {
 
 // slotHolds expects the lookup at venueID on date to find events.
 func (h *creationHarness) slotHolds(venueID string, date time.Time, events ...*entity.Event) {
-	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{venueID}, []time.Time{date}).Return(events, nil).Once()
+	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{venueID}, []time.Time{date}).Return(foundAs(events), nil).Once()
+}
+
+// artistSlotHolds expects the lookup at venueID on date to find events the
+// Artist performs at.
+func (h *creationHarness) artistSlotHolds(artistID, venueID string, date time.Time, events ...*entity.Event) {
+	h.concert.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{venueID}, []time.Time{date}).Return(foundAs(events, artistID), nil).Once()
 }
 
 // stages expects n events to be staged as ConcertCandidates and records them.
@@ -308,7 +321,9 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			}).Once()
 		h.series.EXPECT().Create(mock.Anything, mock.MatchedBy(func(s *entity.Series) bool { return s.Title == "Second Tour" })).
 			Return(nil, errCreate).Once()
-		for _, v := range []string{"Venue A", "Venue B"} {
+		// Every venue of a series is decided before its Series is chosen, so
+		// Venue C is resolved before the second Series fails.
+		for _, v := range []string{"Venue A", "Venue B", "Venue C"} {
 			h.resolvesPlace(v, &entity.VenuePlace{ProviderUserID: "place-" + v, Name: v})
 			h.createsVenue("place-"+v, v)
 		}
@@ -553,7 +568,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// API, and fills the row's start (not a conflict).
 		listedName := "Venue X"
 		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-4", []time.Time{localDate}).
-			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}}, nil).Once()
+			Return(foundAs([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}}, "artist-4"), nil).Once()
+		h.artistSlotHolds("artist-4", "venue-1", localDate, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, ListedVenueName: &listedName})
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, []*entity.TimeOfDay{startTime}, []*entity.TimeOfDay{nil}).Return(nil).Once()
 		h.sweepsOrphans()
 
@@ -670,8 +686,9 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		// @spec components/usecase/concert/create-from-discovered "Re-discovered tour joins its series"
 		h := newCreationHarness(t)
 		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
-			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, nil).Once()
+			Return(foundAs([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, "artist-tour"), nil).Once()
 		// Only the new date is created; no Series is (a Series.Create would fail the mock).
+		h.artistSlotHolds("artist-tour", "venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA})
 		h.resolvesPlace(venueB, &entity.VenuePlace{ProviderUserID: "place-b", Name: venueB})
 		h.createsVenue("place-b", venueB)
 		h.slotsFree(1)
@@ -693,7 +710,7 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		// @spec components/usecase/concert/create-from-discovered "Same-day show at another venue does not join"
 		h := newCreationHarness(t)
 		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
-			Return([]*entity.Event{{ID: "event-9", SeriesID: "series-9", VenueID: "venue-z", LocalDate: date1, ListedVenueName: &venueZ}}, nil).Once()
+			Return(foundAs([]*entity.Event{{ID: "event-9", SeriesID: "series-9", VenueID: "venue-z", LocalDate: date1, ListedVenueName: &venueZ}}, "artist-tour"), nil).Once()
 		h.createsSeries(1)
 		h.resolvesPlace(venueA, &entity.VenuePlace{ProviderUserID: "place-a", Name: venueA})
 		h.createsVenue("place-a", venueA)
@@ -716,8 +733,9 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		// @spec components/usecase/concert/create-from-discovered "Exact re-discovery"
 		h := newCreationHarness(t)
 		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
-			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: start18, ListedVenueName: &venueA}}, nil).Once()
-		// No Places, venue, slot, Create or Upsert expectation: any such call fails the mock.
+			Return(foundAs([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: start18, ListedVenueName: &venueA}}, "artist-tour"), nil).Once()
+		h.artistSlotHolds("artist-tour", "venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: start18, ListedVenueName: &venueA})
+		// No Places, venue, Create or Upsert expectation: any such call fails the mock.
 		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), tour(
@@ -734,10 +752,13 @@ func TestCreateFromDiscovered_RediscoveryOfTheArtistsOwnEvents(t *testing.T) {
 		// @spec components/usecase/concert/create-from-discovered "Two new start times for one unknown-start event"
 		h := newCreationHarness(t)
 		h.concert.EXPECT().FindEventsByArtistAndDate(mock.Anything, "artist-tour", mock.Anything).
-			Return([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, nil).Once()
+			Return(foundAs([]*entity.Event{{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA}}, "artist-tour"), nil).Once()
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-1"}, []*entity.TimeOfDay{start13}, []*entity.TimeOfDay{nil}).Return(nil).Once()
 		// The venue is the matched Event's: no Places or venue lookup is expected.
-		h.slotHolds("venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: start13})
+		// The first event finds the Event without a start time, the second
+		// finds it filled with 13:00.
+		h.artistSlotHolds("artist-tour", "venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, ListedVenueName: &venueA})
+		h.artistSlotHolds("artist-tour", "venue-a", date1, &entity.Event{ID: "event-1", SeriesID: "series-1", VenueID: "venue-a", LocalDate: date1, StartTime: start13, ListedVenueName: &venueA})
 		h.publishes(1)
 		h.sweepsOrphans()
 
@@ -1010,7 +1031,8 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 	evening := todAt(18, 0)
 
 	// build expects the candidate to resolve to the stored venue-fill, whose
-	// only Event on the day has no start, and to be deleted afterwards. No
+	// only Event on the day is its Artist's and has no start, and to be
+	// deleted afterwards. No
 	// Concert.Create is expected: no Event is added.
 	build := func(t *testing.T) (*approvalTestDeps, *entity.ConcertCandidate) {
 		t.Helper()
@@ -1025,7 +1047,8 @@ func TestConcertCandidateUseCase_Approve_FillOnly(t *testing.T) {
 		d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, placeID).
 			Return(&entity.Venue{ID: "venue-fill", Name: listed, GooglePlaceID: &placeID, ListedVenueName: &listed}, nil).Once()
 		d.concertRepo.EXPECT().FindEventsByVenueAndDate(mock.Anything, []string{"venue-fill"}, []time.Time{day}).
-			Return([]*entity.Event{{ID: "event-unknown-start", VenueID: "venue-fill", LocalDate: day}}, nil).Once()
+			Return(foundAs([]*entity.Event{{ID: "event-unknown-start", VenueID: "venue-fill", LocalDate: day}}, artist.ID), nil).Once()
+		d.findsArtistEvents()
 		d.deletes(sc.ID)
 		return d, sc
 	}
@@ -1158,7 +1181,8 @@ func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
 		// @spec components/usecase/concert/create-from-discovered "Catalog unavailable"
 		h := newCreationHarness(t)
 		h.findsNoArtistEvents(1)
-		h.createsSeries(1)
+		// The venue is looked up before the Series is chosen, so the failure
+		// comes before any Series is created.
 		h.place.EXPECT().SearchPlace(mock.Anything, "Zepp Haneda", "JP-13").
 			Return(nil, apperr.New(codes.Unavailable, "maps down")).Once()
 		h.series.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).Return(0, nil).Maybe()
@@ -1273,4 +1297,17 @@ func TestConcertCreationUseCase_VenueAreaAndZone(t *testing.T) {
 		require.Len(t, h.staged, 1)
 		assert.Nil(t, h.staged[0].ResolvedPlaceID)
 	})
+}
+
+// foundAs wraps events as the Concerts a find-events lookup returns,
+// performed by the given artists.
+func foundAs(events []*entity.Event, artistIDs ...string) []*entity.Concert {
+	concerts := make([]*entity.Concert, len(events))
+	for i, e := range events {
+		concerts[i] = &entity.Concert{Event: *e}
+		for _, a := range artistIDs {
+			concerts[i].Artists = append(concerts[i].Artists, &entity.Artist{ID: a})
+		}
+	}
+	return concerts
 }

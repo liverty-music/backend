@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -355,7 +356,9 @@ type SeriesRepository interface {
 	//  - InvalidArgument: If the ids slice is empty.
 	ListByIDs(ctx context.Context, ids []string) ([]*Series, error)
 	// DeleteOrphaned removes, from among the given candidate series IDs, every row
-	// that has no member events AND no pending concert candidates referencing it.
+	// that has no member events, no pending concert candidates and no ticket
+	// sales referencing it. A series another change is writing at that moment
+	// is left.
 	// Eager series-row creation at discovery time allows a series to transiently
 	// exist with zero events (a provisional group mint that adopted a
 	// co-headliner's series, or a group later fully rejected); this sweep reclaims
@@ -365,6 +368,12 @@ type SeriesRepository interface {
 	// and cause an FK violation on that run's pending event insert. An empty
 	// candidate slice is a no-op. Returns the number of rows deleted. Idempotent.
 	DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error)
+	// ListUpcomingToursByArtist returns each discovered Series (one without
+	// an Organizer) of type TOUR that has at least one event performed by the
+	// artist whose local date is on or after the current date at its Venue at
+	// now ([CurrentDateAtVenue]), once, with its id and title, ordered by id.
+	// It returns an empty list without error when there is none.
+	ListUpcomingToursByArtist(ctx context.Context, artistID string, now time.Time) ([]*Series, error)
 
 	// CreateDraft stores a new first-party series with its organizer, title,
 	// type, source page, description and visibility, and its events, all

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
@@ -61,11 +62,19 @@ const (
 		WHERE s.id = ANY($1)
 	`
 
+	// lockOrphanCandidatesQuery locks the series an orphan sweep looks at.
+	// Inserting an event, a concert candidate or a ticket sale takes a key
+	// share lock on its series, so a series locked here has no such insert in
+	// progress, and one being written is skipped: the sweep never waits, so
+	// it cannot deadlock.
+	lockOrphanCandidatesQuery = `SELECT id FROM series WHERE id = ANY($1) FOR UPDATE SKIP LOCKED`
+
 	deleteOrphanedSeriesQuery = `
 		DELETE FROM series s
 		WHERE s.id = ANY($1)
 			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
 			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM ticket_sales ts WHERE ts.series_id = s.id)
 	`
 
 	// insertFirstPartySeriesQuery stores a new first-party series. It has no
@@ -356,17 +365,89 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 }
 
 // DeleteOrphaned removes, from among the given candidate series IDs, every row
-// with no member events and no pending concert candidates referencing it. An empty
+// with no member events, pending concert candidates or ticket sales. An empty
 // slice is a no-op. Returns the number of rows deleted.
 func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
 	if len(seriesIDs) == 0 {
 		return 0, nil
 	}
-	tag, err := r.db.Pool.Exec(ctx, deleteOrphanedSeriesQuery, seriesIDs)
+	count := slog.Int("count", len(seriesIDs))
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return 0, toAppErr(err, "failed to delete orphaned series", slog.Int("count", len(seriesIDs)))
+		return 0, toAppErr(err, "failed to begin transaction", count)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, lockOrphanCandidatesQuery, seriesIDs)
+	if err != nil {
+		return 0, toAppErr(err, "failed to lock series", count)
+	}
+	locked, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return 0, toAppErr(err, "failed to lock series", count)
+	}
+	// A second statement, so it sees every row committed before the lock.
+	tag, err := tx.Exec(ctx, deleteOrphanedSeriesQuery, locked)
+	if err != nil {
+		return 0, toAppErr(err, "failed to delete orphaned series", count)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, toAppErr(err, "failed to commit transaction", count)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// listUpcomingToursByArtistQuery returns the discovered TOUR series the
+// artist performs at an event of, with the local date of each such event and
+// its Venue's time zone. It selects from one day before the current date at
+// the Venue, as listUpcomingConcertsByArtistQuery does, and
+// ListUpcomingToursByArtist applies the exact rule.
+const listUpcomingToursByArtistQuery = `
+	SELECT s.id, s.title, e.local_event_date, v.time_zone
+	FROM series s
+	JOIN events e ON e.series_id = s.id
+	JOIN venues v ON v.id = e.venue_id
+	WHERE s.organizer_id IS NULL
+	  AND s.type = 'TOUR'
+	  AND EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.event_id = e.id AND ca.artist_id = $1)
+	  AND e.local_event_date >= (($2::timestamptz) AT TIME ZONE v.time_zone)::date - 1
+	  AND ` + catalogEventCondition + `
+	ORDER BY s.id
+`
+
+// ListUpcomingToursByArtist implements entity.SeriesRepository. The title
+// comparison of a joining tour is done by the caller
+// ([entity.SameTourTitle]).
+func (r *SeriesRepository) ListUpcomingToursByArtist(ctx context.Context, artistID string, now time.Time) ([]*entity.Series, error) {
+	rows, err := r.db.Pool.Query(ctx, listUpcomingToursByArtistQuery, artistID, now)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list upcoming tours by artist", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var tours []*entity.Series
+	for rows.Next() {
+		var (
+			s        entity.Series
+			date     time.Time
+			timeZone *string
+		)
+		if err := rows.Scan(&s.ID, &s.Title, &date, &timeZone); err != nil {
+			return nil, toAppErr(err, "failed to scan upcoming tour")
+		}
+		if date.Before(entity.CurrentDateAtVenue(now, &entity.Venue{TimeZone: timeZone})) {
+			continue
+		}
+		if n := len(tours); n > 0 && tours[n-1].ID == s.ID {
+			continue
+		}
+		s.Type = entity.SeriesTypeTour
+		tours = append(tours, &s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "upcoming tours iteration ended with error")
+	}
+	return tours, nil
 }
 
 // Get retrieves a series by its ID. Returns apperr.ErrNotFound if no row exists.
