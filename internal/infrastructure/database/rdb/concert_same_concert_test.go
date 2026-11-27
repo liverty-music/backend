@@ -618,6 +618,7 @@ func TestSeriesRepository_ListUpcomingToursByArtist(t *testing.T) {
 // share lock on the Series, and refuses once the sale is committed.
 func TestConcertRepository_MergeDuringATicketSaleOfTheSeries(t *testing.T) {
 	t.Parallel()
+	// @spec components/entity/concert/merge "Series being written"
 	db := newTestDBWithPool(t, 6)
 	f := newVisibilityFixture(t, db)
 	a, b, v := f.artist(), f.artist(), f.venue("JP-13", nil, nil)

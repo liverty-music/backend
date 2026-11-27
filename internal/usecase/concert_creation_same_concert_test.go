@@ -605,6 +605,22 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		assert.Empty(t, h.staged)
 	})
 
+	t.Run("Series being written during a merge", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/concert/create-from-discovered "Series being written during a merge"
+		h := newCreationHarness(t)
+		own := ownUnknown()
+		h.findsArtistEvents(a, own)
+		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
+		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.Unavailable, "series locked")).Once()
+
+		err := h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18)))
+
+		// No Upsert expectation: nothing is staged, and the batch is retried.
+		require.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.Empty(t, h.staged)
+	})
+
 	t.Run("Slot taken meanwhile", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Slot taken meanwhile"
