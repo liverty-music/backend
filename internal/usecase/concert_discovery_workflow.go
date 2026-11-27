@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -11,6 +13,30 @@ import (
 // WorkflowCreateFromDiscovered is the registered name of
 // ConcertCreationUseCase.RunCreateFromDiscovered.
 const WorkflowCreateFromDiscovered = "create-from-discovered"
+
+// ConcertDiscoveryQueue is the queue every create-from-discovered run waits
+// on. Its concurrency is 1: two Artists of one concert are found by two
+// searches, and their batches, decided one after the other, see what the
+// earlier one stored (OpenSpec change recognize-same-discovered-concert,
+// design D11).
+const (
+	ConcertDiscoveryQueue            = "concert-discovery"
+	ConcertDiscoveryQueueConcurrency = 1
+)
+
+// WorkflowRemoveEmptyDiscoveredSeries is the registered name of
+// ConcertCreationUseCase.RunRemoveEmptyDiscoveredSeries.
+const WorkflowRemoveEmptyDiscoveredSeries = "remove-empty-discovered-series"
+
+// RemoveEmptyDiscoveredSeriesSchedule runs
+// [WorkflowRemoveEmptyDiscoveredSeries] once a day, at 04:00 UTC (13:00 JST,
+// away from the 09:00 JST discovery run), as a cron expression with seconds.
+const RemoveEmptyDiscoveredSeriesSchedule = "0 0 4 * * *"
+
+// emptySeriesAge is how old an empty discovered Series must be before it is
+// removed: a batch creates its Series before it stores the events, and a day
+// is far longer than any batch.
+const emptySeriesAge = 24 * time.Hour
 
 // discoveryWorkflowID names the create-from-discovered workflow of one search:
 // the Artist and the search time of its ConcertSearch, so one search starts
@@ -26,5 +52,23 @@ func discoveryWorkflowID(artistID string, searchTime time.Time) string {
 func (uc *concertCreationUseCase) RunCreateFromDiscovered(ctx context.Context, f Flow, in entity.ConcertDiscoveredData) (struct{}, error) {
 	return Step(ctx, f, "create", func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, uc.CreateFromDiscovered(ctx, in)
+	})
+}
+
+// RemoveEmptyDiscoveredSeries implements [ConcertCreationUseCase].
+func (uc *concertCreationUseCase) RemoveEmptyDiscoveredSeries(ctx context.Context, now time.Time) error {
+	removed, err := uc.seriesRepo.DeleteOrphaned(ctx, now.Add(-emptySeriesAge))
+	if err != nil {
+		return fmt.Errorf("remove empty discovered series: %w", err)
+	}
+	uc.logger.Info(ctx, "removed empty discovered series", slog.Int64("removed", removed))
+	return nil
+}
+
+// RunRemoveEmptyDiscoveredSeries implements [ConcertCreationUseCase]. A
+// failure ends the run, and the next day's run removes the Series.
+func (uc *concertCreationUseCase) RunRemoveEmptyDiscoveredSeries(ctx context.Context, f Flow, scheduled time.Time) (struct{}, error) {
+	return Step(ctx, f, "remove", func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, uc.RemoveEmptyDiscoveredSeries(ctx, scheduled)
 	})
 }

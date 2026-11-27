@@ -273,8 +273,8 @@ func (_c *MockSeriesRepository_CreateDraft_Call) RunAndReturn(run func(ctx conte
 }
 
 // DeleteOrphaned provides a mock function for the type MockSeriesRepository
-func (_mock *MockSeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
-	ret := _mock.Called(ctx, seriesIDs)
+func (_mock *MockSeriesRepository) DeleteOrphaned(ctx context.Context, createdBefore time.Time) (int64, error) {
+	ret := _mock.Called(ctx, createdBefore)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteOrphaned")
@@ -282,16 +282,16 @@ func (_mock *MockSeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs
 
 	var r0 int64
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) (int64, error)); ok {
-		return returnFunc(ctx, seriesIDs)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) (int64, error)); ok {
+		return returnFunc(ctx, createdBefore)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, []string) int64); ok {
-		r0 = returnFunc(ctx, seriesIDs)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Time) int64); ok {
+		r0 = returnFunc(ctx, createdBefore)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, []string) error); ok {
-		r1 = returnFunc(ctx, seriesIDs)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, time.Time) error); ok {
+		r1 = returnFunc(ctx, createdBefore)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -305,20 +305,20 @@ type MockSeriesRepository_DeleteOrphaned_Call struct {
 
 // DeleteOrphaned is a helper method to define mock.On call
 //   - ctx context.Context
-//   - seriesIDs []string
-func (_e *MockSeriesRepository_Expecter) DeleteOrphaned(ctx any, seriesIDs any) *MockSeriesRepository_DeleteOrphaned_Call {
-	return &MockSeriesRepository_DeleteOrphaned_Call{Call: _e.mock.On("DeleteOrphaned", ctx, seriesIDs)}
+//   - createdBefore time.Time
+func (_e *MockSeriesRepository_Expecter) DeleteOrphaned(ctx any, createdBefore any) *MockSeriesRepository_DeleteOrphaned_Call {
+	return &MockSeriesRepository_DeleteOrphaned_Call{Call: _e.mock.On("DeleteOrphaned", ctx, createdBefore)}
 }
 
-func (_c *MockSeriesRepository_DeleteOrphaned_Call) Run(run func(ctx context.Context, seriesIDs []string)) *MockSeriesRepository_DeleteOrphaned_Call {
+func (_c *MockSeriesRepository_DeleteOrphaned_Call) Run(run func(ctx context.Context, createdBefore time.Time)) *MockSeriesRepository_DeleteOrphaned_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 []string
+		var arg1 time.Time
 		if args[1] != nil {
-			arg1 = args[1].([]string)
+			arg1 = args[1].(time.Time)
 		}
 		run(
 			arg0,
@@ -333,7 +333,7 @@ func (_c *MockSeriesRepository_DeleteOrphaned_Call) Return(n int64, err error) *
 	return _c
 }
 
-func (_c *MockSeriesRepository_DeleteOrphaned_Call) RunAndReturn(run func(ctx context.Context, seriesIDs []string) (int64, error)) *MockSeriesRepository_DeleteOrphaned_Call {
+func (_c *MockSeriesRepository_DeleteOrphaned_Call) RunAndReturn(run func(ctx context.Context, createdBefore time.Time) (int64, error)) *MockSeriesRepository_DeleteOrphaned_Call {
 	_c.Call.Return(run)
 	return _c
 }

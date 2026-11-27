@@ -672,6 +672,11 @@ func TestRunSearch_Outcome(t *testing.T) {
 		require.Len(t, f.starts, 1)
 		assert.Equal(t, usecase.WorkflowCreateFromDiscovered, f.starts[0].workflow)
 		assert.Equal(t, usecase.ExportedDiscoveryWorkflowID(artist.ID, in.SearchTime), f.starts[0].id)
+		// @spec components/usecase/concert/create-from-discovered "Two Artists of one concert found together"
+		// The discovery queue runs one batch at a time, so a second Artist's
+		// batch waits for this one and sees what it stored.
+		assert.Equal(t, usecase.StartOptions{Queue: usecase.ConcertDiscoveryQueue}, f.starts[0].options)
+		assert.Equal(t, 1, usecase.ConcertDiscoveryQueueConcurrency)
 		data := f.starts[0].input.(entity.ConcertDiscoveredData)
 		assert.Equal(t, artist.ID, data.ArtistID)
 		assert.Equal(t, artist.Name, data.ArtistName)

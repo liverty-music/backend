@@ -47,15 +47,6 @@ func (h *creationHarness) resolvesTo(name, venueID string) {
 	h.storedVenue(placeID, venueID)
 }
 
-// sweeps expects the end-of-batch sweep and records the series it is given.
-func (h *creationHarness) sweeps(into *[]string) {
-	h.series.EXPECT().DeleteOrphaned(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, ids []string) (int64, error) {
-			*into = append(*into, ids...)
-			return 0, nil
-		}).Once()
-}
-
 // found returns a discovered event in Tokyo.
 func found(name string, date time.Time, start *entity.TimeOfDay) *entity.DiscoveredEvent {
 	return &entity.DiscoveredEvent{AdminArea: new("JP-13"), TimeZone: new("Asia/Tokyo"), ListedVenueName: name, LocalDate: date, StartTime: start}
@@ -88,7 +79,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.slotsFree(1)
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-k"}, mock.Anything, mock.Anything).Return(nil).Once()
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome Tour", entity.SeriesTypeTour,
 			found("京セラドーム大阪", dec19, at17), found("Hall W", dec20, at17))))
@@ -107,7 +97,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.resolvesTo("Hall W", "venue-w")
 		h.slotsFree(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "2026 LE SSERAFIM TOUR “PUREFLOW”", entity.SeriesTypeTour,
 			found("Hall W", dec20, at17))))
@@ -128,7 +117,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.resolvesTo("Hall W", "venue-w")
 		h.slotsFree(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "2026 LE SSERAFIM TOUR 'PUREFLOW'", entity.SeriesTypeTour,
 			found("Hall W", dec20, at17))))
@@ -149,7 +137,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.resolvesTo("Hall W", "venue-w")
 		h.slotsFree(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
 			found("Zepp Haneda", dec19, at17), found("Hall W", dec20, at17))))
@@ -169,7 +156,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.resolvesTo("ホールV", "venue-v")
 		h.venueHolds("venue-v", dec19, organizers)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Evening", entity.SeriesTypeSingle, found("ホールV", dec19, todAt(19, 0)))))
 
@@ -187,7 +173,6 @@ func TestCreateFromDiscovered_SeriesChoice(t *testing.T) {
 		h.resolvesTo("Hall W", "venue-w")
 		h.slotsFree(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Live", entity.SeriesTypeSingle,
 			found("Hall W", dec20, at17))))
@@ -214,7 +199,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		h.resolvesTo("京セラドーム大阪", "venue-v")
 		h.venueHolds("venue-v", dec19, own)
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-k"}, []*entity.TimeOfDay{at17}, []*entity.TimeOfDay{nil}).Return(nil).Once()
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome", entity.SeriesTypeSingle, found("京セラドーム大阪", dec19, at17))))
 
@@ -231,7 +215,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		h.resolvesTo("Kyocera Dome Osaka", "venue-v")
 		h.venueHolds("venue-v", dec19, own)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome", entity.SeriesTypeSingle, found("Kyocera Dome Osaka", dec19, at17))))
 
@@ -247,7 +230,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		own := concertAt(entity.Event{ID: "event-z", SeriesID: "series-z", VenueID: "venue-v", LocalDate: dec19, StartTime: at18, ListedVenueName: new("Zepp Haneda(TOKYO)")}, a)
 		h.findsArtistEvents(a, own)
 		h.venueHolds("venue-v", dec19, own)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Zepp", entity.SeriesTypeSingle, found("Zepp Haneda(TOKYO)", dec19, nil))))
 
@@ -264,7 +246,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		h.resolvesTo("Kyocera Dome Osaka", "venue-v")
 		h.venueHolds("venue-v", dec19, own)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome", entity.SeriesTypeSingle, found("Kyocera Dome Osaka", dec19, nil))))
 
@@ -281,7 +262,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		h.findsArtistEvents(a, own)
 		// No Places or venue expectation: looking the venue up fails the mock.
 		h.venueHolds("venue-v", dec19, own)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome", entity.SeriesTypeSingle, found("Kyocera Dome Osaka", dec19, at17))))
 
@@ -301,7 +281,6 @@ func TestCreateFromDiscovered_ArtistsOwnEventUnderAnotherName(t *testing.T) {
 		h.findsArtistEvents(a, unknown, timed)
 		h.venueHolds("venue-v", dec19, unknown, timed)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Dome", entity.SeriesTypeSingle, found("Kyocera Dome Osaka", dec19, at17))))
 
@@ -327,7 +306,6 @@ func TestCreateFromDiscovered_AnotherArtistsEvent(t *testing.T) {
 		h.resolvesTo("Zepp Haneda (TOKYO)", "venue-v")
 		h.venueHolds("venue-v", dec22, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec22, StartTime: at18, ListedVenueName: new("Zepp Haneda(TOKYO)")}, b))
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Live", entity.SeriesTypeSingle, found("Zepp Haneda (TOKYO)", dec22, at18))))
 
@@ -351,7 +329,6 @@ func TestCreateFromDiscovered_AnotherArtistsEvent(t *testing.T) {
 		h.venueHolds("venue-v", dec22, concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-v", LocalDate: dec22, StartTime: at18,
 			ListedVenueName: new("Zepp Haneda(TOKYO)"), PublishState: published()}, b))
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Live", entity.SeriesTypeSingle, found("Zepp Haneda(TOKYO)", dec22, at18))))
 
@@ -368,7 +345,6 @@ func TestCreateFromDiscovered_AnotherArtistsEvent(t *testing.T) {
 		h.resolvesTo("Zepp Haneda(TOKYO)", "venue-v")
 		h.venueHolds("venue-v", dec22, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec22, ListedVenueName: new("Zepp Haneda(TOKYO)")}, b))
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Live", entity.SeriesTypeSingle, found("Zepp Haneda(TOKYO)", dec22, nil))))
 
@@ -387,7 +363,6 @@ func TestCreateFromDiscovered_AnotherArtistsEvent(t *testing.T) {
 		h.venueHolds("venue-v", dec22, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec22, StartTime: at18, ListedVenueName: new("Zepp Haneda(TOKYO)")}, b))
 		h.slotsFree(1)
 		h.publishes(2)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
 			found("Hall W", dec23, at18), found("Zepp Haneda(TOKYO)", dec22, at18))))
@@ -415,7 +390,6 @@ func TestCreateFromDiscovered_SameArtistAtAnotherVenue(t *testing.T) {
 		h.resolvesTo("クロコくんホール (旧 日本ガイシホール)", "venue-kuroko")
 		h.slotsFree(1)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Hall", entity.SeriesTypeSingle,
 			found("クロコくんホール (旧 日本ガイシホール)", aug28, todAt(18, 0)))))
@@ -434,7 +408,6 @@ func TestCreateFromDiscovered_SameArtistAtAnotherVenue(t *testing.T) {
 		h.resolvesTo("Evening Hall", "venue-e")
 		h.slotsFree(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Evening", entity.SeriesTypeSingle,
 			found("Evening Hall", dec6, todAt(19, 0)))))
@@ -459,7 +432,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 	t.Run("Co-headliner's time already known", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/concert/create-from-discovered "Co-headliner's time already known"
-		// @spec components/usecase/concert/create-from-discovered "Series of a merged event left empty"
 		h := newCreationHarness(t)
 		own := ownUnknown()
 		h.findsArtistEvents(a, own)
@@ -468,8 +440,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.resolvesTo("Hall W", "venue-w")
 		h.slotsFree(1)
 		h.publishes(1)
-		var swept []string
-		h.sweeps(&swept)
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeTour,
 			found(zepp, dec31, at18), found("Hall W", jan2, at18))))
@@ -478,7 +448,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		// is in Concert.Create, and Merge announces nothing.
 		require.Len(t, h.createdConcerts, 1, "the batch's other events are processed")
 		assert.Equal(t, "venue-w", h.createdConcerts[0].VenueID)
-		assert.Contains(t, swept, "series-a", "the merged Event's Series is swept at the end of the batch")
 	})
 
 	t.Run("a merge that finds the event gone stages the event", func(t *testing.T) {
@@ -489,7 +458,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: &zepp}, b))
 		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.NotFound, "gone")).Once()
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))),
 			"the batch does not fail")
@@ -506,13 +474,10 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		// Concert.Merge refuses: A's Event is the last of a Series with a ticket sale.
 		h.concert.EXPECT().Merge(mock.Anything, "event-a", "event-b").Return(apperr.New(codes.FailedPrecondition, "sells alone")).Once()
 		h.stages(1)
-		var swept []string
-		h.sweeps(&swept)
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
 
 		require.Len(t, h.staged, 1, "A's event is staged")
-		assert.NotContains(t, swept, "series-a", "A's Series is not swept")
 	})
 
 	t.Run("Held under another name", func(t *testing.T) {
@@ -523,7 +488,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.findsArtistEvents(a, own)
 		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-b", SeriesID: "series-b", VenueID: "venue-v", LocalDate: dec31, StartTime: at18, ListedVenueName: new("羽田")}, b))
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
 
@@ -540,7 +504,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.venueHolds("venue-v", dec31, own, concertAt(entity.Event{ID: "event-o", SeriesID: "series-o", VenueID: "venue-v", LocalDate: dec31, StartTime: at18,
 			ListedVenueName: &zepp, PublishState: published()}, b))
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
 
@@ -557,7 +520,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.findsArtistEvents(a, own)
 		h.createsSeries(1)
 		h.venueHolds("venue-v", dec31, own)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
 
@@ -576,7 +538,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.resolvesTo(zepp, "venue-v")
 		h.venueHolds("venue-v", dec31, own)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))))
 
@@ -595,7 +556,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.venueHolds("venue-v", dec31, own)
 		h.venueHolds("venue-v", dec31, own)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(),
 			discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, todAt(13, 0)), found(zepp, dec31, at18))))
@@ -631,7 +591,6 @@ func TestCreateFromDiscovered_StartTimeHeldByAnotherEvent(t *testing.T) {
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-a"}, mock.Anything, mock.Anything).
 			Return(apperr.New(codes.AlreadyExists, "slot taken")).Once()
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Countdown", entity.SeriesTypeSingle, found(zepp, dec31, at18))),
 			"the batch does not fail")
@@ -655,7 +614,6 @@ func TestCreateFromDiscovered_SameTimeAtTwoVenuesInOneSeries(t *testing.T) {
 		h.concert.EXPECT().FillEventStartTimes(mock.Anything, []string{"event-a"}, mock.Anything, mock.Anything).Return(nil).Once()
 		h.slotsFree(1)
 		h.stages(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
 			found("Hall V", dec19, at18), found("Hall W", dec19, at18))))
@@ -675,7 +633,6 @@ func TestCreateFromDiscovered_SameTimeAtTwoVenuesInOneSeries(t *testing.T) {
 		h.slotsFree(2)
 		h.stages(1)
 		h.publishes(1)
-		h.sweepsOrphans()
 
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered(a, "Tour", entity.SeriesTypeTour,
 			found("Hall V", dec19, at18), found("Hall W", dec19, at18))))
@@ -684,27 +641,5 @@ func TestCreateFromDiscovered_SameTimeAtTwoVenuesInOneSeries(t *testing.T) {
 		assert.Equal(t, "venue-v", h.createdConcerts[0].VenueID)
 		require.Len(t, h.staged, 1)
 		assert.Equal(t, "Hall W", h.staged[0].ListedVenueName)
-	})
-}
-
-func TestCreateFromDiscovered_EmptyNewSeries(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Created series left empty", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/concert/create-from-discovered "Created series left empty"
-		h := newCreationHarness(t)
-		h.findsArtistEvents("artist-a")
-		h.createsSeries(1)
-		h.cannotResolvePlace("Unknown Hall")
-		h.stages(1)
-		var swept []string
-		h.sweeps(&swept)
-
-		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), discovered("artist-a", "Live", entity.SeriesTypeSingle,
-			found("Unknown Hall", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), nil))))
-
-		require.Len(t, h.createdSeries, 1)
-		assert.Equal(t, []string{h.createdSeries[0].ID}, swept, "only the Series this batch created is looked at")
 	})
 }

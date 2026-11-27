@@ -317,7 +317,11 @@ func registerCreateFromDiscovered(ctx context.Context, rt *workflow.Runtime, cfg
 		analyticsClient, time.Now,
 		logger,
 	)
+	if err := rt.RegisterQueue(usecase.ConcertDiscoveryQueue, usecase.ConcertDiscoveryQueueConcurrency); err != nil {
+		return err
+	}
 	workflow.Register(rt, usecase.WorkflowCreateFromDiscovered, concerts.RunCreateFromDiscovered)
+	workflow.RegisterSchedule(rt, usecase.WorkflowRemoveEmptyDiscoveredSeries, usecase.RemoveEmptyDiscoveredSeriesSchedule, concerts.RunRemoveEmptyDiscoveredSeries)
 	return nil
 }
 

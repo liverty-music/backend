@@ -296,8 +296,7 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidate
 // publishCandidate stores a candidate that collides with nothing: it fills
 // the Artist's unknown-start event at the Venue and date (outcomeFill), or
 // adds the candidate as a Concert under its Series (Concert.Create, which
-// announces it), never creating a Series. It then removes the candidate and,
-// when nothing was added, its Series if that is left empty.
+// announces it), never creating a Series. It then removes the candidate.
 func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *entity.ConcertCandidate, venueID string, d sameConcertDecision) (*ApproveResult, error) {
 	var insertedIDs []string
 	if d.outcome == outcomeFill {
@@ -316,13 +315,8 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 	if err := uc.concertCandidateRepo.Delete(ctx, sc.ID); err != nil {
 		return nil, fmt.Errorf("delete concert candidate after approval: %w", err)
 	}
-	// When the approval only filled an existing row and this concert
-	// candidate was the last reference to a discovery-minted series, that
-	// series is now orphaned. A series that gained an event is not, so the
-	// sweep is a no-op there.
-	if len(insertedIDs) == 0 {
-		uc.sweepSeries(ctx, sc.SeriesID, sc.ID)
-	}
+	// A series a fill-only approval leaves empty is removed by
+	// RemoveEmptyDiscoveredSeries a day later.
 	uc.logger.Info(ctx, "concert candidate approved and published", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("series_id", sc.SeriesID),
@@ -330,18 +324,6 @@ func (uc *concertCandidateUseCase) publishCandidate(ctx context.Context, sc *ent
 		slog.Int("inserted", len(insertedIDs)),
 	)...)
 	return &ApproveResult{}, nil
-}
-
-// sweepSeries removes the Series if it is left with no event and no
-// concert candidate. A failure is logged, not returned: an orphaned series
-// row is harmless and swept on the next run.
-func (uc *concertCandidateUseCase) sweepSeries(ctx context.Context, seriesID, concertCandidateID string) {
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{seriesID}); err != nil {
-		uc.logger.Error(ctx, "failed to clean up orphaned series after approval", err,
-			slog.String("concert_candidate_id", concertCandidateID),
-			slog.String("series_id", seriesID),
-		)
-	}
 }
 
 // decideVenue decides, before any change, the first-level Area and time zone
@@ -479,8 +461,8 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 // shareBill makes the candidate's Artist a performer of existing when the
 // Artist does not perform there and it has no publish state ("Another
 // Artist's Event becomes a shared bill"): it merges the Artist's
-// unknown-start event at the Venue and date into it when there is one,
-// removing that event's Series if it is left empty, and otherwise (or when
+// unknown-start event at the Venue and date into it when there is one, and
+// otherwise (or when
 // that event is the last of a Series with ticket sales, which Merge refuses)
 // stores the Artist's concert in its slot, which tells the Artist's
 // followers.
@@ -495,7 +477,6 @@ func (uc *concertCandidateUseCase) shareBill(ctx context.Context, sc *entity.Con
 		err := uc.concertRepo.Merge(ctx, own.ID, existing.ID)
 		switch {
 		case err == nil:
-			uc.sweepSeries(ctx, own.SeriesID, sc.ID)
 			return nil
 		case errors.Is(err, apperr.ErrFailedPrecondition):
 			// The Artist's event is the last of a Series with ticket sales:
@@ -571,15 +552,8 @@ func (uc *concertCandidateUseCase) Reject(ctx context.Context, concertCandidateI
 		return fmt.Errorf("delete concert candidate after rejection: %w", err)
 	}
 
-	// Sweep the parent series if this rejection left it with no events and no
-	// other pending concert candidates (a discovered series whose every event was staged
-	// and then rejected). Scoped to just this concert candidate's series.
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
-		uc.logger.Error(ctx, "failed to clean up orphaned series after rejection", err,
-			slog.String("concert_candidate_id", concertCandidateID),
-		)
-		// Non-fatal: an orphaned series row is harmless and swept on the next run.
-	}
+	// A series this rejection leaves empty is removed by
+	// RemoveEmptyDiscoveredSeries a day later.
 
 	uc.logger.Info(ctx, "concert candidate rejected and logged", analyticslog.Attrs(analyticslog.TopicCatalogReview,
 		slog.String("artist_id", sc.ArtistID),
