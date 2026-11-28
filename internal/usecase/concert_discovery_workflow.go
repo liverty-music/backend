@@ -60,7 +60,7 @@ const WorkflowScheduleEmptySeriesRemoval = "schedule-empty-series-removal"
 
 // RemoveEmptyDiscoveredSeriesSchedule runs
 // [WorkflowScheduleEmptySeriesRemoval] once a day, at 04:00 UTC (13:00 JST,
-// away from the 09:00 JST discovery run), as a cron expression with seconds.
+// away from the 18:00 JST discovery run), as a cron expression with seconds.
 const RemoveEmptyDiscoveredSeriesSchedule = "0 0 4 * * *"
 
 // emptySeriesAge is how old an empty discovered Series must be before it is
