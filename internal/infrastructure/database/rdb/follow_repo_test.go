@@ -43,7 +43,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 						{ID: "200", URL: "https://assets.fanart.tv/background.jpg", Likes: 10, Lang: "ja"},
 					},
 				}
-				err = artistRepo.UpdateFanart(ctx, artistID, fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
+				err = artistRepo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
 				require.NoError(t, err)
 
 				err = followRepo.Follow(ctx, userID, artistID)
@@ -97,7 +97,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 						{ID: "300", URL: "https://assets.fanart.tv/mixed-thumb.jpg", Likes: 3, Lang: "en"},
 					},
 				}
-				err = artistRepo.UpdateFanart(ctx, created[0].ID, fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
+				err = artistRepo.UpdateFanart(ctx, created[0].ID, artistMBID(t, db, created[0].ID), fanart, time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC))
 				require.NoError(t, err)
 
 				userID := seedUser(t, db, "Mixed User", "mixed@example.com", "ext-mixed-01")

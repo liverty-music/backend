@@ -1,0 +1,141 @@
+{
+    "created": "2026-11-28T08:26:53.617Z",
+    "count": 6,
+    "offset": 0,
+    "artists": [
+        {
+            "id": "bc731e96-0c06-4adf-b94b-ca636f48998a",
+            "type": "Group",
+            "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+            "score": 100,
+            "name": "sumika",
+            "sort-name": "sumika",
+            "country": "JP",
+            "area": {
+                "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+                "type": "Country",
+                "type-id": "06dd0ae4-8c74-30bb-b43d-95dcedf961de",
+                "name": "Japan",
+                "sort-name": "Japan",
+                "life-span": {
+                    "ended": null
+                }
+            },
+            "begin-area": {
+                "id": "48a7d649-71b8-4b5e-82f2-234e53879a9a",
+                "type": "City",
+                "type-id": "6fd8f29a-3d0a-32fc-980d-ea697b69da78",
+                "name": "Kawasaki",
+                "sort-name": "Kawasaki",
+                "life-span": {
+                    "ended": null
+                }
+            },
+            "disambiguation": "Japanese band",
+            "isnis": [
+                "0000000470483888"
+            ],
+            "life-span": {
+                "begin": "2013-05-17",
+                "ended": null
+            },
+            "tags": [
+                {
+                    "count": 1,
+                    "name": "j-rock"
+                }
+            ]
+        },
+        {
+            "id": "8cc2e134-28ed-4e8d-bb81-88fb94c35be6",
+            "type": "Person",
+            "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+            "score": 83,
+            "gender-id": "93452b5a-a947-30c8-934f-6a4056b151c2",
+            "name": "Sumika",
+            "sort-name": "Sumika",
+            "gender": "female",
+            "country": "JP",
+            "area": {
+                "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+                "type": "Country",
+                "type-id": "06dd0ae4-8c74-30bb-b43d-95dcedf961de",
+                "name": "Japan",
+                "sort-name": "Japan",
+                "life-span": {
+                    "ended": null
+                }
+            },
+            "disambiguation": "Les.R member",
+            "ipis": [
+                "00464007671"
+            ],
+            "isnis": [
+                "0000000476226997"
+            ],
+            "life-span": {
+                "begin": "1982-10-30",
+                "ended": null
+            }
+        },
+        {
+            "id": "d33a81de-a2fb-4c58-8a07-02d8a4c6b2c3",
+            "score": 76,
+            "name": "\u2740+.\uff61Sumika Shiun\uff61.+\u2740",
+            "sort-name": "Sumika Shiun",
+            "life-span": {
+                "ended": null
+            }
+        },
+        {
+            "id": "6f194d46-bee6-4f46-9fca-33a46e2bd80f",
+            "type": "Person",
+            "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+            "score": 76,
+            "name": "Sumika Inoue",
+            "sort-name": "Inoue, Sumika",
+            "life-span": {
+                "ended": null
+            }
+        },
+        {
+            "id": "ccfcd54f-ca1e-4733-a625-14b2fc01ec84",
+            "type": "Person",
+            "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+            "score": 75,
+            "gender-id": "93452b5a-a947-30c8-934f-6a4056b151c2",
+            "name": "Sumika Tsujimoto",
+            "sort-name": "Tsujimoto, Sumika",
+            "gender": "female",
+            "disambiguation": "Japanese saxophone player",
+            "life-span": {
+                "ended": null
+            }
+        },
+        {
+            "id": "a389a82a-816e-409a-a3fe-a224b578a227",
+            "type": "Person",
+            "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+            "score": 70,
+            "gender-id": "93452b5a-a947-30c8-934f-6a4056b151c2",
+            "name": "Anna Sumika Suzuki",
+            "sort-name": "Suzuki, Anna Sumika",
+            "gender": "female",
+            "country": "DE",
+            "area": {
+                "id": "85752fda-13c4-31a3-bee5-0e5cb1f51dad",
+                "type": "Country",
+                "type-id": "06dd0ae4-8c74-30bb-b43d-95dcedf961de",
+                "name": "Germany",
+                "sort-name": "Germany",
+                "life-span": {
+                    "ended": null
+                }
+            },
+            "disambiguation": "jazz singer and vocal educator based in Germany",
+            "life-span": {
+                "ended": null
+            }
+        }
+    ]
+}

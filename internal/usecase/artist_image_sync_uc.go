@@ -64,7 +64,7 @@ func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID,
 	}
 
 	now := uc.clock()
-	if err := uc.artistRepo.UpdateFanart(ctx, artistID, fanart, now); err != nil {
+	if err := uc.artistRepo.UpdateFanart(ctx, artistID, mbid, fanart, now); err != nil {
 		return fmt.Errorf("update fanart for artist %s: %w", artistID, err)
 	}
 

@@ -650,3 +650,38 @@ func TestClient_GetArtist_RetryOnServiceUnavailable(t *testing.T) {
 		assert.Equal(t, int32(2), calls.Load())
 	})
 }
+
+// @spec components/entity/artist/list-namesakes "No artist of that name"
+func TestClient_ListNamesakes_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"count":1,"offset":0,"artists":[{"id":"a74b1b7f-71a5-4011-9441-d0b5e4122711","name":"Radiohead"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	client := musicbrainz.NewClient(server.Client(), testLogger(t))
+	client.SetBaseURL(server.URL + "/")
+
+	got, err := client.ListNamesakes(context.Background(), "Radio")
+
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// @spec components/entity/artist/list-namesakes "Catalog unreachable"
+func TestClient_ListNamesakes_CatalogUnreachable(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	baseURL := server.URL + "/"
+	server.Close()
+
+	client := musicbrainz.NewClient(server.Client(), testLogger(t))
+	client.SetBaseURL(baseURL)
+
+	got, err := client.ListNamesakes(context.Background(), "Penthouse")
+
+	assert.ErrorIs(t, err, apperr.New(codes.Unavailable, "musicbrainz artist search failed"))
+	assert.Nil(t, got)
+}

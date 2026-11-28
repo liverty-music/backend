@@ -52,12 +52,13 @@ func TestReceivers_Protobuf(t *testing.T) {
 		assert.Error(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", list)))
 	})
 
-	// @spec components/usecase/artist/refresh "Artist announced"
-	t.Run("ARTIST.created refreshes the new Artist", func(t *testing.T) {
+	// @spec components/usecase/artist/verify-mbid "Artist announced"
+	t.Run("ARTIST.created verifies the new Artist's MBID", func(t *testing.T) {
 		t.Parallel()
 		artists := ucmocks.NewMockArtistUseCase(t)
-		// Refreshing the same Artist again stores the same name and status.
-		artists.EXPECT().Refresh(anyCtx, "artist-1", "11111111-1111-1111-1111-111111111111", "tuki.").Return(nil).Twice()
+		// A repeated delivery runs VerifyMBID again, which leaves an artist
+		// that is no longer Unverified unchanged.
+		artists.EXPECT().VerifyMBID(anyCtx, "artist-1").Return(nil).Twice()
 		consumer := event.NewArtistRefreshConsumer(artists, newTestLogger(t))
 
 		require.NoError(t, consumer.Handle(makeAnnouncementMsg(t, "announcement-1", "", newArtist)))

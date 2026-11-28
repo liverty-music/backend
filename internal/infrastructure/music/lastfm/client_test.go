@@ -3,6 +3,7 @@ package lastfm_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -191,9 +192,9 @@ func TestClient_ListSimilar(t *testing.T) {
 		want         want
 	}{
 		{
-			name: "success - returns similar artists by mbid",
+			name: "success - returns similar artists by listening mbid",
 			args: args{
-				artist: &entity.Artist{MBID: "test-mbid-123", Name: "Test Artist"},
+				artist: &entity.Artist{MBID: "test-mbid-123", ListeningMBID: "test-mbid-123", Name: "Test Artist"},
 			},
 			statusCode: http.StatusOK,
 			responseBody: newSimilarArtistsResponse([]artist{
@@ -204,6 +205,21 @@ func TestClient_ListSimilar(t *testing.T) {
 			want: want{
 				len:          2,
 				expectedName: "Artist 1",
+			},
+		},
+		{
+			// @spec components/entity/artist/list-similar "Corrected artist"
+			name: "success - a corrected artist is looked up by its listening mbid",
+			args: args{
+				artist: &entity.Artist{MBID: "corrected-mbid-b", ListeningMBID: "listening-mbid-a", Name: "sumika"},
+			},
+			statusCode: http.StatusOK,
+			responseBody: newSimilarArtistsResponse([]artist{
+				{Name: "Similar Artist", MBID: "similar-mbid"},
+			}),
+			want: want{
+				len:          1,
+				expectedName: "Similar Artist",
 			},
 		},
 		{
@@ -235,8 +251,9 @@ func TestClient_ListSimilar(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "artist.getsimilar", r.URL.Query().Get("method"))
-				if tt.args.artist.MBID != "" {
-					assert.Equal(t, tt.args.artist.MBID, r.URL.Query().Get("mbid"))
+				assert.NotEmpty(t, r.Header.Get("User-Agent"))
+				if tt.args.artist.ListeningMBID != "" {
+					assert.Equal(t, tt.args.artist.ListeningMBID, r.URL.Query().Get("mbid"))
 				} else {
 					assert.Equal(t, tt.args.artist.Name, r.URL.Query().Get("artist"))
 					assert.Empty(t, r.URL.Query().Get("mbid"))
@@ -461,4 +478,48 @@ func TestClient_RetryOnRateLimit(t *testing.T) {
 		assert.Equal(t, "The Beatles", artists[0].Name)
 		assert.Equal(t, int32(2), calls.Load())
 	})
+}
+
+// TestClient_ListSimilar_Limit checks how ListSimilar passes its limit to the
+// listening service and what it returns when the service lists nobody.
+func TestClient_ListSimilar_Limit(t *testing.T) {
+	t.Parallel()
+
+	many := make([]artist, 10)
+	for i := range many {
+		many[i] = artist{Name: fmt.Sprintf("Artist %d", i), MBID: fmt.Sprintf("mbid-%d", i)}
+	}
+	tests := []struct {
+		name      string
+		limit     int32
+		wantParam string
+		listed    []artist
+		wantLen   int
+	}{
+		// @spec components/entity/artist/list-similar "Limit given"
+		{name: "limit given", limit: 10, wantParam: "10", listed: many, wantLen: 10},
+		// @spec components/entity/artist/list-similar "No limit"
+		{name: "no limit", limit: 0, wantParam: "", listed: many, wantLen: 10},
+		// @spec components/entity/artist/list-similar "No similar artists"
+		{name: "no similar artists", limit: 10, wantParam: "10", listed: []artist{}, wantLen: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tt.wantParam, r.URL.Query().Get("limit"), "the limit is forwarded only when greater than 0")
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(newSimilarArtistsResponse(tt.listed))
+			}))
+			t.Cleanup(server.Close)
+			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
+			client.SetBaseURL(server.URL + "/")
+
+			got, err := client.ListSimilar(context.Background(),
+				&entity.Artist{Name: "Ado", MBID: "e134b52f-1e3b-4a0e-8bd2-0b2a2c4d3e7f", ListeningMBID: "ca195d97-30d9-4870-8a52-7fd3c2e175c3"}, tt.limit)
+
+			require.NoError(t, err)
+			assert.Len(t, got, tt.wantLen)
+		})
+	}
 }

@@ -1,41 +1,34 @@
 // Package lastfm provides a client for the Last.fm API.
 //
-// Usage Guidelines and Constraints (from Official Terms of Service):
+// Usage guidelines, from the API Terms of Service
+// (https://www.last.fm/api/tos) and the API introduction
+// (https://www.last.fm/api/intro), both read on 2026-11-28:
 //
-//  1. Attribution and Branding
-//     Any data retrieved from the Last.fm API (Artist names, Biographies, Images, etc.)
-//     must be accompanied by a clear credit to Last.fm. You must include a link
-//     back to the Last.fm website (last.fm) within the application UI.
+//  1. Non-commercial use only (ToS 3.1). Last.fm Data may be used solely for
+//     non-commercial purposes; commercial or research use needs Last.fm's
+//     approval first (partners@last.fm). Tracked in liverty-music/backend#953.
 //
-//  2. Commercial and Research Usage
-//     The API is primarily intended for non-commercial use. If Liverty Music is
-//     used for commercial purposes (e.g., advertising, subscriptions) or for
-//     academic research, you must contact partners@last.fm for prior approval
-//     before deployment.
+//  2. Storage (ToS 2.3). Last.fm Data may be accessed, retrieved, stored and
+//     used in accordance with the data protection law of the country we live
+//     in. The terms do not prohibit permanent storage.
 //
-//  3. Data Retention and Caching
-//     Permanent storage of Last.fm data to create a standalone database that
-//     substitutes for Last.fm's own services is strictly prohibited.
-//     Temporary caching is permitted for performance optimization, but a
-//     reasonable Time-To-Live (TTL) must be implemented to ensure data freshness.
+//  3. Caching (ToS 4.3). Responses are to be cached as the HTTP headers sent
+//     with them say. This client does not read those headers; ArtistUseCase
+//     caches each result for 6 hours.
 //
-//  4. Rate Limiting
-//     While no specific limit is quantified in the TOS, "reasonable usage" is
-//     required. A common best practice is to limit requests to approximately
-//     1 request per second. Excessive polling may lead to API key suspension.
+//  4. Rate limits (ToS 4.4). Last.fm sets and enforces limits at its sole
+//     discretion and publishes no number. The introduction warns that an
+//     account may be suspended when an application is "continuously making
+//     several calls per second" or makes excessive calls. This client
+//     throttles itself to one request every 200 ms (5 per second), the value
+//     chosen when it was written; ArtistUseCase caches results for 6 hours, so
+//     sustained traffic stays far below that.
 //
-//  5. User-Agent Header
-//     It is recommended to set a descriptive User-Agent header (e.g., "LivertyMusic/1.0.0")
-//     to identify your application. This helps Last.fm contact the developer
-//     in case of technical issues and prevents broad IP blocking.
+//  5. Attribution (ToS 2.7 and the preamble). Data shown to users credits
+//     Last.fm and links back to it.
 //
-//  6. Prohibited Activities
-//     - Audio Streaming: The API must not be used to stream music files. It is
-//     strictly for metadata and discovery.
-//     - Sublicensing: You may not redistribute or sublicense the data to third parties.
-//     - Impersonation: Do not use or spoof API keys belonging to other applications.
-//
-// For more details, refer to: https://www.last.fm/api/tos
+//  6. User-Agent (introduction). Every request sends an identifiable
+//     User-Agent header.
 package lastfm
 
 import (
@@ -96,8 +89,11 @@ type errorResponse struct {
 
 const (
 	baseURL = "https://ws.audioscrobbler.com/2.0/"
-	// Last.fm rate limit is 5 requests per second.
-	// We use 200ms interval to comply.
+	// userAgent identifies the application on every request, as the API
+	// introduction asks.
+	userAgent = "LivertyMusic/1.0.0 ( https://liverty-music.app )"
+	// Last.fm publishes no numeric rate limit (see the package comment); the
+	// client sends at most one request every 200 ms.
 	rateLimitInterval = 200 * time.Millisecond
 )
 
@@ -153,13 +149,16 @@ func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist, limit i
 	c.logger.Info(ctx, "listing similar artists",
 		slog.String("method", "artist.getsimilar"),
 		slog.String("artistName", artist.Name),
-		slog.String("mbid", artist.MBID),
+		slog.String("listening_mbid", artist.ListeningMBID),
 	)
 
+	// Last.fm files the artist under its listening MBID, which differs from
+	// its MBID when that was corrected to the right person's: Last.fm may not
+	// know the corrected one.
 	params := url.Values{}
 	params.Set("method", "artist.getsimilar")
-	if artist.MBID != "" {
-		params.Set("mbid", artist.MBID)
+	if artist.ListeningMBID != "" {
+		params.Set("mbid", artist.ListeningMBID)
 	} else {
 		params.Set("artist", artist.Name)
 	}
@@ -275,6 +274,7 @@ func (c *client) get(ctx context.Context, params url.Values, result any) error {
 	if err != nil {
 		return apperr.Wrap(err, codes.Internal, "failed to create lastfm request")
 	}
+	req.Header.Set("User-Agent", userAgent)
 
 	method := params.Get("method")
 

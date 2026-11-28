@@ -388,6 +388,74 @@ func (_c *MockArtistUseCase_List_Call) RunAndReturn(run func(ctx context.Context
 	return _c
 }
 
+// ListByMBIDStatus provides a mock function for the type MockArtistUseCase
+func (_mock *MockArtistUseCase) ListByMBIDStatus(ctx context.Context, status entity.MBIDStatus) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByMBIDStatus")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.MBIDStatus) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, status)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, entity.MBIDStatus) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, status)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, entity.MBIDStatus) error); ok {
+		r1 = returnFunc(ctx, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockArtistUseCase_ListByMBIDStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByMBIDStatus'
+type MockArtistUseCase_ListByMBIDStatus_Call struct {
+	*mock.Call
+}
+
+// ListByMBIDStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - status entity.MBIDStatus
+func (_e *MockArtistUseCase_Expecter) ListByMBIDStatus(ctx any, status any) *MockArtistUseCase_ListByMBIDStatus_Call {
+	return &MockArtistUseCase_ListByMBIDStatus_Call{Call: _e.mock.On("ListByMBIDStatus", ctx, status)}
+}
+
+func (_c *MockArtistUseCase_ListByMBIDStatus_Call) Run(run func(ctx context.Context, status entity.MBIDStatus)) *MockArtistUseCase_ListByMBIDStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 entity.MBIDStatus
+		if args[1] != nil {
+			arg1 = args[1].(entity.MBIDStatus)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_ListByMBIDStatus_Call) Return(artists []*entity.Artist, err error) *MockArtistUseCase_ListByMBIDStatus_Call {
+	_c.Call.Return(artists, err)
+	return _c
+}
+
+func (_c *MockArtistUseCase_ListByMBIDStatus_Call) RunAndReturn(run func(ctx context.Context, status entity.MBIDStatus) ([]*entity.Artist, error)) *MockArtistUseCase_ListByMBIDStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByOrganizer provides a mock function for the type MockArtistUseCase
 func (_mock *MockArtistUseCase) ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
 	ret := _mock.Called(ctx, organizerID)
@@ -803,6 +871,63 @@ func (_c *MockArtistUseCase_Search_Call) Return(artists []*entity.Artist, err er
 }
 
 func (_c *MockArtistUseCase_Search_Call) RunAndReturn(run func(ctx context.Context, query string) ([]*entity.Artist, error)) *MockArtistUseCase_Search_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// VerifyMBID provides a mock function for the type MockArtistUseCase
+func (_mock *MockArtistUseCase) VerifyMBID(ctx context.Context, artistID string) error {
+	ret := _mock.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VerifyMBID")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockArtistUseCase_VerifyMBID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VerifyMBID'
+type MockArtistUseCase_VerifyMBID_Call struct {
+	*mock.Call
+}
+
+// VerifyMBID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockArtistUseCase_Expecter) VerifyMBID(ctx any, artistID any) *MockArtistUseCase_VerifyMBID_Call {
+	return &MockArtistUseCase_VerifyMBID_Call{Call: _e.mock.On("VerifyMBID", ctx, artistID)}
+}
+
+func (_c *MockArtistUseCase_VerifyMBID_Call) Run(run func(ctx context.Context, artistID string)) *MockArtistUseCase_VerifyMBID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_VerifyMBID_Call) Return(err error) *MockArtistUseCase_VerifyMBID_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockArtistUseCase_VerifyMBID_Call) RunAndReturn(run func(ctx context.Context, artistID string) error) *MockArtistUseCase_VerifyMBID_Call {
 	_c.Call.Return(run)
 	return _c
 }

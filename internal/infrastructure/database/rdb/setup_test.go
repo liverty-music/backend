@@ -87,7 +87,7 @@ func seedArtist(t *testing.T, db *rdb.Database, name, mbid string) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
+		`INSERT INTO artists (id, name, mbid, listening_mbid) VALUES ($1, $2, $3, $3)`,
 		id, name, mbid,
 	)
 	require.NoError(t, err)
@@ -415,4 +415,13 @@ func storable(v *entity.Venue) *entity.Venue {
 		v.CoordinatesFetchTime = new(time.Now())
 	}
 	return v
+}
+
+// artistMBID returns the artist's current MBID, the one its images are
+// resolved for.
+func artistMBID(t *testing.T, db *rdb.Database, id string) string {
+	t.Helper()
+	var mbid string
+	require.NoError(t, db.Pool.QueryRow(context.Background(), `SELECT mbid FROM artists WHERE id = $1`, id).Scan(&mbid))
+	return mbid
 }

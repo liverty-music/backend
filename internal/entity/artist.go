@@ -24,13 +24,18 @@ type Artist struct {
 	ID string
 	// Name is the display name of the artist or band.
 	Name string
-	// MBID is the canonical MusicBrainz Identifier for identity normalization.
+	// MBID is the artist's own identifier in the music catalog
+	// (MusicBrainz). It differs from ListeningMBID when the listening service
+	// files the artist under a namesake's MBID and the MBID was corrected.
 	MBID string
-	// OtherMBIDs are the MBIDs the artist was corrected from: the music
-	// catalog's lookup by name returned a namesake's MBID, and a search that
-	// returns one of them finds this artist instead of registering a second
-	// one. Never the artist's own MBID.
-	OtherMBIDs []string
+	// ListeningMBID is the MBID the listening service (Last.fm) files the
+	// artist under: its name search, charts and similar artists return it,
+	// and its similar artists are looked up by it. It equals MBID until the
+	// MBID is corrected, and never changes.
+	ListeningMBID string
+	// MBIDStatus records whether MBID was checked against the music
+	// catalog's artists of the same name.
+	MBIDStatus MBIDStatus
 	// Fanart holds cached community-curated images from fanart.tv.
 	// nil when image data has not been fetched yet.
 	Fanart *Fanart
@@ -49,6 +54,27 @@ type Artist struct {
 	// OrganizerID is the Organizer that represents the artist; nil when no
 	// Organizer does. An artist has at most one.
 	OrganizerID *string
+}
+
+// MBIDStatus records whether an artist's MBID was checked against the music
+// catalog's artists of the same name.
+type MBIDStatus string
+
+const (
+	// MBIDStatusUnverified is an MBID not checked yet. A new artist starts in it.
+	MBIDStatusUnverified MBIDStatus = "unverified"
+	// MBIDStatusVerified is an MBID checked, automatically or by an admin.
+	MBIDStatusVerified MBIDStatus = "verified"
+	// MBIDStatusAmbiguous is an MBID whose check found namesakes it could not
+	// tell apart; an admin chooses the MBID.
+	MBIDStatusAmbiguous MBIDStatus = "ambiguous"
+)
+
+// IsOffered reports whether the artist may be offered to fans in name search,
+// charts and similar artists: its MBID is verified and its activity has not
+// ended.
+func (a *Artist) IsOffered() bool {
+	return a.MBIDStatus == MBIDStatusVerified && a.IsActive()
 }
 
 // IsActive reports whether the artist is still active, so that it is suggested,
@@ -111,13 +137,26 @@ const (
 	ArtistRefreshMaxConsecutiveFailures = 3
 )
 
-// NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
+// NewArtist creates a new Artist with an auto-generated UUIDv7 ID, found
+// under mbid: mbid is both its MBID and its ListeningMBID, and its MBID is
+// Unverified.
 func NewArtist(name, mbid string) *Artist {
 	return &Artist{
-		ID:   NewID(),
-		Name: name,
-		MBID: mbid,
+		ID:            NewID(),
+		Name:          name,
+		MBID:          mbid,
+		ListeningMBID: mbid,
+		MBIDStatus:    MBIDStatusUnverified,
 	}
+}
+
+// MBIDs returns the artist's listening MBID and, when it differs, its MBID:
+// every MBID the artist is found under.
+func (a *Artist) MBIDs() []string {
+	if a.ListeningMBID == "" || a.ListeningMBID == a.MBID {
+		return []string{a.MBID}
+	}
+	return []string{a.ListeningMBID, a.MBID}
 }
 
 // OfficialSite represents the verified official website or media link for an artist.
@@ -159,15 +198,17 @@ func ValidateOfficialSiteURL(raw string) error {
 	return nil
 }
 
-// MergeArtistsByMBID returns the artists to register from the given ones: one
-// per MBID, because one MBID is one artist, and of several given artists with
-// the same MBID the first (its name and id) wins. Nil entries are skipped. An
-// MBID that is already registered keeps its registered artist unchanged; the
-// repository's unique MBID index decides that.
+// MergeArtistsByMBID returns the artists to register from the given ones: no
+// two of them share an MBID, because one MBID is the MBID or the listening
+// MBID of one artist, and of several given artists that share one (in either
+// role) the first (its name and id) wins. Nil entries are skipped. An MBID
+// that is already registered keeps its registered artist unchanged; the
+// repository decides that.
 //
 // # Possible errors
 //
-//   - InvalidArgument: an artist has no MBID.
+//   - InvalidArgument: an artist has no MBID or no listening MBID, or one
+//     that is not 36 characters long.
 func MergeArtistsByMBID(artists []*Artist) ([]*Artist, error) {
 	seen := make(map[string]bool, len(artists))
 	merged := make([]*Artist, 0, len(artists))
@@ -175,16 +216,30 @@ func MergeArtistsByMBID(artists []*Artist) ([]*Artist, error) {
 		if a == nil {
 			continue
 		}
-		if a.MBID == "" {
-			return nil, apperr.New(codes.InvalidArgument, "all artists must have a non-empty MBID")
+		if len(a.MBID) != mbidLength || len(a.ListeningMBID) != mbidLength {
+			return nil, apperr.New(codes.InvalidArgument, "every artist needs an MBID and a listening MBID of 36 characters",
+				slog.String("mbid", a.MBID), slog.String("listening_mbid", a.ListeningMBID))
 		}
-		if seen[a.MBID] {
+		if seen[a.MBID] || seen[a.ListeningMBID] {
 			continue
 		}
 		seen[a.MBID] = true
+		seen[a.ListeningMBID] = true
 		merged = append(merged, a)
 	}
 	return merged, nil
+}
+
+// mbidLength is the length of an MBID, a UUID in its 36-character form.
+const mbidLength = 36
+
+// ValidateMBID checks that mbid is an MBID: a UUID of 36 characters. It fails
+// with InvalidArgument, which callers return as it is.
+func ValidateMBID(mbid string) error {
+	if len(mbid) != mbidLength {
+		return apperr.New(codes.InvalidArgument, "mbid must be a UUID of 36 characters", slog.String("mbid", mbid))
+	}
+	return nil
 }
 
 // FilterArtistsByMBID removes artists with an empty MBID and deduplicates the
@@ -217,17 +272,19 @@ func NewOfficialSite(artistID, url string) *OfficialSite {
 
 // ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
-	// Create registers every given artist whose MBID is not yet registered,
-	// as an artist's MBID or among its OtherMBIDs, and returns, for each given artist in input order, the registered
-	// artist with that MBID. An artist whose MBID is already registered is
+	// Create registers every given artist none of whose two MBIDs (MBID and
+	// ListeningMBID) is the MBID or listening MBID of a registered artist, and
+	// returns, for each given artist in input order, the registered artist
+	// found under either of its MBIDs. An artist found under an MBID is
 	// returned as registered, unchanged, and is not registered a second time.
 	// A new artist keeps the id it was given, or gets a fresh id when it has
-	// none. All of the new artists are registered or none of them.
+	// none, and is stored with its MBID, ListeningMBID, MBIDStatus and
+	// ActivityEnded. All of the new artists are registered or none of them.
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: an artist has no MBID or an MBID that is not 36
-	//     characters long. Nothing is registered.
+	//   - InvalidArgument: an artist has no MBID or no listening MBID, or one
+	//     that is not 36 characters long. Nothing is registered.
 	//   - Unavailable: an announcement could not be recorded; nothing is
 	//     registered.
 	//   - Internal: database connection or execution failure.
@@ -262,10 +319,10 @@ type ArtistRepository interface {
 	GetByMBID(ctx context.Context, mbid string) (*Artist, error)
 
 	// ListByMBIDs retrieves artists matching the provided MusicBrainz IDs, an
-	// MBID being the artist's own or one it was corrected from (OtherMBIDs).
-	// Returns only artists that exist in the database, each once, in the order
-	// of the first given MBID that finds it. Unknown MBIDs are silently
-	// skipped.
+	// MBID matching an artist's MBID or its ListeningMBID. Returns only artists
+	// that exist in the database, each once, in the order of the first given
+	// MBID that finds it, with their MBIDStatus and ActivityEnded. Unknown
+	// MBIDs are silently skipped.
 	//
 	// # Possible errors:
 	//
@@ -290,27 +347,52 @@ type ArtistRepository interface {
 	//   - Internal: database execution failure.
 	UpdateActivityEnded(ctx context.Context, id string, ended bool) error
 
-	// UpdateMBID replaces the MBID of the artist with the given id and adds the
-	// replaced MBID to its OtherMBIDs (the given MBID leaves them when it was
-	// one), so a later search that returns the replaced MBID finds this artist.
-	// In the same change it clears what was read from the replaced MBID's
-	// person: the images and their sync time, the official site, the official
-	// site check time, and the activity status (false). Given the artist's own
-	// MBID it changes nothing and succeeds. It checks and writes under the
-	// lock Create shares, so a registration cannot take the MBID in between.
+	// UpdateMBID sets, in one change, the MBID of the artist with the given id
+	// to mbid, its name to name, its activity status to activityEnded and its
+	// MBIDStatus to Verified, keeping its ListeningMBID, so the listening
+	// service's results still find the same artist. When the MBID changes, the
+	// same change clears what was read from the replaced MBID's person: the
+	// images and their sync time, the official site and the official site
+	// check time. Given the artist's own MBID it sets the name, the activity
+	// status and the MBIDStatus and clears nothing. It checks and writes under
+	// the lock Create shares, so a registration cannot take the MBID in
+	// between.
 	//
 	// # Possible errors:
 	//
 	//   - InvalidArgument: mbid is not 36 characters long.
 	//   - NotFound: no artist exists with the provided ID.
-	//   - AlreadyExists: another artist has the MBID as its MBID or among its
-	//     OtherMBIDs. Nothing changes.
+	//   - AlreadyExists: another artist has the MBID as its MBID or its
+	//     listening MBID. Nothing changes.
 	//   - Internal: database execution failure.
 	//
 	// # Announces
 	//
 	// Nothing.
-	UpdateMBID(ctx context.Context, id, mbid string) error
+	UpdateMBID(ctx context.Context, id, mbid, name string, activityEnded bool) error
+
+	// MarkMBIDAmbiguous sets the MBIDStatus of the artist with the given id to
+	// Ambiguous and changes nothing else. An artist already Ambiguous stays
+	// so.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// Nothing.
+	MarkMBIDAmbiguous(ctx context.Context, id string) error
+
+	// ListByMBIDStatus returns every artist whose MBIDStatus is status, in the
+	// order the artists were registered, oldest first. It is empty when no
+	// artist is in the status.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListByMBIDStatus(ctx context.Context, status MBIDStatus) ([]*Artist, error)
 
 	// ListRefreshDue returns every artist in one of slots equal shares of all
 	// registered artists, followed or not, ordered by id. An artist's share is
@@ -344,16 +426,19 @@ type ArtistRepository interface {
 
 	// Fanart operations
 
-	// UpdateFanart replaces the artist's fanart with the given fanart and
-	// sets the time of the image check to syncTime. When fanart is nil, the
-	// artist is left with no fanart, removing any earlier images, and the
-	// check time is still set.
+	// UpdateFanart replaces the artist's fanart with the given fanart, which
+	// was resolved for mbid, and sets the time of the image check to
+	// syncTime. When fanart is nil, the artist is left with no fanart,
+	// removing any earlier images, and the check time is still set. When the
+	// artist's MBID is no longer mbid (it was corrected after the images were
+	// resolved), nothing changes and it succeeds, so another person's images
+	// are never stored.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
-	UpdateFanart(ctx context.Context, id string, fanart *Fanart, syncTime time.Time) error
+	UpdateFanart(ctx context.Context, id, mbid string, fanart *Fanart, syncTime time.Time) error
 
 	// ListStaleOrMissingFanart returns the artists whose images are due for a
 	// check at now: artists never checked, whoever registered them, and
@@ -411,7 +496,8 @@ type ArtistSearcher interface {
 	//   - Internal: unexpected error during search processing.
 	Search(ctx context.Context, query string) ([]*Artist, error)
 
-	// ListSimilar retrieves artists with musical styles similar to the input artist.
+	// ListSimilar retrieves artists with musical styles similar to the input
+	// artist, identified by its ListeningMBID (by its name when it has none).
 	// When limit is greater than zero, the result is capped to that many entries;
 	// otherwise the external service's default is used.
 	//
@@ -442,6 +528,21 @@ type ArtistIdentityManager interface {
 	//   - NotFound: the MBID does not correspond to a valid artist record.
 	//   - Unavailable: identity provider service is down.
 	GetArtist(ctx context.Context, mbid string) (*Artist, error)
+}
+
+// NamesakeCatalog finds the music catalog's artists of one name.
+type NamesakeCatalog interface {
+	// ListNamesakes returns the catalog's artists whose name equals name,
+	// ignoring letter case, in the catalog's order, each once and without
+	// OfficialSiteURL. An artist whose name only resembles name is left out.
+	// It is empty when the catalog has no such artist.
+	//
+	// # Possible errors:
+	//
+	//   - Unavailable: the catalog cannot be reached or is rate-limiting
+	//     after retries.
+	//   - Internal: unexpected catalog response.
+	ListNamesakes(ctx context.Context, name string) ([]*CatalogArtist, error)
 }
 
 // OfficialSiteCatalog reads what an external catalog records about an

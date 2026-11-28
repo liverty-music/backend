@@ -29,13 +29,28 @@ func TestArtistRefreshConsumer_Handle(t *testing.T) {
 		artistUC := ucmocks.NewMockArtistUseCase(t)
 		handler := event.NewArtistRefreshConsumer(artistUC, newTestLogger(t))
 
-		artistUC.EXPECT().Refresh(anyCtx, "artist-2", "mbid-fail", "Some Artist").Return(fmt.Errorf("rate limited")).Once()
+		artistUC.EXPECT().VerifyMBID(anyCtx, "artist-2").Return(fmt.Errorf("rate limited")).Once()
 
 		msg := makeAnnouncementMsg(t, "announcement-1", "", newArtistAnnouncement("artist-2", "Some Artist", "mbid-fail"))
 
 		err := handler.Handle(msg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "handle ARTIST.created event")
+	})
+
+	t.Run("an artist Search registered verified is announced", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/artist/verify-mbid "Artist announced already verified"
+		// VerifyMBID runs for every announced artist; for one that is already
+		// Verified it changes nothing (covered by the usecase test "Already
+		// verified") and succeeds, so the delivery is acknowledged.
+		artistUC := ucmocks.NewMockArtistUseCase(t)
+		handler := event.NewArtistRefreshConsumer(artistUC, newTestLogger(t))
+		artistUC.EXPECT().VerifyMBID(anyCtx, "artist-3").Return(nil).Once()
+
+		err := handler.Handle(makeAnnouncementMsg(t, "announcement-2", "", newArtistAnnouncement("artist-3", "sumika", "bc731e96-0c06-4adf-b94b-ca636f48998a")))
+
+		assert.NoError(t, err)
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {

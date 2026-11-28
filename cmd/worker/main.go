@@ -2,8 +2,7 @@
 // durable workflows, their queues and their schedules (OpenSpec change
 // introduce-durable-workflows). Run with the arguments `workflow ...`, it is
 // instead the admin command that lists, resumes, forks and deletes workflows
-// (see workflow_command.go); run with `artist ...`, it corrects an artist's
-// MBID (see artist_command.go).
+// (see workflow_command.go).
 package main
 
 import (
@@ -30,9 +29,6 @@ const fallbackShutdownTimeout = 10 * time.Second
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "workflow" {
 		os.Exit(runWorkflowCommand(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "artist" {
-		os.Exit(runArtistCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	logger := di.NewBootstrapLogger()

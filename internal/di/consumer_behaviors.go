@@ -76,6 +76,14 @@ func newConsumerBuilder(ctx context.Context, cfg *config.ConsumerConfig, db *rdb
 	}, nil
 }
 
+// musicCatalog is what the consumer reads from the music catalog: an artist,
+// its official homepages and its namesakes (the MusicBrainz client).
+type musicCatalog interface {
+	entity.ArtistIdentityManager
+	entity.OfficialSiteCatalog
+	entity.NamesakeCatalog
+}
+
 // consumerUseCases are the usecases the event consumers call.
 type consumerUseCases struct {
 	notification       usecase.NotificationUseCase
@@ -106,14 +114,14 @@ func (b *consumerBuilder) behaviors() ([]behaviorEntry, []io.Closer, error) {
 }
 
 // useCases builds the usecases of the consumer.
-func (b *consumerBuilder) useCases(identities entity.ArtistIdentityManager, fanart entity.ArtistImageResolver) (consumerUseCases, error) {
+func (b *consumerBuilder) useCases(catalog musicCatalog, fanart entity.ArtistImageResolver) (consumerUseCases, error) {
 	logger := b.logger
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(b.ticketJourneyRepo, b.userRepo, b.concertRepo, b.followRepo, b.lotteryEntryRepo, b.orderRepo, b.ticketStockRepo, logger)
 
-	// The consumer calls only ArtistUseCase.Refresh, which needs the
-	// repository, the catalog and the clock; the chart lookups and their cache
-	// belong to the API server.
-	artistUC := usecase.NewArtistUseCase(b.artistRepo, nil, nil, identities, nil, time.Now, logger)
+	// The consumer calls only ArtistUseCase.VerifyMBID, which needs the
+	// repository and the catalog; the chart lookups and their cache belong to
+	// the API server.
+	artistUC := usecase.NewArtistUseCase(b.artistRepo, nil, nil, catalog, catalog, catalog, nil, time.Now, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(b.artistRepo, fanart, time.Now, logger)
 
 	concertUC := b.concertUseCase()

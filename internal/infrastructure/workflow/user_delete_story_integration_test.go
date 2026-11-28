@@ -72,7 +72,7 @@ func newDeletionStory(t *testing.T, apiClock usecase.Clock) *deletionStory {
 	fan, err := users.Create(ctx, storyFan("zitadel-fan-1"))
 	require.NoError(t, err)
 	artistID := entity.NewID()
-	_, err = db.Pool.Exec(ctx, `INSERT INTO artists (id, name, mbid) VALUES ($1, 'Story Artist', $2)`, artistID, entity.NewID())
+	_, err = db.Pool.Exec(ctx, `INSERT INTO artists (id, name, mbid, listening_mbid) VALUES ($1, 'Story Artist', $2, $2)`, artistID, entity.NewID())
 	require.NoError(t, err)
 	_, err = db.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, fan.ID, artistID)
 	require.NoError(t, err)

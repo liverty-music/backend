@@ -30,6 +30,7 @@ packages:
       IssuanceRepository: {}
       LotteryEntryRepository: {}
       LotteryLossEmailSender: {}
+      NamesakeCatalog: {}
       NotificationRepository: {}
       OfficialSiteCatalog: {}
       OrderMailer: {}
@@ -96,6 +97,7 @@ packages:
       AreaUseCase: {}
       ArtistImageSyncUseCase: {}
       ArtistUseCase: {}
+      CatalogArtistUseCase: {}
       CheckoutUseCase: {}
       ConcertCandidateUseCase: {}
       ConcertCreationUseCase: {}

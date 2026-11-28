@@ -42,7 +42,7 @@ func startSearchWorker(t *testing.T, search func(ctx context.Context, artistID s
 
 	artists := mocks.NewMockArtistRepository(t)
 	artists.EXPECT().Get(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, id string) (*entity.Artist, error) {
-		return &entity.Artist{ID: id, Name: id, MBID: "11111111-1111-1111-1111-111111111111"}, nil
+		return &entity.Artist{ID: id, Name: id, MBID: "11111111-1111-1111-1111-111111111111", ListeningMBID: "11111111-1111-1111-1111-111111111111"}, nil
 	}).Maybe()
 	artists.EXPECT().GetOfficialSite(mock.Anything, mock.Anything).Return(nil, apperr.ErrNotFound).Maybe()
 	searches := mocks.NewMockConcertSearchRepository(t)

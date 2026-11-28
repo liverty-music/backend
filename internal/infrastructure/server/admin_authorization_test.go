@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/artist/v1/artistv1connect"
+	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"connectrpc.com/connect/v2"
@@ -59,6 +61,9 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 	handlers := []server.RPCHandlerFunc{
 		func(s *connect.Server) {
 			artistv1connect.RegisterArtistServiceHandler(s, rpc.NewArtistHandler(artistUC, logger))
+		},
+		func(s *connect.Server) {
+			adminartistv1connect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(artistUC, logger))
 		},
 		func(s *connect.Server) {
 			adminconcertv1connect.RegisterConcertServiceHandler(s, rpc.NewAdminConcertHandler(concertUC, storage.NewSeriesImageURLBuilder(""), logger))
@@ -255,8 +260,10 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 
 		// RequireRoleInterceptor runs before request validation, so an empty
 		// (otherwise-invalid) CreateRequest still exercises the auth check
-		// this scenario verifies, without needing a valid Name/Mbid.
-		_, err := client.Create(context.Background(), &artistv1.CreateRequest{})
+		// this scenario verifies, without needing a valid Name/Mbid. Create is
+		// on the admin ArtistService.
+		adminClient := adminartistv1connect.NewArtistServiceClient(connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)))
+		_, err := adminClient.Create(context.Background(), &adminartistv1.CreateRequest{})
 		require.Error(t, err)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})

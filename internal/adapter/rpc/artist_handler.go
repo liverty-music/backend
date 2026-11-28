@@ -6,7 +6,6 @@ import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"github.com/liverty-music/backend/internal/adapter/pb"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -42,24 +41,6 @@ func (h *ArtistHandler) List(ctx context.Context, _ *rpc.ListRequest) (*rpc.List
 
 	return &rpc.ListResponse{
 		Artists: protoArtists,
-	}, nil
-}
-
-// Create registers a new musical performer or band in the system.
-func (h *ArtistHandler) Create(ctx context.Context, req *rpc.CreateRequest) (*rpc.CreateResponse, error) {
-	var mbid string
-	if req.Mbid != nil {
-		mbid = req.Mbid.Value
-	}
-	artist := entity.NewArtist(req.Name.Value, mbid)
-
-	created, err := h.artistUseCase.Create(ctx, artist)
-	if err != nil {
-		return nil, err
-	}
-
-	return &rpc.CreateResponse{
-		Artist: pb.FromArtist(created),
 	}, nil
 }
 
