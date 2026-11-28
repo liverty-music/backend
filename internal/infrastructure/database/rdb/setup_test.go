@@ -87,7 +87,7 @@ func seedArtist(t *testing.T, db *rdb.Database, name, mbid string) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
+		`INSERT INTO artists (id, name, mbid, listening_mbid) VALUES ($1, $2, $3, $3)`,
 		id, name, mbid,
 	)
 	require.NoError(t, err)

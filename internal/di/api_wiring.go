@@ -12,6 +12,7 @@ import (
 
 	adminareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/area/v1/areav1connect"
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/artist/v1/artistv1connect"
+	admincatalogartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/catalog_artist/v1/catalog_artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
 	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
@@ -184,6 +185,7 @@ type apiWiring struct {
 	// checkoutCardAuthorizations are the card authorizations of a checkout.
 	checkoutCardAuthorizations entity.CardAuthorizationRepository
 	artistUC                   usecase.ArtistUseCase
+	catalogArtistUC            usecase.CatalogArtistUseCase
 	organizerUC                usecase.OrganizerUseCase
 	seriesUC                   usecase.SeriesUseCase
 	identityVerificationUC     usecase.IdentityVerificationUseCase
@@ -263,7 +265,8 @@ func (w *apiWiring) buildCatalogue() error {
 		return err
 	}
 	w.concertCandidateUC = usecase.NewConcertCandidateUseCase(concertUC, w.mapCatalog)
-	w.artistUC = usecase.NewArtistUseCase(w.artistRepo, w.organizerRepo, lastfmClient, musicbrainzClient, w.artistCache, time.Now, logger)
+	w.artistUC = usecase.NewArtistUseCase(w.artistRepo, w.organizerRepo, lastfmClient, musicbrainzClient, musicbrainzClient, musicbrainzClient, w.artistCache, time.Now, logger)
+	w.catalogArtistUC = usecase.NewCatalogArtistUseCase(w.artistRepo, musicbrainzClient, musicbrainzClient, musicbrainzClient)
 	w.followUC = usecase.NewFollowUseCase(w.followRepo, w.artistRepo, musicbrainzClient, w.businessMetrics, logger)
 	w.externals = append(w.externals, lastfmClient, musicbrainzClient)
 	return nil
@@ -792,9 +795,15 @@ func (w *apiWiring) adminServer() *server.ConnectServer {
 		func(s *connect.Server) {
 			adminareaconnect.RegisterAreaServiceHandler(s, rpc.NewAdminAreaHandler(usecase.NewAreaUseCase(w.areaRepo)))
 		},
-		// Admin ArtistService: ListByOrganizer.
+		// Admin ArtistService: Get, ListByOrganizer, ListByMbidStatus,
+		// CorrectMbid.
 		func(s *connect.Server) {
 			adminartistconnect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(w.artistUC, logger))
+		},
+		// Admin CatalogArtistService: ListByArtist, the namesakes the Artist
+		// MBIDs screen offers.
+		func(s *connect.Server) {
+			admincatalogartistconnect.RegisterCatalogArtistServiceHandler(s, rpc.NewAdminCatalogArtistHandler(w.catalogArtistUC))
 		},
 		// Admin OfficialSiteService: Create, Update.
 		func(s *connect.Server) {

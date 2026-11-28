@@ -20,11 +20,17 @@ import (
 
 // ArtistUseCase defines the interface for artist-related business logic and orchestration.
 type ArtistUseCase interface {
-	// Create registers a new artist in the system, potentially normalizing their data from MusicBrainz.
+	// Create registers an artist under the music catalog's name for its MBID
+	// (the given name when the catalog lookup fails), with the MBID as both
+	// its MBID and its listening MBID, its MBID Verified (the caller, an
+	// admin, names it) and the activity status the lookup returned (false
+	// when it failed). It returns the registered artist, which is the already
+	// registered one when the MBID is known.
 	//
 	// # Possible errors:
 	//
-	//   - Internal: unexpected failure during creation or normalization.
+	//   - InvalidArgument: the MBID is not 36 characters long.
+	//   - Internal: unexpected failure during creation.
 	Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error)
 
 	// List retrieves all artists registered in the system database.
@@ -51,7 +57,11 @@ type ArtistUseCase interface {
 	//   - Internal: query failure.
 	GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error)
 
-	// Search finds artists matching the query, prioritizing external discovery services.
+	// Search finds the listening service's matches for the query and returns
+	// them as registered artists, only the ones offered to fans (Verified,
+	// activity not ended). A match not registered yet has its MBID decided
+	// as VerifyMBID decides it before it is registered; a match whose decision
+	// fails is registered Unverified and not returned.
 	//
 	// # Possible errors:
 	//
@@ -62,9 +72,11 @@ type ArtistUseCase interface {
 	//   - Internal: unexpected failure while persisting discovered artists.
 	Search(ctx context.Context, query string) ([]*entity.Artist, error)
 
-	// ListSimilar identifies artists with musical affinity to the target artist.
-	// When limit is greater than zero, the result is capped to that many entries;
-	// otherwise every artist of the 50-artist catalog lookup is returned.
+	// ListSimilar returns the artists the listening service lists as similar
+	// to the target artist (looked up by its listening MBID), only the ones
+	// offered to fans. When limit is greater than zero, the result is capped
+	// to that many entries; otherwise every offered artist of the 50-artist
+	// lookup is returned. Artists it registers are Unverified.
 	//
 	// # Possible errors:
 	//
@@ -72,9 +84,11 @@ type ArtistUseCase interface {
 	//   - Internal: service failure.
 	ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error)
 
-	// ListTop identifies trending or highly-rated artists, optionally filtered by country or genre tag.
-	// When limit is greater than zero, the result is capped to that many entries;
-	// otherwise the external service's default is used.
+	// ListTop returns the chart's artists, optionally filtered by country or
+	// genre tag, only the ones offered to fans. When limit is greater than
+	// zero, the chart lookup is capped to that many entries; otherwise the
+	// external service's default is used. Artists it registers are
+	// Unverified.
 	//
 	// # Possible errors:
 	//
@@ -103,39 +117,77 @@ type ArtistUseCase interface {
 	//   - Internal: unexpected failure.
 	Refresh(ctx context.Context, artistID, mbid, currentName string) error
 
-	// CorrectMBID fixes an artist registered with a namesake's MBID: it
-	// looks the MBID up in the music catalog, replaces the artist's MBID with
-	// the canonical MBID the catalog returns for it (the replaced one stays among its other MBIDs, so a search that still
-	// returns it finds this artist), and reads the artist again from the
-	// catalog so its name and activity status are the right person's. It
-	// returns the corrected artist. Calling it again with the artist's current
-	// MBID changes nothing stored and repeats the catalog read.
+	// CorrectMBID gives an artist the MBID an admin chose: it looks the MBID
+	// up in the music catalog and stores, with one write, the canonical MBID
+	// the catalog returns for it with the catalog's name (the current name
+	// when the catalog gives none) and activity status, marking the MBID
+	// Verified and keeping the listening MBID. It returns the corrected
+	// artist. It reads the catalog before storing anything, so every failure
+	// leaves the artist unchanged.
 	//
 	// # Possible errors:
 	//
 	//   - InvalidArgument: mbid is not 36 characters long.
 	//   - NotFound: the artist does not exist, or the catalog knows no artist
-	//     with the MBID. Nothing is stored.
+	//     with the MBID.
 	//   - AlreadyExists: another artist has the MBID.
-	//   - Unavailable: the catalog is down or rate-limited; when it fails
-	//     after the MBID was stored, the MBID stays.
+	//   - Unavailable: the catalog is down or rate-limited.
 	//   - Internal: unexpected failure.
 	CorrectMBID(ctx context.Context, artistID, mbid string) (*entity.Artist, error)
 
-	// RefreshDue runs one daily refresh: it refreshes, one at a time, every
-	// artist in today's slot of a 30-day rotation (the days from 1970-01-01 to
-	// today in Japan time, modulo 30), so every artist is read again once every
-	// 30 days. A failed artist does not stop the run, except that the run stops
-	// after 3 consecutive failures; it also stops when ctx is done.
+	// VerifyMBID checks an Unverified artist's MBID against the music
+	// catalog's artists of the same name (components/usecase/artist/
+	// verify-mbid): it marks the artist Verified with the catalog's name and
+	// activity status, corrects it to the one namesake with an official
+	// homepage, or marks it Ambiguous and logs an error so the owner is
+	// alerted. An artist that is not Unverified is left unchanged. A failed
+	// catalog read leaves the artist Unverified and unchanged.
 	//
 	// # Possible errors:
 	//
-	//   - Internal: listing the slot's artists failed.
+	//   - NotFound: the artist does not exist.
+	//   - Unavailable: the catalog is down or rate-limited.
+	//   - Internal: unexpected failure.
+	VerifyMBID(ctx context.Context, artistID string) error
+
+	// ListByMBIDStatus returns the artists whose MBID is in the status, the
+	// one registered first listed first.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListByMBIDStatus(ctx context.Context, status entity.MBIDStatus) ([]*entity.Artist, error)
+
+	// RefreshDue runs one daily refresh. It first verifies, one at a time and
+	// oldest first, the MBID of every Unverified artist; then it refreshes,
+	// one at a time, every artist in today's slot of a 30-day rotation (the
+	// days from 1970-01-01 to today in Japan time, modulo 30), so every
+	// artist is read again once every 30 days. A failed artist does not stop
+	// either part, except that each part stops after 3 consecutive failures;
+	// both stop when ctx is done.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: listing the Unverified artists or the slot's artists failed.
 	RefreshDue(ctx context.Context) (ArtistRefreshSummary, error)
 }
 
 // ArtistRefreshSummary reports what one daily RefreshDue run did.
 type ArtistRefreshSummary struct {
+	// Unverified is the number of Unverified artists listed for verification.
+	Unverified int
+	// VerifyAttempted is the number of artists the run tried to verify.
+	VerifyAttempted int
+	// Verified is the number of artists the run left Verified.
+	Verified int
+	// Ambiguous is the number of artists the run left Ambiguous.
+	Ambiguous int
+	// VerifyFailed is the number of artists whose verification failed; they
+	// stay Unverified.
+	VerifyFailed int
+	// VerifyCircuitBroken reports whether verification stopped after
+	// consecutive failures.
+	VerifyCircuitBroken bool
 	// Slot is the rotation slot the run refreshed.
 	Slot int
 	// Listed is the number of artists in the slot.
@@ -168,6 +220,8 @@ type artistUseCase struct {
 	organizerRepo  entity.OrganizerRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
+	officialSites  entity.OfficialSiteCatalog
+	namesakes      entity.NamesakeCatalog
 	cache          entity.Cache
 	clock          Clock
 	logger         *logging.Logger
@@ -177,12 +231,15 @@ type artistUseCase struct {
 var _ ArtistUseCase = (*artistUseCase)(nil)
 
 // NewArtistUseCase creates a new instance of the artist business logic handler.
-// clock gives the day RefreshDue refreshes.
+// officialSites and namesakes are the music catalog's reads VerifyMBID and
+// Search decide MBIDs with; clock gives the day RefreshDue refreshes.
 func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
 	organizerRepo entity.OrganizerRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
+	officialSites entity.OfficialSiteCatalog,
+	namesakes entity.NamesakeCatalog,
 	cache entity.Cache,
 	clock Clock,
 	logger *logging.Logger,
@@ -192,6 +249,8 @@ func NewArtistUseCase(
 		organizerRepo:  organizerRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
+		officialSites:  officialSites,
+		namesakes:      namesakes,
 		cache:          cache,
 		clock:          clock,
 		logger:         logger,
@@ -200,18 +259,28 @@ func NewArtistUseCase(
 
 // Create creates a new artist.
 func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error) {
+	if err := entity.ValidateMBID(artist.MBID); err != nil {
+		return nil, err
+	}
 	// Normalize artist name using MBID
-	if artist.MBID != "" {
-		mbArtist, err := uc.idManager.GetArtist(ctx, artist.MBID)
-		if err != nil {
-			// Log warning but proceed with provided name if normalization fails
-			uc.logger.Warn(ctx, "failed to normalize artist name from MBID", slog.String("mbid", artist.MBID), slog.Any("error", err))
-		} else if artist.Name != mbArtist.Name {
+	artist.ActivityEnded = false
+	mbArtist, err := uc.idManager.GetArtist(ctx, artist.MBID)
+	if err != nil {
+		// Log warning but proceed with provided name if normalization fails
+		uc.logger.Warn(ctx, "failed to normalize artist name from MBID", slog.String("mbid", artist.MBID), slog.Any("error", err))
+	} else {
+		artist.ActivityEnded = mbArtist.ActivityEnded
+		if artist.Name != mbArtist.Name {
 			// Update name to canonical name from MusicBrainz
 			artist.Name = mbArtist.Name
 			artist.MBID = mbArtist.MBID // Ensure MBID is set from canonical source
 		}
 	}
+
+	// The caller (an admin, the only one offered Create) names the MBID, so
+	// it is not checked against namesakes; its announcement verifies nothing.
+	artist.ListeningMBID = artist.MBID
+	artist.MBIDStatus = entity.MBIDStatusVerified
 
 	created, err := uc.artistRepo.Create(ctx, artist)
 	if err != nil {
@@ -254,7 +323,7 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	cacheKey := fmt.Sprintf("search:%s", hashString(query))
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			return artists, nil
+			return uc.offeredNow(ctx, artists)
 		}
 	}
 
@@ -274,29 +343,57 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 		return nil, apperr.New(codes.NotFound, "no artists found")
 	}
 
-	// Persist artists to ensure stable database IDs.
-	persisted, err := uc.persistArtists(ctx, filtered)
+	// Persist artists to ensure stable database IDs, deciding the MBID of
+	// each new match first so a first search returns verified artists.
+	persisted, err := uc.persistArtists(ctx, filtered, uc.decideBeforeRegistering)
 	if err != nil {
 		return nil, err
 	}
 
-	// Store in cache
+	// The cache keeps the artists not offered to fans: a later call reads
+	// their status again.
 	uc.cache.Set(cacheKey, persisted)
 
-	return persisted, nil
+	return offered(persisted), nil
+}
+
+// decideBeforeRegistering decides the MBID of each artist about to be
+// registered by Search: a Verified artist takes the decided MBID and the
+// catalog's name and activity status, keeping its listening MBID; an
+// Ambiguous one is logged; one whose decision fails stays Unverified.
+func (uc *artistUseCase) decideBeforeRegistering(ctx context.Context, artists []*entity.Artist) {
+	for _, a := range artists {
+		decision, err := uc.decideMBID(ctx, a.Name, a.MBID)
+		if err != nil {
+			uc.logger.Warn(ctx, "could not verify the MBID of a new search match; registering it unverified",
+				slog.String("artist_name", a.Name),
+				slog.String("mbid", a.MBID),
+				slog.Any("error", err),
+			)
+			continue
+		}
+		a.MBIDStatus = decision.status
+		if decision.status == entity.MBIDStatusAmbiguous {
+			uc.logAmbiguous(ctx, a.ID, a.Name, decision)
+			continue
+		}
+		a.MBID = decision.mbid
+		a.Name = decision.name
+		a.ActivityEnded = decision.activityEnded
+	}
 }
 
 // ListSimilar retrieves artists similar to a specified artist.
 // The catalog is asked for similarLookupLimit artists once per artist and the
 // result is cached under the artist id alone, so calls with any limit share it.
-// Each call leaves out the artists whose activity has ended and returns the
-// first limit of the rest, or all of them when limit is 0.
+// Each call leaves out the artists not offered to fans and returns the first
+// limit of the rest, or all of them when limit is 0.
 // Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
 	cacheKey := fmt.Sprintf("similar:%s", artistID)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			active, err := uc.withoutEndedNow(ctx, artists)
+			active, err := uc.offeredNow(ctx, artists)
 			if err != nil {
 				return nil, err
 			}
@@ -319,16 +416,17 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 	filtered := entity.FilterArtistsByMBID(artists)
 
 	// Persist via read-then-write helper.
-	persisted, err := uc.persistArtists(ctx, filtered)
+	persisted, err := uc.persistArtists(ctx, filtered, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cache the full lookup so a later call with a larger limit is served too.
-	// The cache keeps the ended artists: a later call reads their status again.
+	// The cache keeps the artists not offered to fans: a later call reads
+	// their status again.
 	uc.cache.Set(cacheKey, persisted)
 
-	return firstN(withoutEnded(persisted), limit), nil
+	return firstN(offered(persisted), limit), nil
 }
 
 // firstN returns the first n artists, or all of them when n is 0 or exceeds
@@ -341,7 +439,7 @@ func firstN(artists []*entity.Artist, n int32) []*entity.Artist {
 	return artists[:n:n]
 }
 
-// ListTop retrieves popular artists, leaving out those whose activity has ended.
+// ListTop retrieves popular artists, leaving out those not offered to fans.
 // Results are cached to reduce external API calls.
 // Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
@@ -349,7 +447,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	cacheKey := fmt.Sprintf("top:%s:%s:%d", country, tag, limit)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
-			return uc.withoutEndedNow(ctx, artists)
+			return uc.offeredNow(ctx, artists)
 		}
 	}
 
@@ -363,64 +461,65 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	filtered := entity.FilterArtistsByMBID(artists)
 
 	// Persist via read-then-write helper.
-	persisted, err := uc.persistArtists(ctx, filtered)
+	persisted, err := uc.persistArtists(ctx, filtered, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Store in cache. The cache keeps the ended artists: a later call reads
-	// their status again.
+	// Store in cache. The cache keeps the artists not offered to fans: a
+	// later call reads their status again.
 	uc.cache.Set(cacheKey, persisted)
 
-	return withoutEnded(persisted), nil
+	return offered(persisted), nil
 }
 
-// withoutEnded returns the artists whose activity has not ended, in order.
-func withoutEnded(artists []*entity.Artist) []*entity.Artist {
+// offered returns the artists offered to fans (Verified, activity not ended),
+// in order.
+func offered(artists []*entity.Artist) []*entity.Artist {
 	result := make([]*entity.Artist, 0, len(artists))
 	for _, a := range artists {
-		if a.IsActive() {
+		if a.IsOffered() {
 			result = append(result, a)
 		}
 	}
 	return result
 }
 
-// withoutEndedNow returns the artists of an earlier result whose activity has
-// not ended by now, in order, reading their current status with one
-// ListByMBIDs call. The earlier result's artists are returned as they were.
-func (uc *artistUseCase) withoutEndedNow(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
+// offeredNow returns the artists of an earlier result that are offered to
+// fans by now, in order, as they are now: it reads them again with one
+// ListByMBIDs call by their listening MBIDs, which never change.
+func (uc *artistUseCase) offeredNow(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
 	if len(artists) == 0 {
 		return []*entity.Artist{}, nil
 	}
 	mbids := make([]string, len(artists))
 	for i, a := range artists {
-		mbids[i] = a.MBID
+		mbids[i] = a.ListeningMBID
 	}
 	current, err := uc.artistRepo.ListByMBIDs(ctx, mbids)
 	if err != nil {
 		return nil, err
 	}
-	ended := make(map[string]bool, len(current))
+	byID := make(map[string]*entity.Artist, len(current))
 	for _, a := range current {
-		if !a.IsActive() {
-			ended[a.MBID] = true
-		}
+		byID[a.ID] = a
 	}
 	result := make([]*entity.Artist, 0, len(artists))
 	for _, a := range artists {
-		if !ended[a.MBID] {
-			result = append(result, a)
+		if now, ok := byID[a.ID]; ok && now.IsOffered() {
+			result = append(result, now)
 		}
 	}
 	return result, nil
 }
 
-// persistArtists looks up existing artists by MBID (an artist's own or one it
-// was corrected from), creates only missing ones, and returns the artists in
-// the original input order, each once. All input artists must
-// have a non-empty MBID (caller responsibility).
-func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
+// persistArtists looks up existing artists by MBID (an artist's MBID or its
+// listening MBID), creates only missing ones, and returns the artists in the
+// original input order, each once. When decide is not nil it is given the
+// missing artists to settle their MBIDs before they are created. All input
+// artists must have a non-empty listening MBID, the MBID the listening
+// service returned (caller responsibility).
+func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) ([]*entity.Artist, error) {
 	if len(artists) == 0 {
 		return []*entity.Artist{}, nil
 	}
@@ -430,9 +529,11 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	span.SetAttributes(attribute.Int("persist.input_count", len(artists)))
 
 	// Step 1: Collect MBIDs.
+	// A match is keyed by its listening MBID, the MBID the listening
+	// service returned, which deciding its MBID does not change.
 	mbids := make([]string, len(artists))
 	for i, a := range artists {
-		mbids[i] = a.MBID
+		mbids[i] = a.ListeningMBID
 	}
 
 	// Step 2: Read existing.
@@ -447,12 +548,15 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	// Step 3: Determine missing.
 	var missing []*entity.Artist
 	for _, a := range artists {
-		if _, ok := existingSet[a.MBID]; !ok {
+		if _, ok := existingSet[a.ListeningMBID]; !ok {
 			missing = append(missing, a)
 		}
 	}
 
 	// Step 4: Create missing.
+	if len(missing) > 0 && decide != nil {
+		decide(ctx, missing)
+	}
 	if len(missing) > 0 {
 		created, err := uc.artistRepo.Create(ctx, missing...)
 		if err != nil {
@@ -469,7 +573,7 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	result := make([]*entity.Artist, 0, len(artists))
 	listed := make(map[string]bool, len(artists))
 	for _, a := range artists {
-		if persisted, ok := existingSet[a.MBID]; ok && !listed[persisted.ID] {
+		if persisted, ok := existingSet[a.ListeningMBID]; ok && !listed[persisted.ID] {
 			listed[persisted.ID] = true
 			result = append(result, persisted)
 		}
@@ -478,14 +582,12 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	return result, nil
 }
 
-// indexByMBIDs adds each artist to index under its MBID and under every MBID
-// it was corrected from, so a match under either finds it.
+// indexByMBIDs adds each artist to index under its MBID and its listening
+// MBID, so a match under either finds it.
 func indexByMBIDs(index map[string]*entity.Artist, artists []*entity.Artist) {
 	for _, a := range artists {
 		index[a.MBID] = a
-		for _, other := range a.OtherMBIDs {
-			index[other] = a
-		}
+		index[a.ListeningMBID] = a
 	}
 }
 
@@ -517,8 +619,8 @@ type artistRefreshOutcome struct {
 
 // CorrectMBID implements [ArtistUseCase].
 func (uc *artistUseCase) CorrectMBID(ctx context.Context, artistID, mbid string) (*entity.Artist, error) {
-	if len(mbid) != 36 {
-		return nil, apperr.New(codes.InvalidArgument, "mbid must be a UUID of 36 characters", slog.String("mbid", mbid))
+	if err := entity.ValidateMBID(mbid); err != nil {
+		return nil, err
 	}
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
@@ -535,10 +637,11 @@ func (uc *artistUseCase) CorrectMBID(ctx context.Context, artistID, mbid string)
 		return nil, apperr.New(codes.Internal, "the catalog returned no MBID", slog.String("mbid", mbid))
 	}
 	canonical := catalog.MBID
-	if err := uc.artistRepo.UpdateMBID(ctx, artistID, canonical); err != nil {
-		return nil, err
+	name := catalog.Name
+	if name == "" {
+		name = artist.Name
 	}
-	if _, err := uc.refresh(ctx, artistID, canonical, artist.Name); err != nil {
+	if err := uc.artistRepo.UpdateMBID(ctx, artistID, canonical, name, catalog.ActivityEnded); err != nil {
 		return nil, err
 	}
 	uc.logger.Info(ctx, "artist mbid corrected",
@@ -597,6 +700,51 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 	return outcome, nil
 }
 
+// verifyUnverified verifies, one at a time and oldest first, every Unverified
+// artist, recording the outcome in summary. It stops after
+// entity.ArtistRefreshMaxConsecutiveFailures failures in a row and when ctx is
+// done; a failed artist stays Unverified for the next run.
+func (uc *artistUseCase) verifyUnverified(ctx context.Context, summary *ArtistRefreshSummary) error {
+	artists, err := uc.artistRepo.ListByMBIDStatus(ctx, entity.MBIDStatusUnverified)
+	if err != nil {
+		return fmt.Errorf("list unverified artists: %w", err)
+	}
+	summary.Unverified = len(artists)
+
+	var consecutiveFailures int
+	for _, artist := range artists {
+		if ctx.Err() != nil {
+			return nil
+		}
+		summary.VerifyAttempted++
+		status, err := uc.verifyMBID(ctx, artist.ID)
+		if err != nil {
+			summary.VerifyFailed++
+			consecutiveFailures++
+			uc.logger.Error(ctx, "failed to verify artist MBID", err,
+				slog.String("artist_id", artist.ID),
+				slog.String("artist_name", artist.Name),
+			)
+			if consecutiveFailures >= entity.ArtistRefreshMaxConsecutiveFailures {
+				summary.VerifyCircuitBroken = true
+				uc.logger.Error(ctx, "circuit breaker activated: stopping MBID verification after consecutive failures", nil,
+					slog.Int("consecutive_failures", consecutiveFailures),
+				)
+				return nil
+			}
+			continue
+		}
+		consecutiveFailures = 0
+		switch status {
+		case entity.MBIDStatusVerified:
+			summary.Verified++
+		case entity.MBIDStatusAmbiguous:
+			summary.Ambiguous++
+		}
+	}
+	return nil
+}
+
 // artistRefreshSlot returns the rotation slot of the day of now in Japan time:
 // the whole days from 1970-01-01 to that day, modulo entity.ArtistRefreshSlots.
 func artistRefreshSlot(now time.Time) int {
@@ -611,6 +759,10 @@ func artistRefreshSlot(now time.Time) int {
 // RefreshDue implements [ArtistUseCase].
 func (uc *artistUseCase) RefreshDue(ctx context.Context) (ArtistRefreshSummary, error) {
 	summary := ArtistRefreshSummary{Slot: artistRefreshSlot(uc.clock())}
+
+	if err := uc.verifyUnverified(ctx, &summary); err != nil {
+		return summary, err
+	}
 
 	artists, err := uc.artistRepo.ListRefreshDue(ctx, entity.ArtistRefreshSlots, summary.Slot)
 	if err != nil {

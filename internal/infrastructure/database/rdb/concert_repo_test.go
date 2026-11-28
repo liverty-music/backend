@@ -64,7 +64,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	setupFixtures := func(t *testing.T) {
 		t.Helper()
 		cleanTables(t, db)
-		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
 		{
 			_, cErr := venueRepo.Create(ctx, storable(&entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
@@ -401,7 +401,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		artistB := "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"
 		_, err := artistRepo.Create(ctx, &entity.Artist{
 			ID: artistB, Name: "Co-Headliner B",
-			MBID: "bbbbbbbb-bbbb-bbbb-bbbb-f0e74f1b49a2",
+			MBID: "bbbbbbbb-bbbb-bbbb-bbbb-f0e74f1b49a2", ListeningMBID: "bbbbbbbb-bbbb-bbbb-bbbb-f0e74f1b49a2",
 		})
 		require.NoError(t, err)
 
@@ -524,9 +524,9 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	concertDate, _ := time.Parse("2006-01-02", "2026-07-04")
 
 	_, err := artistRepo.Create(ctx,
-		&entity.Artist{ID: headliner, Name: "Headliner Band", MBID: "11111111-2222-3333-4444-555555555aaa"},
-		&entity.Artist{ID: support, Name: "Support Act", MBID: "22222222-3333-4444-5555-666666666bbb"},
-		&entity.Artist{ID: opener, Name: "Opening Act", MBID: "33333333-4444-5555-6666-777777777ccc"},
+		&entity.Artist{ID: headliner, Name: "Headliner Band", MBID: "11111111-2222-3333-4444-555555555aaa", ListeningMBID: "11111111-2222-3333-4444-555555555aaa"},
+		&entity.Artist{ID: support, Name: "Support Act", MBID: "22222222-3333-4444-5555-666666666bbb", ListeningMBID: "22222222-3333-4444-5555-666666666bbb"},
+		&entity.Artist{ID: opener, Name: "Opening Act", MBID: "33333333-4444-5555-6666-777777777ccc", ListeningMBID: "33333333-4444-5555-6666-777777777ccc"},
 	)
 	require.NoError(t, err)
 	{
@@ -589,7 +589,7 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 
 	_, err := artistRepo.Create(ctx, &entity.Artist{
 		ID: artistID, Name: "Shared Artist",
-		MBID: "44444444-5555-6666-7777-888888888ddd",
+		MBID: "44444444-5555-6666-7777-888888888ddd", ListeningMBID: "44444444-5555-6666-7777-888888888ddd",
 	})
 	require.NoError(t, err)
 	{
@@ -719,7 +719,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cleanTables(t, db)
 
-			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
+			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 			_, err := artistRepo.Create(ctx, artist)
 			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -754,12 +754,12 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	testArtist1 := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
 		Name: "List Test Band 1",
-		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a2",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a2", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a2",
 	}
 	testArtist2 := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
 		Name: "List Test Band 2",
-		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a3",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a3", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a3",
 	}
 	testVenue := &entity.Venue{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
@@ -950,7 +950,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	t.Run("NULL listed_venue_name is scanned to nil without error", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -983,7 +983,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	t.Run("non-NULL listed_venue_name is persisted and retrieved correctly", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -1027,8 +1027,8 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	t.Run("returns concerts for multiple artists with coordinates", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6001", Name: "Multi Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001"}
-		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6002", Name: "Multi Band 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002"}
+		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6001", Name: "Multi Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001"}
+		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6002", Name: "Multi Band 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002"}
 		_, err := artistRepo.Create(ctx, artist1)
 		require.NoError(t, err)
 		_, err = artistRepo.Create(ctx, artist2)
@@ -1095,7 +1095,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	t.Run("venue without coordinates returns nil Coordinates", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6003", Name: "No Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6003", Name: "No Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003"}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 
@@ -1146,8 +1146,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5011", Name: "Followed Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5011"}
-		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5012", Name: "Unfollowed Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5012"}
+		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5011", Name: "Followed Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5011", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5011"}
+		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5012", Name: "Unfollowed Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5012", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5012"}
 		_, err = artistRepo.Create(ctx, artist1)
 		require.NoError(t, err)
 		_, err = artistRepo.Create(ctx, artist2)
@@ -1208,7 +1208,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5013", Name: "Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5013"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5013", Name: "Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5013", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5013"}
 		_, err = artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 
@@ -1271,7 +1271,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5014", Name: "Date Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5014"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5014", Name: "Date Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5014", ListeningMBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5014"}
 		_, err = artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 
@@ -1442,7 +1442,8 @@ func TestConcertRepository_List(t *testing.T) {
 		cleanTables(t, db)
 
 		artistID := newTestID(t)
-		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "List Test Band", MBID: newTestID(t)})
+		mbid := newTestID(t)
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "List Test Band", MBID: mbid, ListeningMBID: mbid})
 		require.NoError(t, err)
 		venueID := newTestID(t)
 		{
@@ -1495,7 +1496,8 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 	t.Run("overwrites listed_venue_name on an existing event", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist := &entity.Artist{ID: newTestID(t), Name: "Adopt Test Band", MBID: newTestID(t)}
+		mbid := newTestID(t)
+		artist := &entity.Artist{ID: newTestID(t), Name: "Adopt Test Band", MBID: mbid, ListeningMBID: mbid}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: newTestID(t), Name: "Adopt Test Arena"}
@@ -1545,7 +1547,8 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 	t.Run("events are ordered by date then start time, NULLs last", func(t *testing.T) {
 		cleanTables(t, db)
 
-		artist := &entity.Artist{ID: newTestID(t), Name: "List Events Band", MBID: newTestID(t)}
+		mbid := newTestID(t)
+		artist := &entity.Artist{ID: newTestID(t), Name: "List Events Band", MBID: mbid, ListeningMBID: mbid}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: newTestID(t), Name: "List Events Arena"}

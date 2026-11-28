@@ -534,7 +534,7 @@ func TestArtistUseCase_ListByOrganizer(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			got, err := usecase.NewArtistUseCase(nil, d.orgRepo, nil, nil, nil, time.Now, newTestLogger(t)).ListByOrganizer(ctx, tt.organizerID)
+			got, err := usecase.NewArtistUseCase(nil, d.orgRepo, nil, nil, nil, nil, nil, time.Now, newTestLogger(t)).ListByOrganizer(ctx, tt.organizerID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

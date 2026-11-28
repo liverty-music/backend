@@ -19,7 +19,7 @@ import (
 // against the given mocks and clock.
 func newRefreshUseCase(t *testing.T, repo *mocks.MockArtistRepository, idManager *mocks.MockArtistIdentityManager, clock usecase.Clock) usecase.ArtistUseCase {
 	t.Helper()
-	return usecase.NewArtistUseCase(repo, nil, nil, idManager, nil, clock, newTestLogger(t))
+	return usecase.NewArtistUseCase(repo, nil, nil, idManager, nil, nil, nil, clock, newTestLogger(t))
 }
 
 func TestArtistUseCase_Refresh(t *testing.T) {
@@ -157,6 +157,7 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		uc := newRefreshUseCase(t, repo, idManager, func() time.Time { return runTime })
 		artist := &entity.Artist{ID: "artist-1", Name: "The Band", MBID: "mbid-1"}
 
+		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, 7).Return([]*entity.Artist{artist}, nil).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-1").Return(&entity.Artist{Name: "The Band", MBID: "mbid-1", ActivityEnded: true}, nil).Once()
 		repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", true).Return(nil).Once()
@@ -178,6 +179,7 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		// Every artist sits in exactly one slot (ListRefreshDue's promise); the
 		// run must visit each of the 30 slots once over 30 consecutive days.
 		visited := map[int]int{}
+		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).
 			RunAndReturn(func(_ context.Context, _, slot int) ([]*entity.Artist, error) {
 				visited[slot]++
@@ -207,6 +209,7 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		for i := range artists {
 			artists[i] = &entity.Artist{ID: fmt.Sprintf("artist-%d", i), Name: fmt.Sprintf("Band %d", i), MBID: fmt.Sprintf("mbid-%d", i)}
 		}
+		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return(artists, nil).Once()
 		// The first three lookups fail; no name or status is written for them,
 		// and the last two artists are never looked up.
@@ -231,6 +234,7 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 
 		failing := &entity.Artist{ID: "artist-0", Name: "Band 0", MBID: "mbid-0"}
 		renamed := &entity.Artist{ID: "artist-1", Name: "band 1", MBID: "mbid-1"}
+		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{failing, renamed}, nil).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-0").Return(nil, apperr.ErrUnavailable).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-1").Return(&entity.Artist{Name: "Band 1", MBID: "mbid-1"}, nil).Once()
@@ -251,6 +255,7 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		uc := newRefreshUseCase(t, repo, mocks.NewMockArtistIdentityManager(t), time.Now)
 
+		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return(nil, apperr.ErrInternal).Once()
 
 		_, err := uc.RefreshDue(t.Context())

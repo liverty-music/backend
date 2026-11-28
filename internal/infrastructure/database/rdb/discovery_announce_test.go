@@ -38,7 +38,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 		mbid := uuid.NewV7().String()
 		mark := outboxMark(t, db)
 
-		got, err := repo.Create(ctx, &entity.Artist{Name: "New Band", MBID: mbid})
+		got, err := repo.Create(ctx, &entity.Artist{Name: "New Band", MBID: mbid, ListeningMBID: mbid})
 
 		require.NoError(t, err)
 		announced := createdOf(t, mark, mbid)
@@ -49,11 +49,11 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 	t.Run("known MBID", func(t *testing.T) {
 		// @spec components/entity/artist/create "Known MBID"
 		mbid := uuid.NewV7().String()
-		first, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid})
+		first, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid, ListeningMBID: mbid})
 		require.NoError(t, err)
 		mark := outboxMark(t, db)
 
-		got, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid})
+		got, err := repo.Create(ctx, &entity.Artist{Name: "Known Band", MBID: mbid, ListeningMBID: mbid})
 
 		require.NoError(t, err)
 		assert.Equal(t, first[0].ID, got[0].ID)
@@ -68,7 +68,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 		var wg sync.WaitGroup
 		for range 2 {
 			wg.Go(func() {
-				_, err := repo.Create(ctx, &entity.Artist{Name: "Raced Band", MBID: mbid})
+				_, err := repo.Create(ctx, &entity.Artist{Name: "Raced Band", MBID: mbid, ListeningMBID: mbid})
 				assert.NoError(t, err)
 			})
 		}
@@ -82,7 +82,7 @@ func TestArtistRepository_CreateAnnounces(t *testing.T) {
 		// @spec components/entity/artist/create "Announcement cannot be recorded"
 		mbid := uuid.NewV7().String()
 
-		_, err := rdb.NewArtistRepository(db, failingOutbox{}).Create(ctx, &entity.Artist{Name: "Lost Band", MBID: mbid})
+		_, err := rdb.NewArtistRepository(db, failingOutbox{}).Create(ctx, &entity.Artist{Name: "Lost Band", MBID: mbid, ListeningMBID: mbid})
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		assert.Zero(t, registered(t, mbid))

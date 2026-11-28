@@ -57,9 +57,9 @@ func InitializeArtistRefreshJobApp(ctx context.Context) (*ArtistRefreshJobApp, e
 	musicbrainzClient := musicbrainz.NewClient(extHTTPClient, logger)
 
 	// Use Cases. The job calls only ArtistUseCase.RefreshDue, which needs the
-	// repository, the catalog and the clock; the chart lookups and their
-	// cache belong to the API server.
-	artistUC := usecase.NewArtistUseCase(artistRepo, nil, nil, musicbrainzClient, nil, time.Now, logger)
+	// repository, the catalog (for MBID verification and the refresh) and the
+	// clock; the chart lookups and their cache belong to the API server.
+	artistUC := usecase.NewArtistUseCase(artistRepo, nil, nil, musicbrainzClient, musicbrainzClient, musicbrainzClient, nil, time.Now, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

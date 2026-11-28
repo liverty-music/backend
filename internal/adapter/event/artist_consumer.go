@@ -9,8 +9,9 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ArtistRefreshConsumer handles artist.created events by reading the new
-// artist again from the music catalog through ArtistUseCase.Refresh.
+// ArtistRefreshConsumer handles artist.created events by verifying the new
+// artist's MBID against the music catalog through ArtistUseCase.VerifyMBID,
+// which also adopts the catalog's name and activity status.
 type ArtistRefreshConsumer struct {
 	artistUC usecase.ArtistUseCase
 	logger   *logging.Logger
@@ -28,7 +29,9 @@ func NewArtistRefreshConsumer(
 }
 
 // Handle processes an artist.created event by parsing the payload and
-// refreshing the announced artist from the catalog.
+// verifying the announced artist's MBID. An Ambiguous result is a success
+// (VerifyMBID logs it as an error); a failure is returned so the delivery is
+// retried.
 func (h *ArtistRefreshConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
@@ -43,7 +46,7 @@ func (h *ArtistRefreshConsumer) Handle(msg *message.Message) error {
 		slog.String("mbid", data.MBID),
 	)
 
-	if err := h.artistUC.Refresh(ctx, data.ArtistID, data.MBID, data.ArtistName); err != nil {
+	if err := h.artistUC.VerifyMBID(ctx, data.ArtistID); err != nil {
 		return fmt.Errorf("handle ARTIST.created event: %w", err)
 	}
 

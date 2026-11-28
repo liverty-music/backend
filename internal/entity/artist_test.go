@@ -98,6 +98,8 @@ func TestNewArtist(t *testing.T) {
 		assert.NotEmpty(t, got.ID)
 		assert.Equal(t, "羊文学", got.Name)
 		assert.Equal(t, "a1b2c3d4-0000-0000-0000-000000000001", got.MBID)
+		assert.Equal(t, "a1b2c3d4-0000-0000-0000-000000000001", got.ListeningMBID)
+		assert.Equal(t, entity.MBIDStatusUnverified, got.MBIDStatus)
 		assert.Nil(t, got.Fanart)
 		assert.Nil(t, got.FanartSyncTime)
 		assert.Nil(t, got.OfficialSiteCheckTime)
@@ -212,14 +214,74 @@ func TestArtist_CheckSearchable(t *testing.T) {
 func TestMergeArtistsByMBID(t *testing.T) {
 	t.Parallel()
 
-	first := &entity.Artist{ID: "a-1", Name: "First", MBID: "mbid-1"}
-	second := &entity.Artist{ID: "a-2", Name: "Second", MBID: "mbid-1"}
-	other := &entity.Artist{ID: "a-3", Name: "Other", MBID: "mbid-2"}
+	const (
+		mbid1 = "11111111-0000-0000-0000-000000000001"
+		mbid2 = "22222222-0000-0000-0000-000000000002"
+		mbid3 = "33333333-0000-0000-0000-000000000003"
+	)
+	first := &entity.Artist{ID: "a-1", Name: "First", MBID: mbid1, ListeningMBID: mbid1}
+	second := &entity.Artist{ID: "a-2", Name: "Second", MBID: mbid1, ListeningMBID: mbid1}
+	other := &entity.Artist{ID: "a-3", Name: "Other", MBID: mbid2, ListeningMBID: mbid2}
+	// corrected is found by the listening service under mbid3 and was
+	// corrected to mbid1, which first already has.
+	corrected := &entity.Artist{ID: "a-4", Name: "Corrected", MBID: mbid1, ListeningMBID: mbid3}
 
-	got, err := entity.MergeArtistsByMBID([]*entity.Artist{first, nil, second, other})
+	got, err := entity.MergeArtistsByMBID([]*entity.Artist{first, nil, second, other, corrected})
 	require.NoError(t, err)
-	assert.Equal(t, []*entity.Artist{first, other}, got, "one artist per MBID, the first given wins")
+	assert.Equal(t, []*entity.Artist{first, other}, got, "no two artists share an MBID, the first given wins")
 
 	_, err = entity.MergeArtistsByMBID([]*entity.Artist{first, {Name: "No MBID"}})
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+
+	_, err = entity.MergeArtistsByMBID([]*entity.Artist{{Name: "No listening MBID", MBID: mbid2}})
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+}
+
+func TestArtist_IsOffered(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status entity.MBIDStatus
+		ended  bool
+		want   bool
+	}{
+		// @spec components/entity/artist "Verified and active"
+		{name: "verified and active", status: entity.MBIDStatusVerified, want: true},
+		// @spec components/entity/artist "Not verified"
+		{name: "unverified", status: entity.MBIDStatusUnverified, want: false},
+		// @spec components/entity/artist "Not verified"
+		{name: "unverified and ended", status: entity.MBIDStatusUnverified, ended: true, want: false},
+		// @spec components/entity/artist "Not verified"
+		{name: "ambiguous", status: entity.MBIDStatusAmbiguous, want: false},
+		// @spec components/entity/artist "Not verified"
+		{name: "ambiguous and ended", status: entity.MBIDStatusAmbiguous, ended: true, want: false},
+		// @spec components/entity/artist "Activity ended"
+		{name: "verified and ended", status: entity.MBIDStatusVerified, ended: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := &entity.Artist{MBIDStatus: tt.status, ActivityEnded: tt.ended}
+
+			assert.Equal(t, tt.want, a.IsOffered())
+		})
+	}
+}
+
+func TestCatalogArtist_Validate(t *testing.T) {
+	t.Parallel()
+
+	valid := entity.CatalogArtist{MBID: "c94eaf81-baae-465d-8197-9951c2ef52cd", Name: "Penthouse"}
+	require.NoError(t, valid.Validate())
+
+	// @spec components/entity/catalog-artist "Malformed MBID"
+	malformed := valid
+	malformed.MBID = "c94eaf81"
+	assert.ErrorIs(t, malformed.Validate(), apperr.ErrInvalidArgument)
+
+	// @spec components/entity/catalog-artist "Empty name"
+	unnamed := valid
+	unnamed.Name = ""
+	assert.ErrorIs(t, unnamed.Validate(), apperr.ErrInvalidArgument)
 }

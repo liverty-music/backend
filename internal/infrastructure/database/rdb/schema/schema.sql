@@ -46,26 +46,31 @@ CREATE TABLE IF NOT EXISTS artists (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
     mbid TEXT NOT NULL,
-    other_mbids TEXT[] NOT NULL DEFAULT '{}',
+    listening_mbid TEXT NOT NULL,
+    mbid_status TEXT NOT NULL DEFAULT 'unverified',
     fanart JSONB,
     fanart_sync_time TIMESTAMPTZ,
     official_site_check_time TIMESTAMPTZ,
     activity_ended BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT chk_artists_mbid_format CHECK (char_length(mbid) = 36),
+    CONSTRAINT chk_artists_listening_mbid_format CHECK (char_length(listening_mbid) = 36),
+    CONSTRAINT chk_artists_mbid_status CHECK (mbid_status IN ('unverified', 'verified', 'ambiguous')),
     CONSTRAINT chk_artists_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_listening_mbid ON artists(listening_mbid);
 
 COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe to for concert notifications';
 COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN artists.name IS 'Artist or band name as displayed to users';
-COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)';
-COMMENT ON COLUMN artists.other_mbids IS 'MBIDs the artist was corrected from: the music catalog''s lookup by name returned a namesake''s MBID, and a search that returns one of them still finds this artist instead of registering a second row. Never the artist''s own mbid; an MBID is the mbid or other MBID of one artist only (checked by the application under an advisory lock).';
+COMMENT ON COLUMN artists.mbid IS 'The artist''s own MusicBrainz Identifier (MBID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx); differs from listening_mbid when the listening service files the artist under a namesake''s MBID';
+COMMENT ON COLUMN artists.listening_mbid IS 'The MBID the listening service (Last.fm) files the artist under: name search, charts and similar artists return it, and similar artists are looked up by it. Equal to mbid until the mbid is corrected; it never changes. An MBID is the mbid or listening_mbid of at most one artist (checked by the application under an advisory lock).';
+COMMENT ON COLUMN artists.mbid_status IS 'Whether mbid was checked against the music catalog''s artists of the same name: unverified (not yet), verified (checked, automatically or by an admin), ambiguous (an admin must choose). Only verified artists whose activity has not ended are offered to fans.';
 COMMENT ON COLUMN artists.fanart IS 'Cached fanart.tv API response containing community-curated artist images (thumb, background, logo, banner)';
 COMMENT ON COLUMN artists.fanart_sync_time IS 'Timestamp of the last successful fanart.tv API sync for this artist';
 COMMENT ON COLUMN artists.official_site_check_time IS 'Timestamp of the last official-site check in MusicBrainz for this artist, whatever the check found. NULL when never checked.';
-COMMENT ON COLUMN artists.activity_ended IS 'True when MusicBrainz marks the artist''s activity as ended (a group dissolved, a solo artist died); false when it does not or before the artist was first read from MusicBrainz. Charts and similar-artist lists leave out ended artists, and concert and ticket-sale searches skip them.';
+COMMENT ON COLUMN artists.activity_ended IS 'True when MusicBrainz marks the artist''s activity as ended (a group dissolved, a solo artist died); false when it does not or before the artist was first read from MusicBrainz. Name search, charts and similar-artist lists leave out ended artists, and concert and ticket-sale searches skip them.';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (

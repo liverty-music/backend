@@ -80,9 +80,23 @@ type artistResponse struct {
 
 // lifeSpan is the artist's active period. MusicBrainz sets ended to true when a
 // group dissolved or a solo artist died, also without an end date, and to null
-// or false otherwise.
+// or false otherwise. Begin and end are partial dates ("1995", "1995-10" or
+// "1995-10-02"), empty when not recorded.
 type lifeSpan struct {
-	Ended *bool `json:"ended"`
+	Begin string `json:"begin"`
+	End   string `json:"end"`
+	Ended *bool  `json:"ended"`
+}
+
+// artistSearchResponse is MusicBrainz's answer to an artist search.
+type artistSearchResponse struct {
+	Artists []struct {
+		ID             string   `json:"id"`
+		Name           string   `json:"name"`
+		Country        string   `json:"country"`
+		Disambiguation string   `json:"disambiguation"`
+		LifeSpan       lifeSpan `json:"life-span"`
+	} `json:"artists"`
 }
 
 type urlRelation struct {
@@ -119,8 +133,8 @@ type placeSearchResponse struct {
 	} `json:"places"`
 }
 
-// client implements entity.ArtistIdentityManager and entity.OfficialSiteCatalog
-// for specific MusicBrainz lookups.
+// client implements entity.ArtistIdentityManager, entity.OfficialSiteCatalog
+// and entity.NamesakeCatalog for specific MusicBrainz lookups.
 type client struct {
 	httpClient   *http.Client
 	baseURL      string
@@ -260,6 +274,101 @@ func (c *client) ListOfficialSiteRelations(ctx context.Context, mbid string) (*e
 	return rels, nil
 }
 
+// ListNamesakes returns the artists MusicBrainz records under exactly the given
+// name, ignoring letter case, in MusicBrainz's order of relevance, each once.
+// It asks the artist search for an exact phrase match on the name and drops
+// the results whose name only resembles it.
+func (c *client) ListNamesakes(ctx context.Context, name string) ([]*entity.CatalogArtist, error) {
+	c.logger.Info(ctx, "listing namesakes", slog.String("artistName", name))
+
+	params := url.Values{}
+	params.Set("query", fmt.Sprintf(`artist:"%s"`, escapeLucenePhrase(name)))
+	params.Set("limit", strconv.Itoa(namesakeSearchLimit))
+	params.Set("fmt", "json")
+	endpoint := fmt.Sprintf("%s?%s", c.baseURL, params.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to create musicbrainz artist search request")
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return nil, api.FromHTTP(err, nil, "musicbrainz artist search failed")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := api.FromHTTP(nil, resp, "musicbrainz artist search failed"); err != nil {
+		c.logger.Error(ctx, "musicbrainz artist search failed", err, slog.String("artistName", name))
+		return nil, err
+	}
+
+	var data artistSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz artist search response")
+	}
+
+	seen := make(map[string]bool, len(data.Artists))
+	namesakes := make([]*entity.CatalogArtist, 0, len(data.Artists))
+	for _, a := range data.Artists {
+		if !strings.EqualFold(a.Name, name) || seen[a.ID] {
+			continue
+		}
+		seen[a.ID] = true
+		namesake := &entity.CatalogArtist{
+			MBID:           a.ID,
+			Name:           a.Name,
+			Country:        nonEmpty(a.Country),
+			Begin:          parseActivityDate(a.LifeSpan.Begin),
+			End:            parseActivityDate(a.LifeSpan.End),
+			ActivityEnded:  a.LifeSpan.Ended != nil && *a.LifeSpan.Ended,
+			Disambiguation: nonEmpty(a.Disambiguation),
+		}
+		if err := namesake.Validate(); err != nil {
+			return nil, apperr.Wrap(err, codes.Internal, "musicbrainz returned a malformed artist", slog.String("mbid", a.ID))
+		}
+		namesakes = append(namesakes, namesake)
+	}
+	return namesakes, nil
+}
+
+// namesakeSearchLimit is the most artists ListNamesakes asks MusicBrainz for,
+// its largest page.
+const namesakeSearchLimit = 100
+
+// nonEmpty returns a pointer to s, or nil when s is empty.
+func nonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// parseActivityDate parses a MusicBrainz partial date ("1995", "1995-10" or
+// "1995-10-02"). It returns nil for an empty or unreadable date.
+func parseActivityDate(s string) *entity.ActivityDate {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) > 3 {
+		return nil
+	}
+	var nums [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		nums[i] = n
+	}
+	if nums[0] < 1 || nums[1] < 0 || nums[1] > 12 || nums[2] < 0 || nums[2] > 31 {
+		return nil
+	}
+	return &entity.ActivityDate{Year: nums[0], Month: nums[1], Day: nums[2]}
+}
+
 // officialHomepageRelation is the MusicBrainz url relation type of an
 // artist's official homepage.
 const officialHomepageRelation = "official homepage"
@@ -335,6 +444,7 @@ const placeSearchLimit = 5
 var (
 	_ entity.ArtistIdentityManager = (*client)(nil)
 	_ entity.OfficialSiteCatalog   = (*client)(nil)
+	_ entity.NamesakeCatalog       = (*client)(nil)
 )
 
 // SetBaseURL allows overriding the base URL used by the client. This is

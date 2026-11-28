@@ -24,7 +24,7 @@ func TestArtistRepository_Create(t *testing.T) {
 	bulkA := entity.NewArtist("Artist A", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa111")
 	bulkB := entity.NewArtist("Artist B", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb222")
 	bulkC := entity.NewArtist("Artist C", "cccccccc-cccc-cccc-cccc-ccccccccc333")
-	presetID := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4900", Name: "Pre-set ID Artist", MBID: "11111111-2222-3333-4444-55555preset1"}
+	presetID := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4900", Name: "Pre-set ID Artist", MBID: "11111111-2222-3333-4444-55555preset1", ListeningMBID: "11111111-2222-3333-4444-55555preset1"}
 
 	type args struct {
 		artists []*entity.Artist
@@ -70,7 +70,7 @@ func TestArtistRepository_Create(t *testing.T) {
 				require.NoError(t, err)
 			},
 			args: args{artists: []*entity.Artist{entity.NewArtist("Different Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001")}},
-			want: []*entity.Artist{{Name: "Original Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"}},
+			want: []*entity.Artist{{Name: "Original Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001", ListeningMBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"}},
 		},
 		// @spec components/entity/artist/create "Mixed input keeps order"
 		{
@@ -85,8 +85,8 @@ func TestArtistRepository_Create(t *testing.T) {
 				entity.NewArtist("New Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004"),
 			}},
 			want: []*entity.Artist{
-				{Name: "Known Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003"},
-				{Name: "New Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004"},
+				{Name: "Known Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003", ListeningMBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003"},
+				{Name: "New Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004", ListeningMBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004"},
 			},
 		},
 		{
@@ -97,8 +97,8 @@ func TestArtistRepository_Create(t *testing.T) {
 				entity.NewArtist("Second Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"),
 			}},
 			want: []*entity.Artist{
-				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
-				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
+				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002", ListeningMBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
+				{Name: "First Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002", ListeningMBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed002"},
 			},
 		},
 		{
@@ -163,8 +163,8 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 			},
 			mbids: []string{"33333333-3333-3333-3333-33333333c003", "11111111-1111-1111-1111-11111111a001"},
 			want: []*entity.Artist{
-				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003"},
-				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001"},
+				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003", ListeningMBID: "33333333-3333-3333-3333-33333333c003"},
+				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001", ListeningMBID: "11111111-1111-1111-1111-11111111a001"},
 			},
 		},
 		// @spec components/entity/artist/list-by-mbids "Some MBIDs are known"
@@ -184,8 +184,8 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 				"33333333-3333-3333-3333-33333333c003",
 			},
 			want: []*entity.Artist{
-				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001"},
-				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003"},
+				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001", ListeningMBID: "11111111-1111-1111-1111-11111111a001"},
+				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003", ListeningMBID: "33333333-3333-3333-3333-33333333c003"},
 			},
 		},
 		{
@@ -197,7 +197,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 			},
 			mbids: []string{"44444444-4444-4444-4444-444444known1", "55555555-5555-5555-5555-5555unknown1"},
 			want: []*entity.Artist{
-				{Name: "Known", MBID: "44444444-4444-4444-4444-444444known1"},
+				{Name: "Known", MBID: "44444444-4444-4444-4444-444444known1", ListeningMBID: "44444444-4444-4444-4444-444444known1"},
 			},
 		},
 		// @spec components/entity/artist/list-by-mbids "Empty input"

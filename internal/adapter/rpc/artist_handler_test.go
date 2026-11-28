@@ -18,66 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestArtistHandler_Create(t *testing.T) {
-	t.Parallel()
-
-	t.Run("passes MBID to use case", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		artistUC := mocks.NewMockArtistUseCase(t)
-		h := handler.NewArtistHandler(artistUC, logger)
-
-		artistUC.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.Name == "The Beatles" && a.MBID == "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"
-		})).Return(&entity.Artist{
-			ID:   "artist-1",
-			Name: "The Beatles",
-			MBID: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d",
-		}, nil).Once()
-
-		req := &artistv1.CreateRequest{
-			Name: &entityv1.ArtistName{Value: "The Beatles"},
-			Mbid: &entityv1.Mbid{Value: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"},
-		}
-
-		resp, err := h.Create(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		assert.Equal(t, "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", resp.Artist.Mbid.Value)
-	})
-
-	t.Run("works without MBID", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		artistUC := mocks.NewMockArtistUseCase(t)
-		h := handler.NewArtistHandler(artistUC, logger)
-
-		artistUC.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.Name == "Unknown" && a.MBID == ""
-		})).Return(&entity.Artist{
-			ID:   "artist-2",
-			Name: "Unknown",
-		}, nil).Once()
-
-		req := &artistv1.CreateRequest{
-			Name: &entityv1.ArtistName{Value: "Unknown"},
-		}
-
-		resp, err := h.Create(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
-}
-
 func TestArtistHandler_Boundary(t *testing.T) {
 	t.Parallel()
 
@@ -106,14 +46,11 @@ func TestArtistHandler_Boundary(t *testing.T) {
 		assert.Equal(t, "artist-1", resp.GetArtists()[0].GetId().GetValue())
 	})
 
-	t.Run("guest creates an artist", func(t *testing.T) {
+	t.Run("guest lists artists", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/artist "Guest creates an artist"
+		// @spec components/adapter/fan/api/rpc/artist "Guest lists artists"
 		// The mock fails the test if any usecase method runs.
-		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).Create(context.Background(), &artistv1.CreateRequest{
-			Name: &entityv1.ArtistName{Value: "The Beatles"},
-			Mbid: &entityv1.Mbid{Value: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"},
-		})
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).List(context.Background(), &artistv1.ListRequest{})
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
@@ -142,17 +79,6 @@ func TestArtistHandler_Boundary(t *testing.T) {
 			ArtistId: &entityv1.ArtistId{Value: "0190b6a8-6a5e-7c3b-9e1a-2f4d5c6b7a81"},
 			Limit:    51,
 		})
-
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	})
-
-	t.Run("malformed MBID", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/artist "Malformed MBID"
-		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).Create(withFanToken(&artistv1.CreateRequest{
-			Name: &entityv1.ArtistName{Value: "The Beatles"},
-			Mbid: &entityv1.Mbid{Value: "not-a-uuid"},
-		}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

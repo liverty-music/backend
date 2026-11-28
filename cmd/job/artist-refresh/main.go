@@ -1,6 +1,7 @@
 // Package main provides the artist refresh CronJob entry point: once a day it
-// reads one thirtieth of all artists again from MusicBrainz (name and whether
-// their activity has ended).
+// verifies the MBID of every artist still Unverified against MusicBrainz's
+// artists of the same name, then reads one thirtieth of all artists again
+// from MusicBrainz (name and whether their activity has ended).
 package main
 
 import (
@@ -79,6 +80,12 @@ func run(bootLogger *logging.Logger) error {
 	}
 
 	app.Logger.Info(ctx, "artist refresh job complete", analyticslog.Attrs(analyticslog.TopicJobResult,
+		slog.Int("unverified_listed", summary.Unverified),
+		slog.Int("verify_attempted", summary.VerifyAttempted),
+		slog.Int("verified", summary.Verified),
+		slog.Int("ambiguous", summary.Ambiguous),
+		slog.Int("verify_failures", summary.VerifyFailed),
+		slog.Bool("verify_circuit_broken", summary.VerifyCircuitBroken),
 		slog.Int("slot", summary.Slot),
 		slog.Int("artists_listed", summary.Listed),
 		slog.Int("artists_attempted", summary.Attempted),
@@ -89,7 +96,7 @@ func run(bootLogger *logging.Logger) error {
 		slog.Bool("circuit_broken", summary.CircuitBroken),
 	)...)
 
-	if summary.CircuitBroken {
+	if summary.CircuitBroken || summary.VerifyCircuitBroken {
 		return errCircuitBroken
 	}
 	return nil
