@@ -25,28 +25,40 @@ const (
 	// Artists: deduplicate via ON CONFLICT on the unique mbid index.
 	insertArtistsWithMBIDUnnestQuery = `
 		INSERT INTO artists (id, name, mbid)
-		SELECT * FROM unnest($1::uuid[], $2::text[], $3::varchar[])
+		SELECT t.id, t.name, t.mbid
+		FROM unnest($1::uuid[], $2::text[], $3::varchar[]) AS t(id, name, mbid)
+		WHERE NOT EXISTS (SELECT 1 FROM artists x WHERE x.other_mbids @> ARRAY[t.mbid]::text[])
 		ON CONFLICT (mbid) DO NOTHING
 		RETURNING id
 	`
-	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
+	// artistMBIDLockQuery takes the lock UpdateMBID and Create share, so a
+	// registration cannot slip an MBID in between UpdateMBID's check and its
+	// update. It is held to the end of the transaction.
+	artistMBIDLockQuery = `SELECT pg_advisory_xact_lock(hashtextextended('artists.mbid', 0))`
+	// Fetch back the artists of the given MBIDs, an MBID being the artist's own
+	// or one it was corrected from, once per artist in the order of the first
+	// given MBID that finds it (WITH ORDINALITY).
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
-		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
-		ORDER BY t.ord
+		JOIN LATERAL (
+			SELECT min(t.ord) AS ord
+			FROM unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord)
+			WHERE a.mbid = t.mbid OR a.other_mbids @> ARRAY[t.mbid]::text[]
+		) m ON m.ord IS NOT NULL
+		ORDER BY m.ord
 	`
 	listArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.mbid = $1
 	`
@@ -54,7 +66,7 @@ const (
 		UPDATE artists SET fanart = $2, fanart_sync_time = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.fanart_sync_time IS NULL
 		   OR (a.fanart_sync_time < $1
@@ -80,13 +92,13 @@ const (
 	// The slot comes from the UUID's last two bytes, which UUIDv7 fills with
 	// random bits, so artists spread evenly and an artist never changes slot.
 	listArtistsRefreshDueQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE ((get_byte(uuid_send(a.id), 14) << 8) | get_byte(uuid_send(a.id), 15)) % $1 = $2
 		ORDER BY a.id
 	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
 		  AND (a.official_site_check_time IS NULL OR a.official_site_check_time < $1)
@@ -95,6 +107,30 @@ const (
 	`
 	updateOfficialSiteURLQuery = `
 		UPDATE artist_official_site SET url = $2 WHERE artist_id = $1
+	`
+	lockArtistForMBIDUpdateQuery = `
+		SELECT mbid FROM artists WHERE id = $1 FOR UPDATE
+	`
+	artistMBIDTakenQuery = `
+		SELECT EXISTS (
+			SELECT 1 FROM artists
+			WHERE id <> $1 AND (mbid = $2 OR other_mbids @> ARRAY[$2::text])
+		)
+	`
+	// The replaced MBID joins other_mbids and the new one leaves it; what was
+	// read from the replaced MBID's person is cleared with it.
+	updateArtistMBIDQuery = `
+		UPDATE artists
+		SET mbid = $2,
+		    other_mbids = array_append(array_remove(other_mbids, $2::text), $3::text),
+		    fanart = NULL,
+		    fanart_sync_time = NULL,
+		    official_site_check_time = NULL,
+		    activity_ended = false
+		WHERE id = $1
+	`
+	deleteArtistOfficialSiteQuery = `
+		DELETE FROM artist_official_site WHERE artist_id = $1
 	`
 	markOfficialSiteCheckedQuery = `
 		UPDATE artists SET official_site_check_time = $2 WHERE id = $1
@@ -112,7 +148,7 @@ const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa
 
 // scanArtist scans a row into an Artist entity including nullable fanart and
 // official site check columns. The row selects id, name, mbid, fanart,
-// fanart_sync_time, official_site_check_time, activity_ended and
+// fanart_sync_time, official_site_check_time, activity_ended, other_mbids and
 // artistOrganizerColumn, in that order.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var a entity.Artist
@@ -120,7 +156,7 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var syncedAt *time.Time
 	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.ActivityEnded, &a.OrganizerID); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.ActivityEnded, &a.OtherMBIDs, &a.OrganizerID); err != nil {
 		return nil, err
 	}
 	if officialSiteCheckedAt.Valid {
@@ -140,8 +176,9 @@ func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 }
 
 // Create registers the artists entity.MergeArtistsByMBID keeps, one per MBID,
-// with an unnest bulk insert. The unique MBID index keeps an artist already
-// registered (also by a concurrent call) unchanged. It returns, for each given
+// with an unnest bulk insert, after taking the lock UpdateMBID shares. The
+// unique MBID index keeps an artist already registered (also by a concurrent
+// call) unchanged, and an MBID some artist was corrected from registers nothing. It returns, for each given
 // artist in input order, the registered artist of its MBID.
 //
 // # Announces
@@ -167,30 +204,19 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if _, err := tx.Exec(ctx, artistMBIDLockQuery); err != nil {
+		return nil, toAppErr(err, "failed to lock artist mbids")
+	}
+
 	inserted, err := insertArtists(ctx, tx, ids, names, mbids)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch back all registered artists (new and pre-existing) by MBID.
-	rows, err := tx.Query(ctx, selectArtistsByMBIDsQuery, mbids)
+	byMBID, created, err := fetchRegistered(ctx, tx, mbids, inserted)
 	if err != nil {
-		return nil, toAppErr(err, "failed to select artists by mbids")
-	}
-	registered, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Artist, error) {
-		return scanArtist(row.Scan)
-	})
-	if err != nil {
-		return nil, toAppErr(err, "failed to scan artists by mbids")
-	}
-
-	byMBID := make(map[string]*entity.Artist, len(registered))
-	var created []*entity.Artist
-	for _, a := range registered {
-		byMBID[a.MBID] = a
-		if inserted[a.ID] {
-			created = append(created, a)
-		}
+		return nil, err
 	}
 	if err := announceAll(ctx, r.outbox, tx, entity.SubjectArtistCreated, created); err != nil {
 		return nil, err
@@ -207,6 +233,35 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	)
 
 	return result, nil
+}
+
+// fetchRegistered reads the artists of the given MBIDs, an MBID being an
+// artist's own or one it was corrected from. It returns them keyed by every
+// MBID they have, and the ones whose ids are in inserted, in read order.
+func fetchRegistered(ctx context.Context, tx pgx.Tx, mbids []string, inserted map[string]bool) (map[string]*entity.Artist, []*entity.Artist, error) {
+	rows, err := tx.Query(ctx, selectArtistsByMBIDsQuery, mbids)
+	if err != nil {
+		return nil, nil, toAppErr(err, "failed to select artists by mbids")
+	}
+	registered, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Artist, error) {
+		return scanArtist(row.Scan)
+	})
+	if err != nil {
+		return nil, nil, toAppErr(err, "failed to scan artists by mbids")
+	}
+
+	byMBID := make(map[string]*entity.Artist, len(registered))
+	var created []*entity.Artist
+	for _, a := range registered {
+		byMBID[a.MBID] = a
+		for _, other := range a.OtherMBIDs {
+			byMBID[other] = a
+		}
+		if inserted[a.ID] {
+			created = append(created, a)
+		}
+	}
+	return byMBID, created, nil
 }
 
 // artistColumns returns the ids, names and MBIDs of the artists as the
@@ -346,6 +401,65 @@ func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name strin
 		slog.String("entityType", "artist"),
 		slog.String("id", id),
 		slog.String("name", name),
+	)
+	return nil
+}
+
+// UpdateMBID replaces the MBID of an artist and keeps the replaced one among
+// its other MBIDs, clearing what was read from the replaced MBID's person
+// (images, official site, check time, activity status). It runs in one
+// transaction under the lock Create shares and the artist's row lock.
+//
+// # Announces
+//
+// Nothing.
+func (r *ArtistRepository) UpdateMBID(ctx context.Context, id, mbid string) error {
+	if len(mbid) != 36 {
+		return apperr.New(codes.InvalidArgument, "mbid must be a UUID of 36 characters", slog.String("mbid", mbid))
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin artist mbid update transaction")
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, artistMBIDLockQuery); err != nil {
+		return toAppErr(err, "failed to lock artist mbids")
+	}
+
+	var current string
+	if err := tx.QueryRow(ctx, lockArtistForMBIDUpdateQuery, id).Scan(&current); err != nil {
+		return toAppErr(err, "failed to lock artist for mbid update", slog.String("id", id))
+	}
+	if current == mbid {
+		return nil
+	}
+
+	var taken bool
+	if err := tx.QueryRow(ctx, artistMBIDTakenQuery, id, mbid).Scan(&taken); err != nil {
+		return toAppErr(err, "failed to check whether the mbid belongs to another artist", slog.String("id", id))
+	}
+	if taken {
+		return apperr.New(codes.AlreadyExists, "another artist has the mbid", slog.String("id", id), slog.String("mbid", mbid))
+	}
+
+	if _, err := tx.Exec(ctx, updateArtistMBIDQuery, id, mbid, current); err != nil {
+		return toAppErr(err, "failed to update artist mbid", slog.String("id", id))
+	}
+	if _, err := tx.Exec(ctx, deleteArtistOfficialSiteQuery, id); err != nil {
+		return toAppErr(err, "failed to remove the official site of the replaced mbid", slog.String("id", id))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit artist mbid update transaction")
+	}
+
+	r.db.logger.Info(ctx, "artist mbid replaced",
+		slog.String("entityType", "artist"),
+		slog.String("id", id),
+		slog.String("old_mbid", current),
+		slog.String("new_mbid", mbid),
 	)
 	return nil
 }

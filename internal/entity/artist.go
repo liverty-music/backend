@@ -26,6 +26,11 @@ type Artist struct {
 	Name string
 	// MBID is the canonical MusicBrainz Identifier for identity normalization.
 	MBID string
+	// OtherMBIDs are the MBIDs the artist was corrected from: the music
+	// catalog's lookup by name returned a namesake's MBID, and a search that
+	// returns one of them finds this artist instead of registering a second
+	// one. Never the artist's own MBID.
+	OtherMBIDs []string
 	// Fanart holds cached community-curated images from fanart.tv.
 	// nil when image data has not been fetched yet.
 	Fanart *Fanart
@@ -212,8 +217,8 @@ func NewOfficialSite(artistID, url string) *OfficialSite {
 
 // ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
-	// Create registers every given artist whose MBID is not yet registered
-	// and returns, for each given artist in input order, the registered
+	// Create registers every given artist whose MBID is not yet registered,
+	// as an artist's MBID or among its OtherMBIDs, and returns, for each given artist in input order, the registered
 	// artist with that MBID. An artist whose MBID is already registered is
 	// returned as registered, unchanged, and is not registered a second time.
 	// A new artist keeps the id it was given, or gets a fresh id when it has
@@ -256,9 +261,11 @@ type ArtistRepository interface {
 	//   - Internal: database query failure.
 	GetByMBID(ctx context.Context, mbid string) (*Artist, error)
 
-	// ListByMBIDs retrieves artists matching the provided MusicBrainz IDs.
-	// Returns only artists that exist in the database. The result order
-	// matches the input mbids order. Unknown MBIDs are silently skipped.
+	// ListByMBIDs retrieves artists matching the provided MusicBrainz IDs, an
+	// MBID being the artist's own or one it was corrected from (OtherMBIDs).
+	// Returns only artists that exist in the database, each once, in the order
+	// of the first given MBID that finds it. Unknown MBIDs are silently
+	// skipped.
 	//
 	// # Possible errors:
 	//
@@ -282,6 +289,28 @@ type ArtistRepository interface {
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
 	UpdateActivityEnded(ctx context.Context, id string, ended bool) error
+
+	// UpdateMBID replaces the MBID of the artist with the given id and adds the
+	// replaced MBID to its OtherMBIDs (the given MBID leaves them when it was
+	// one), so a later search that returns the replaced MBID finds this artist.
+	// In the same change it clears what was read from the replaced MBID's
+	// person: the images and their sync time, the official site, the official
+	// site check time, and the activity status (false). Given the artist's own
+	// MBID it changes nothing and succeeds. It checks and writes under the
+	// lock Create shares, so a registration cannot take the MBID in between.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: mbid is not 36 characters long.
+	//   - NotFound: no artist exists with the provided ID.
+	//   - AlreadyExists: another artist has the MBID as its MBID or among its
+	//     OtherMBIDs. Nothing changes.
+	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// Nothing.
+	UpdateMBID(ctx context.Context, id, mbid string) error
 
 	// ListRefreshDue returns every artist in one of slots equal shares of all
 	// registered artists, followed or not, ordered by id. An artist's share is

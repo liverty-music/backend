@@ -79,7 +79,7 @@ const (
 		DELETE FROM organizer_artists WHERE organizer_id = $1 AND artist_id = $2
 	`
 	listOrganizerArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.other_mbids, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN organizer_artists oa ON oa.artist_id = a.id
 		WHERE oa.organizer_id = $1
