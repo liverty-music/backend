@@ -45,13 +45,14 @@ func expectCheck(d *concertTestDeps, artist *entity.Artist, in usecase.ConcertSe
 }
 
 // expectReads sets up what an attempt reads before it calls the search: the
-// artist without an official site, the existing upcoming concerts and no
-// pending candidate.
+// artist without an official site, the existing upcoming concerts, no pending
+// candidate and no rejected concert.
 func expectReads(d *concertTestDeps, artist *entity.Artist, existing []*entity.Concert) {
 	d.artistRepo.EXPECT().Get(mock.Anything, artist.ID).Return(artist, nil).Once()
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound).Once()
 	d.concertRepo.EXPECT().ListUpcomingByArtist(mock.Anything, artist.ID, mock.Anything).Return(existing, nil).Once()
 	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artist.ID).Return(nil, nil).Once()
+	d.rejectedConcertRepo.EXPECT().ListByArtist(mock.Anything, artist.ID).Return(nil, nil).Once()
 }
 
 // expectSearch sets up an attempt up to the external search, which answers
@@ -411,6 +412,7 @@ func searchChain(t *testing.T, d *concertTestDeps, artist *entity.Artist, answer
 	d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artist.ID).Return(nil, apperr.ErrNotFound)
 	d.concertRepo.EXPECT().ListUpcomingByArtist(mock.Anything, artist.ID, mock.Anything).Return(nil, nil)
 	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artist.ID).Return(nil, nil)
+	d.rejectedConcertRepo.EXPECT().ListByArtist(mock.Anything, artist.ID).Return(nil, nil)
 	d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.Anything).
 		RunAndReturn(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.DiscoveredSeries, error) {
 			elapsed := time.Since(in.SearchTime)
@@ -984,6 +986,12 @@ func TestRunSearch_Outcome(t *testing.T) {
 // on.
 func handOnCase(t *testing.T, existing []*entity.Concert, pending []entity.ConcertCandidateDedupKey, scraped []*entity.DiscoveredSeries, want int) {
 	t.Helper()
+	handOnRejectedCase(t, existing, pending, nil, scraped, want)
+}
+
+// handOnRejectedCase is handOnCase with the Artist's RejectedConcert entries.
+func handOnRejectedCase(t *testing.T, existing []*entity.Concert, pending []entity.ConcertCandidateDedupKey, rejected []*entity.RejectedConcert, scraped []*entity.DiscoveredSeries, want int) {
+	t.Helper()
 	d := newConcertTestDeps(t)
 	artist := searchedArtist()
 	in := firstAttempt(artist, usecase.SearchTriggerDaily)
@@ -996,6 +1004,7 @@ func handOnCase(t *testing.T, existing []*entity.Concert, pending []entity.Conce
 		Run(func(_ context.Context, _ string, now time.Time) { listedAt = now }).
 		Return(existing, nil).Once()
 	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artist.ID).Return(pending, nil).Once()
+	d.rejectedConcertRepo.EXPECT().ListByArtist(mock.Anything, artist.ID).Return(rejected, nil).Once()
 	d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil),
 		mock.MatchedBy(func(now time.Time) bool { return !listedAt.IsZero() && now.Equal(listedAt) })).Return(scraped, nil).Once()
 	expectStatus(d, artist.ID, entity.ConcertSearchStatusCompleted)
@@ -1172,8 +1181,8 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 
 // TestSearchNewConcerts_CandidateDedup verifies that concerts already pending in
 // concert_candidates are excluded from the discovery batch so they are not
-// re-staged, while the rejection log is intentionally NOT consulted (a rejected
-// concert can always re-enter the queue).
+// re-staged, and that a listing the rejection log holds is left out while a
+// corrected one is not.
 func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 	t.Parallel()
 
@@ -1211,11 +1220,22 @@ func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 			[]*entity.DiscoveredSeries{show("evening", "Zepp Haneda", todAt(18, 0))}, 0)
 	})
 
-	// The strict RejectedConcert mock fails the test if it is consulted.
+	rejectedAt := func(venue string, start *entity.TimeOfDay) []*entity.RejectedConcert {
+		return []*entity.RejectedConcert{{ArtistID: searchedArtist().ID, LocalDate: date, ListedVenueName: venue, StartTime: start}}
+	}
+
 	// @spec components/usecase/concert/search-new-concerts "Previously rejected"
-	t.Run("hands on a previously rejected concert", func(t *testing.T) {
+	t.Run("leaves out the same listing as a rejected concert", func(t *testing.T) {
 		t.Parallel()
-		handOnCase(t, nil, nil, []*entity.DiscoveredSeries{show("rejected", "Zepp Tokyo", nil)}, 1)
+		handOnRejectedCase(t, nil, nil, rejectedAt("【振替公演】仙台GIGS", todAt(19, 0)),
+			[]*entity.DiscoveredSeries{show("rejected", "【振替公演】仙台GIGS", todAt(19, 0)), show("new", "Osaka Hall", nil)}, 1)
+	})
+
+	// @spec components/usecase/concert/search-new-concerts "Rejected listing corrected"
+	t.Run("hands on a rejected listing that now has a start time", func(t *testing.T) {
+		t.Parallel()
+		handOnRejectedCase(t, nil, nil, rejectedAt("Zepp Tokyo", nil),
+			[]*entity.DiscoveredSeries{show("corrected", "Zepp Tokyo", todAt(19, 0))}, 1)
 	})
 }
 

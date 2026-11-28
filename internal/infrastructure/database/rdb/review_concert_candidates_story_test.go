@@ -17,9 +17,9 @@ import (
 
 // Story test for stories/review-concert-candidates. Concerts are found by
 // CreateFromDiscovered (the batch the daily search hands over; the search
-// itself is not run) over the real repositories, with places it knows
-// standing in for Google Places, and reviewed through the
-// ConcertCandidateUseCase an admin calls.
+// itself is not run, though findAgain applies its RejectedConcert filter)
+// over the real repositories, with places it knows standing in for Google
+// Places, and reviewed through the ConcertCandidateUseCase an admin calls.
 
 // reviewStory runs discovery and review over one test database.
 type reviewStory struct {
@@ -65,6 +65,25 @@ func (s *reviewStory) discover(artistID, title, listed string, date time.Time, s
 		Title: title, Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/" + uuid.NewV7().String(),
 		Events: []*entity.DiscoveredEvent{{ListedVenueName: listed, AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), LocalDate: date, StartTime: start}},
 	}}}))
+}
+
+// findAgain hands one show of the artist on as the daily search does after a
+// rejection: it leaves out the same listing as one of the artist's
+// RejectedConcert entries (RejectedConcert.ListByArtist, then
+// entity.DropRejected, as SearchNewConcerts does) and runs
+// CreateFromDiscovered for what remains.
+func (s *reviewStory) findAgain(artistID, title, listed string, date time.Time, start *entity.TimeOfDay) {
+	s.t.Helper()
+	rejected, err := rdb.NewRejectedConcertRepository(s.db).ListByArtist(s.ctx, artistID)
+	require.NoError(s.t, err)
+	series := entity.DropRejected(artistID, []*entity.DiscoveredSeries{{
+		Title: title, Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/" + uuid.NewV7().String(),
+		Events: []*entity.DiscoveredEvent{{ListedVenueName: listed, AdminArea: new("JP-27"), TimeZone: new("Asia/Tokyo"), LocalDate: date, StartTime: start}},
+	}}, rejected)
+	if len(series) == 0 {
+		return
+	}
+	require.NoError(s.t, s.creation.CreateFromDiscovered(s.ctx, entity.ConcertDiscoveredData{ArtistID: artistID, Series: series}))
 }
 
 // queue returns the artist's ConcertCandidates in the review queue.
@@ -177,5 +196,43 @@ func TestStory_ReviewConcertCandidates(t *testing.T) {
 			}
 		}
 		assert.Equal(t, 1, toldSiM, "the candidate's Artist's followers are told about it")
+	})
+
+	// @spec stories/review-concert-candidates "Rejected concert found again"
+	t.Run("Rejected concert found again", func(t *testing.T) {
+		s := newReviewStory(t, db)
+		artist := seedArtist(t, db, "Rescheduled Band", uuid.NewV4().String())
+		listed := "【振替公演】Unknown Hall " + uuid.NewV7().String()[30:]
+		// No place is known for the name, so the concert is staged.
+		s.discover(artist, "Make-up Show", listed, date, at18)
+		queued := s.queue(artist)
+		require.Len(t, queued, 1)
+		require.NoError(t, s.review.Reject(s.ctx, queued[0].ID, "duplicate of the artist's show", "admin-1"))
+
+		s.findAgain(artist, "Make-up Show", listed, date, at18)
+
+		assert.Empty(t, s.queue(artist), "no ConcertCandidate is staged for it")
+		assert.Empty(t, s.catalog(artist))
+	})
+
+	// @spec stories/review-concert-candidates "Rejected concert found with a corrected listing"
+	t.Run("Rejected concert found with a corrected listing", func(t *testing.T) {
+		s := newReviewStory(t, db)
+		artist := seedArtist(t, db, "Corrected Band", uuid.NewV4().String())
+		listed := "Later Hall " + uuid.NewV7().String()[30:]
+		s.discover(artist, "Hall Live", listed, date, nil)
+		queued := s.queue(artist)
+		require.Len(t, queued, 1)
+		require.NoError(t, s.review.Reject(s.ctx, queued[0].ID, "venue unknown", "admin-1"))
+		// The venue resolves now, and the listing gains a start time.
+		s.place(listed)
+		at19 := &entity.TimeOfDay{Hour: 19}
+
+		s.findAgain(artist, "Hall Live", listed, date, at19)
+
+		assert.Empty(t, s.queue(artist))
+		concerts := s.catalog(artist)
+		require.Len(t, concerts, 1, "it is published as a Concert")
+		assert.Equal(t, at19, concerts[0].StartTime)
 	})
 }

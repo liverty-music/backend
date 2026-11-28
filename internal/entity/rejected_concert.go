@@ -2,15 +2,16 @@ package entity
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
 // RejectedConcert is an append-only record of a concert candidate that was
 // rejected by a developer during admin review.
 //
-// The log is used exclusively for search-quality analysis and is never
-// consulted by the discovery dedup path, so a rejected concert can always
-// re-enter the staging queue on a subsequent discovery run.
+// The log serves search-quality analysis and keeps discovery from staging a
+// listing an admin already settled ([RejectedConcert.SameListing]); a
+// corrected listing is staged again.
 //
 // ArtistID intentionally carries no foreign key so historical records survive
 // artist deletion.
@@ -65,4 +66,51 @@ type RejectedConcertRepository interface {
 	//
 	//  - Internal: unexpected failure.
 	Append(ctx context.Context, log *RejectedConcert) error
+
+	// ListByArtist returns the Artist's entries with the fields
+	// [RejectedConcert.SameListing] reads (ID, ArtistID, LocalDate,
+	// ListedVenueName, StartTime) and no others, oldest first, and an empty
+	// list when there is none.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: artistID is empty.
+	//   - Unavailable: the store cannot be reached.
+	//   - Internal: unexpected failure.
+	ListByArtist(ctx context.Context, artistID string) ([]*RejectedConcert, error)
+}
+
+// SameListing reports whether ev, found for the Artist artistID, is the same
+// listing as the entry: the entry's Artist, local date and listed venue (see
+// [SameListedVenue]) and the same start time, two unknown start times counting
+// as the same (RejectedConcert spec, "Same listing").
+func (r *RejectedConcert) SameListing(artistID string, ev *DiscoveredEvent) bool {
+	return artistID == r.ArtistID &&
+		DateVenueKey(ev.LocalDate, ev.ListedVenueName) == DateVenueKey(r.LocalDate, r.ListedVenueName) &&
+		StartKey(ev.StartTime) == StartKey(r.StartTime)
+}
+
+// DropRejected removes from series, found for the Artist artistID, the events
+// that are the same listing as one of the entries ([RejectedConcert.SameListing]).
+// A series left with no events is removed entirely. It reuses the events
+// slices of series.
+func DropRejected(artistID string, series []*DiscoveredSeries, rejected []*RejectedConcert) []*DiscoveredSeries {
+	if len(rejected) == 0 {
+		return series
+	}
+	kept := series[:0]
+	for _, s := range series {
+		events := s.Events[:0]
+		for _, ev := range s.Events {
+			if !slices.ContainsFunc(rejected, func(r *RejectedConcert) bool { return r.SameListing(artistID, ev) }) {
+				events = append(events, ev)
+			}
+		}
+		if len(events) == 0 {
+			continue
+		}
+		s.Events = events
+		kept = append(kept, s)
+	}
+	return kept
 }

@@ -17,8 +17,9 @@ import (
 // created only on approval.
 //
 // A row lives in this table only while it is pending — both Approve and Reject
-// delete the row, so a re-discovered concert can re-enter the queue after a
-// rejection.
+// delete the row. A rejection leaves a RejectedConcert entry, which keeps the
+// same listing out of discovery; a corrected listing can enter the queue
+// again.
 type ConcertCandidate struct {
 	// ID is the primary key (UUIDv7, application-generated).
 	ID string
