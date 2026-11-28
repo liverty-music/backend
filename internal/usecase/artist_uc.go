@@ -357,13 +357,30 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	return offered(persisted), nil
 }
 
+// SearchDecisionBudget is how long Search spends deciding the MBIDs of new
+// matches. The music catalog answers 1 request per second and each decision
+// takes 2 or more, so a name with many new matches would otherwise outlast
+// the request's own deadline and register nothing. Matches left when the
+// budget runs out are registered Unverified, and VerifyMBID decides them from
+// their announcement (design "Risks", the search latency fallback).
+const SearchDecisionBudget = 15 * time.Second
+
 // decideBeforeRegistering decides the MBID of each artist about to be
-// registered by Search: a Verified artist takes the decided MBID and the
-// catalog's name and activity status, keeping its listening MBID; an
-// Ambiguous one is logged; one whose decision fails stays Unverified.
+// registered by Search, in order, within SearchDecisionBudget: a Verified
+// artist takes the decided MBID and the catalog's name and activity status,
+// keeping its listening MBID; an Ambiguous one is logged; one whose decision
+// fails or is not reached within the budget stays Unverified.
 func (uc *artistUseCase) decideBeforeRegistering(ctx context.Context, artists []*entity.Artist) {
-	for _, a := range artists {
-		decision, err := uc.decideMBID(ctx, a.Name, a.MBID)
+	decideCtx, cancel := context.WithTimeout(ctx, SearchDecisionBudget)
+	defer cancel()
+	for i, a := range artists {
+		if decideCtx.Err() != nil {
+			uc.logger.Warn(ctx, "search decision budget spent; registering the remaining new matches unverified",
+				slog.Int("undecided", len(artists)-i),
+			)
+			return
+		}
+		decision, err := uc.decideMBID(decideCtx, a.Name, a.MBID)
 		if err != nil {
 			uc.logger.Warn(ctx, "could not verify the MBID of a new search match; registering it unverified",
 				slog.String("artist_name", a.Name),

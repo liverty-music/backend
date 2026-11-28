@@ -1275,3 +1275,41 @@ func TestArtistUseCase_Get(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
+
+func TestArtistUseCase_Search_DecisionBudget(t *testing.T) {
+	t.Parallel()
+
+	// The catalog answers slowly: the first decision takes longer than the
+	// budget, so the second match is not decided and is registered
+	// Unverified, and Search still answers.
+	synctest.Test(t, func(t *testing.T) {
+		d := newArtistTestDeps(t)
+		ctx := context.Background()
+		const slowMBID, laterMBID = "aaaaaaaa-0000-0000-0000-00000000000a", "bbbbbbbb-0000-0000-0000-00000000000b"
+		d.searcher.EXPECT().Search(ctx, "slow").Return([]*entity.Artist{
+			entity.NewArtist("Slow Band", slowMBID),
+			entity.NewArtist("Later Band", laterMBID),
+		}, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(anyCtx, []string{slowMBID, laterMBID}).Return(nil, nil).Once()
+		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Slow Band").RunAndReturn(
+			func(c context.Context, _ string) ([]*entity.CatalogArtist, error) {
+				<-c.Done() // the catalog has not answered when the budget runs out
+				return nil, c.Err()
+			}).Once()
+		// No decision runs for "Later Band": the mocks fail the test if one does.
+		d.repo.EXPECT().Create(anyCtx,
+			withStatus(slowMBID, slowMBID, entity.MBIDStatusUnverified),
+			withStatus(laterMBID, laterMBID, entity.MBIDStatusUnverified),
+		).RunAndReturn(func(_ context.Context, a ...*entity.Artist) ([]*entity.Artist, error) {
+			return a, nil
+		}).Once()
+
+		start := time.Now()
+		got, err := d.uc.Search(ctx, "slow")
+
+		require.NoError(t, err, "Search answers although the decisions ran out of time")
+		assert.Empty(t, got, "undecided matches are Unverified and not returned")
+		assert.Equal(t, usecase.SearchDecisionBudget, time.Since(start))
+		assert.Contains(t, d.logs.String(), "search decision budget spent")
+	})
+}
