@@ -1414,6 +1414,21 @@ COMMENT ON COLUMN user_home_areas.user_id IS 'The user whose home this is';
 COMMENT ON COLUMN user_home_areas.area_code IS 'Code of the first-level Area of the home (e.g., JP-13, HK)';
 COMMENT ON COLUMN user_home_areas.area_first_level IS 'Always true; with area_code it lets the foreign key require a first-level Area';
 
+-- Rollback snapshot of the one-time merge of duplicate discovered concerts and
+-- split discovered TOUR Series (OpenSpec change recognize-same-discovered-concert,
+-- design D10, migration 20261128100814_merge_same_discovered_concerts). No code reads
+-- it; drop it in a later migration once the merge is verified in prod.
+CREATE TABLE IF NOT EXISTS _merge_same_concerts_backup (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    entity TEXT NOT NULL,
+    row_data JSONB NOT NULL
+);
+
+COMMENT ON TABLE _merge_same_concerts_backup IS 'One-time rollback snapshot of the merge of duplicate discovered concerts and split TOUR Series (recognize-same-discovered-concert D10): every row the merge deleted or changed, as it was before. No code reads it';
+COMMENT ON COLUMN _merge_same_concerts_backup.id IS 'Surrogate key (UUIDv7), in the order the rows were saved';
+COMMENT ON COLUMN _merge_same_concerts_backup.entity IS 'What the row was and what the merge did to it: the table name, followed by deleted, changed or moved';
+COMMENT ON COLUMN _merge_same_concerts_backup.row_data IS 'The row before the merge, as to_jsonb of the table row';
+
 -- Venues name a first-level Area and a time zone of its country (OpenSpec
 -- change globalize-venues, Decisions 1 and 5). They are added here, after
 -- the reference tables they refer to.
