@@ -54,6 +54,8 @@ func startSearchWorker(t *testing.T, search func(ctx context.Context, artistID s
 	concerts.EXPECT().ListUpcomingByArtist(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	candidates := mocks.NewMockConcertCandidateRepository(t)
 	candidates.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	rejected := mocks.NewMockRejectedConcertRepository(t)
+	rejected.EXPECT().ListByArtist(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	searcher := mocks.NewMockConcertSearcher(t)
 	searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, a *entity.Artist, _ *entity.OfficialSite, _ time.Time) ([]*entity.DiscoveredSeries, error) {
@@ -66,7 +68,7 @@ func startSearchWorker(t *testing.T, search func(ctx context.Context, artistID s
 	metrics.EXPECT().RecordConcertSearch(mock.Anything, mock.Anything).Maybe()
 
 	logger, _ := newLogger(t)
-	uc := usecase.NewConcertUseCase(artists, concerts, nil, nil, nil, searches, candidates, nil, searcher, nil, nil,
+	uc := usecase.NewConcertUseCase(artists, concerts, nil, nil, nil, searches, candidates, rejected, searcher, nil, nil,
 		metrics, nil, 24*time.Hour, 14*24*time.Hour, time.Now, logger)
 	startWorker(t, dsn, func(rt *workflow.Runtime) {
 		require.NoError(t, rt.RegisterQueue(usecase.ConcertSearchQueue, usecase.ConcertSearchQueueConcurrency))
