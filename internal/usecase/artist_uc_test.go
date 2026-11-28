@@ -1210,6 +1210,7 @@ func TestArtistUseCase_Search(t *testing.T) {
 	t.Run("registers only the new match, unverified, and returns the known one", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/artist/search "Known and new matches"
+		// @spec components/usecase/artist/search "New match registered under its name"
 		d := newArtistTestDeps(t)
 
 		existing := verifiedArtist("db-id-1", "Existing", "mbid-existing")
