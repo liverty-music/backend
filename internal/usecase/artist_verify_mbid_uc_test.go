@@ -247,6 +247,28 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
 
+	// @spec components/usecase/artist/verify-mbid "Merged MBID with a namesake"
+	t.Run("Merged MBID with a namesake", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		const otherBand = "7ca3c12a-637c-4868-a986-a97e2212917c"
+		// ukBand was merged into jpBand; the name search lists jpBand and
+		// another band, and only jpBand has an official homepage. ukBand and
+		// jpBand are one candidate, so ukBand's homepage (jpBand's) is not
+		// read a second time and one candidate has a homepage.
+		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "PENTHOUSE", MBID: jpBand}, nil).Once()
+		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
+			{MBID: jpBand, Name: "PENTHOUSE"},
+			{MBID: otherBand, Name: "Penthouse"},
+		}, nil).Once()
+		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, jpBand).Return(homepageRelations("PENTHOUSE", "https://penthouse.example/"), nil).Once()
+		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, otherBand).Return(homepageRelations("Penthouse", ""), nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", false).Return(nil).Once()
+
+		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
+	})
+
 	t.Run("a namesake the catalog does not know makes the MBID ambiguous", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
