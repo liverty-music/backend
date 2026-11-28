@@ -49,6 +49,7 @@ func TestArtistRepository_Create(t *testing.T) {
 			args:  args{artists: []*entity.Artist{bulkA, bulkB, bulkC}},
 			want:  []*entity.Artist{bulkA, bulkB, bulkC},
 		},
+		// @spec components/entity/artist/create "Empty input"
 		{
 			name:  "empty slice returns empty",
 			setup: func() { cleanTables(t, db) },
@@ -70,6 +71,23 @@ func TestArtistRepository_Create(t *testing.T) {
 			},
 			args: args{artists: []*entity.Artist{entity.NewArtist("Different Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001")}},
 			want: []*entity.Artist{{Name: "Original Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"}},
+		},
+		// @spec components/entity/artist/create "Mixed input keeps order"
+		{
+			name: "known artist followed by a new artist keeps input order",
+			setup: func() {
+				cleanTables(t, db)
+				_, err := repo.Create(ctx, entity.NewArtist("Known Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003"))
+				require.NoError(t, err)
+			},
+			args: args{artists: []*entity.Artist{
+				entity.NewArtist("Known Again", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003"),
+				entity.NewArtist("New Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004"),
+			}},
+			want: []*entity.Artist{
+				{Name: "Known Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed003"},
+				{Name: "New Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed004"},
+			},
 		},
 		{
 			name:  "same MBID twice in one call registers the first and returns it for both",
@@ -149,6 +167,27 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001"},
 			},
 		},
+		// @spec components/entity/artist/list-by-mbids "Some MBIDs are known"
+		{
+			name: "known MBIDs are returned in input order and unknown ones skipped",
+			setup: func() {
+				cleanTables(t, db)
+				_, err := repo.Create(ctx,
+					entity.NewArtist("Artist C", "33333333-3333-3333-3333-33333333c003"),
+					entity.NewArtist("Artist A", "11111111-1111-1111-1111-11111111a001"),
+				)
+				require.NoError(t, err)
+			},
+			mbids: []string{
+				"11111111-1111-1111-1111-11111111a001",
+				"22222222-2222-2222-2222-22222222b002",
+				"33333333-3333-3333-3333-33333333c003",
+			},
+			want: []*entity.Artist{
+				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001"},
+				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003"},
+			},
+		},
 		{
 			name: "unknown MBIDs are silently skipped",
 			setup: func() {
@@ -161,12 +200,14 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 				{Name: "Known", MBID: "44444444-4444-4444-4444-444444known1"},
 			},
 		},
+		// @spec components/entity/artist/list-by-mbids "Empty input"
 		{
 			name:  "empty input returns empty slice",
 			setup: func() { cleanTables(t, db) },
 			mbids: nil,
 			want:  []*entity.Artist{},
 		},
+		// @spec components/entity/artist/list-by-mbids "No MBID is known"
 		{
 			name: "all MBIDs unknown returns empty slice",
 			setup: func() {
