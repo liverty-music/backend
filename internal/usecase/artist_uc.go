@@ -103,6 +103,25 @@ type ArtistUseCase interface {
 	//   - Internal: unexpected failure.
 	Refresh(ctx context.Context, artistID, mbid, currentName string) error
 
+	// CorrectMBID fixes an artist registered with a namesake's MBID: it
+	// looks the MBID up in the music catalog, replaces the artist's MBID with
+	// the canonical MBID the catalog returns for it (the replaced one stays among its other MBIDs, so a search that still
+	// returns it finds this artist), and reads the artist again from the
+	// catalog so its name and activity status are the right person's. It
+	// returns the corrected artist. Calling it again with the artist's current
+	// MBID changes nothing stored and repeats the catalog read.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: mbid is not 36 characters long.
+	//   - NotFound: the artist does not exist, or the catalog knows no artist
+	//     with the MBID. Nothing is stored.
+	//   - AlreadyExists: another artist has the MBID.
+	//   - Unavailable: the catalog is down or rate-limited; when it fails
+	//     after the MBID was stored, the MBID stays.
+	//   - Internal: unexpected failure.
+	CorrectMBID(ctx context.Context, artistID, mbid string) (*entity.Artist, error)
+
 	// RefreshDue runs one daily refresh: it refreshes, one at a time, every
 	// artist in today's slot of a 30-day rotation (the days from 1970-01-01 to
 	// today in Japan time, modulo 30), so every artist is read again once every
@@ -397,8 +416,9 @@ func (uc *artistUseCase) withoutEndedNow(ctx context.Context, artists []*entity.
 	return result, nil
 }
 
-// persistArtists looks up existing artists by MBID, creates only missing ones,
-// and returns all artists in the original input order. All input artists must
+// persistArtists looks up existing artists by MBID (an artist's own or one it
+// was corrected from), creates only missing ones, and returns the artists in
+// the original input order, each once. All input artists must
 // have a non-empty MBID (caller responsibility).
 func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
 	if len(artists) == 0 {
@@ -422,9 +442,7 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	}
 
 	existingSet := make(map[string]*entity.Artist, len(existing))
-	for _, a := range existing {
-		existingSet[a.MBID] = a
-	}
+	indexByMBIDs(existingSet, existing)
 
 	// Step 3: Determine missing.
 	var missing []*entity.Artist
@@ -441,22 +459,34 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 			return nil, err
 		}
 		// Artist.Create announces each artist it registered (ARTIST.created).
-		for _, a := range created {
-			existingSet[a.MBID] = a
-		}
+		indexByMBIDs(existingSet, created)
 	}
 
 	span.SetAttributes(attribute.Int("persist.created_count", len(missing)))
 
 	// Step 5: Merge preserving input order.
+	// An artist is listed once, even when several inputs resolve to it.
 	result := make([]*entity.Artist, 0, len(artists))
+	listed := make(map[string]bool, len(artists))
 	for _, a := range artists {
-		if persisted, ok := existingSet[a.MBID]; ok {
+		if persisted, ok := existingSet[a.MBID]; ok && !listed[persisted.ID] {
+			listed[persisted.ID] = true
 			result = append(result, persisted)
 		}
 	}
 
 	return result, nil
+}
+
+// indexByMBIDs adds each artist to index under its MBID and under every MBID
+// it was corrected from, so a match under either finds it.
+func indexByMBIDs(index map[string]*entity.Artist, artists []*entity.Artist) {
+	for _, a := range artists {
+		index[a.MBID] = a
+		for _, other := range a.OtherMBIDs {
+			index[other] = a
+		}
+	}
 }
 
 // hashString creates a simple hash of a string for cache key consistency.
@@ -483,6 +513,40 @@ func (uc *artistUseCase) ListByOrganizer(ctx context.Context, organizerID string
 type artistRefreshOutcome struct {
 	renamed bool
 	ended   bool
+}
+
+// CorrectMBID implements [ArtistUseCase].
+func (uc *artistUseCase) CorrectMBID(ctx context.Context, artistID, mbid string) (*entity.Artist, error) {
+	if len(mbid) != 36 {
+		return nil, apperr.New(codes.InvalidArgument, "mbid must be a UUID of 36 characters", slog.String("mbid", mbid))
+	}
+	artist, err := uc.artistRepo.Get(ctx, artistID)
+	if err != nil {
+		return nil, err
+	}
+	// Look the MBID up before changing anything, so a mistyped MBID stores
+	// nothing. The catalog answers a merged MBID with the surviving one; that
+	// canonical MBID is what a later lookup returns, so it is the one stored.
+	catalog, err := uc.idManager.GetArtist(ctx, mbid)
+	if err != nil {
+		return nil, err
+	}
+	if catalog.MBID == "" {
+		return nil, apperr.New(codes.Internal, "the catalog returned no MBID", slog.String("mbid", mbid))
+	}
+	canonical := catalog.MBID
+	if err := uc.artistRepo.UpdateMBID(ctx, artistID, canonical); err != nil {
+		return nil, err
+	}
+	if _, err := uc.refresh(ctx, artistID, canonical, artist.Name); err != nil {
+		return nil, err
+	}
+	uc.logger.Info(ctx, "artist mbid corrected",
+		slog.String("artist_id", artistID),
+		slog.String("old_mbid", artist.MBID),
+		slog.String("new_mbid", canonical),
+	)
+	return uc.artistRepo.Get(ctx, artistID)
 }
 
 // Refresh implements [ArtistUseCase].

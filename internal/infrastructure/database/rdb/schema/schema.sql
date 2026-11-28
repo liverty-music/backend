@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS artists (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
     mbid TEXT NOT NULL,
+    other_mbids TEXT[] NOT NULL DEFAULT '{}',
     fanart JSONB,
     fanart_sync_time TIMESTAMPTZ,
     official_site_check_time TIMESTAMPTZ,
@@ -60,6 +61,7 @@ COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe 
 COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN artists.name IS 'Artist or band name as displayed to users';
 COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)';
+COMMENT ON COLUMN artists.other_mbids IS 'MBIDs the artist was corrected from: the music catalog''s lookup by name returned a namesake''s MBID, and a search that returns one of them still finds this artist instead of registering a second row. Never the artist''s own mbid; an MBID is the mbid or other MBID of one artist only (checked by the application under an advisory lock).';
 COMMENT ON COLUMN artists.fanart IS 'Cached fanart.tv API response containing community-curated artist images (thumb, background, logo, banner)';
 COMMENT ON COLUMN artists.fanart_sync_time IS 'Timestamp of the last successful fanart.tv API sync for this artist';
 COMMENT ON COLUMN artists.official_site_check_time IS 'Timestamp of the last official-site check in MusicBrainz for this artist, whatever the check found. NULL when never checked.';
