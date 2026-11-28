@@ -187,6 +187,34 @@ func TestOfficialSiteUseCase_Create(t *testing.T) {
 	})
 }
 
+func TestOfficialSiteUseCase_Update(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("artist with a site", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/official-site/update "Artist with a site"
+		d := newArtistTestDeps(t)
+		d.repo.EXPECT().UpdateOfficialSiteURL(anyCtx, "artist-1", "https://www.example.com").Return(nil).Once()
+
+		err := usecase.NewOfficialSiteUseCase(d.repo).Update(ctx, "artist-1", "https://www.example.com")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("artist without a site", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/official-site/update "Artist without a site"
+		d := newArtistTestDeps(t)
+		d.repo.EXPECT().UpdateOfficialSiteURL(anyCtx, "artist-1", "https://www.example.com").Return(apperr.ErrNotFound).Once()
+
+		err := usecase.NewOfficialSiteUseCase(d.repo).Update(ctx, "artist-1", "https://www.example.com")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
 func TestArtistUseCase_ListArtists(t *testing.T) {
 	t.Parallel()
 
