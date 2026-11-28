@@ -23,8 +23,13 @@ COMMENT ON COLUMN "_merge_same_concerts_backup"."row_data" IS 'The row before th
 -- that no longer matches what was collected, is skipped. Every deleted or
 -- changed row is saved in _merge_same_concerts_backup first.
 --
--- The scratch tables are regular tables, dropped at the end: Atlas may run
--- statements on separate connections, where a temporary table is not visible.
+-- Atlas applies the file in one transaction (its default tx mode), so the row
+-- locks taken below hold until the merge commits. As Concert.Merge does (design
+-- D3), each step first locks the listed rows FOR UPDATE in id order: a fan's
+-- journey, a sale reminder or a discovered row written for a row about to be
+-- deleted then waits, and fails its foreign key check instead of being removed
+-- by ON DELETE CASCADE without a copy. The scratch tables are regular tables,
+-- dropped at the end.
 
 -- ----- 1. Duplicate pairs: keep the older event, delete the newer one -----
 DROP TABLE IF EXISTS _merge_pairs;
@@ -51,6 +56,10 @@ INSERT INTO _merge_pairs (keep_id, drop_id, listed_name) VALUES
     -- Vaundy 2027-08-28 / 08-29: one show a day (official site); the two names resolved to two venues
     ('019f8cd1-768e-7188-b6a7-7f55e26ab014', '01a11fe4-b057-72a8-b95d-e7b275bbbd69', 'クロコくんホール (旧 日本ガイシホール)'),
     ('019f8cd1-79d7-7206-9a88-5f30b1c7571a', '01a11fe4-b16a-7fe7-aef1-f6b44304ca50', 'クロコくんホール (旧 日本ガイシホール)');
+
+SELECT 1 FROM events
+WHERE id IN (SELECT keep_id FROM _merge_pairs UNION SELECT drop_id FROM _merge_pairs)
+ORDER BY id FOR UPDATE;
 
 -- Skip a pair whose events are gone, moved to another date, or no longer discovered.
 DELETE FROM _merge_pairs p
@@ -147,10 +156,18 @@ INSERT INTO _merge_series (canonical_id, member_id) VALUES
     -- 米津玄師 "KENSHI YONEZU 2026-2027 WORLD TOUR / GHOST"
     ('01a15364-9aa2-787f-9bf1-182a858ee29f', '01a1a0a3-b6a0-7867-8238-37105df42523');
 
+SELECT 1 FROM series
+WHERE id IN (SELECT canonical_id FROM _merge_series UNION SELECT member_id FROM _merge_series)
+ORDER BY id FOR UPDATE;
+
 -- Skip a member that is gone, or whose canonical Series is gone or no longer a discovered TOUR.
 DELETE FROM _merge_series m
 WHERE NOT EXISTS (SELECT 1 FROM series s WHERE s.id = m.member_id AND s.organizer_id IS NULL)
    OR NOT EXISTS (SELECT 1 FROM series s WHERE s.id = m.canonical_id AND s.organizer_id IS NULL AND s.type = 'TOUR');
+
+SELECT 1 FROM ticket_sales
+WHERE series_id IN (SELECT canonical_id FROM _merge_series UNION SELECT member_id FROM _merge_series)
+ORDER BY id FOR UPDATE;
 
 -- Discovered ticket sales that would collide on uq_ticket_sales_discovered_convergence
 -- (series_id, method, sale_start_local_date) once on one Series: keep the
