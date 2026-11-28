@@ -436,9 +436,10 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		const mbid = "77777777-7777-7777-7777-00000000ee01"
 		artistID := seedArtist(t, db, "Old Name", mbid)
 
-		err := repo.UpdateName(ctx, artistID, mbid, "New Name")
+		stored, err := repo.UpdateName(ctx, artistID, mbid, "New Name")
 
 		require.NoError(t, err)
+		assert.True(t, stored)
 		got, err := repo.Get(ctx, artistID)
 		require.NoError(t, err)
 		assert.Equal(t, "New Name", got.Name)
@@ -451,9 +452,10 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		artistID := seedArtist(t, db, "Namesake", mbidA)
 		require.NoError(t, repo.UpdateMBID(ctx, artistID, mbidB, "Right Name", false, nil))
 
-		err := repo.UpdateName(ctx, artistID, mbidA, "Namesake")
+		stored, err := repo.UpdateName(ctx, artistID, mbidA, "Namesake")
 
 		require.NoError(t, err)
+		assert.False(t, stored)
 		got, err := repo.Get(ctx, artistID)
 		require.NoError(t, err)
 		assert.Equal(t, "Right Name", got.Name)
@@ -463,7 +465,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 	t.Run("Unknown artist", func(t *testing.T) {
 		cleanTables(t, db)
 
-		err := repo.UpdateName(ctx, entity.NewID(), "77777777-7777-7777-7777-00000000ee04", "Anything")
+		_, err := repo.UpdateName(ctx, entity.NewID(), "77777777-7777-7777-7777-00000000ee04", "Anything")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

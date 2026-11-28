@@ -492,10 +492,10 @@ func (r *ArtistRepository) GetByMBID(ctx context.Context, mbid string) (*entity.
 
 // UpdateName sets the display name read for mbid, only while the artist still
 // has that MBID: UpdateMBID may have replaced it since.
-func (r *ArtistRepository) UpdateName(ctx context.Context, id, mbid, name string) error {
+func (r *ArtistRepository) UpdateName(ctx context.Context, id, mbid, name string) (bool, error) {
 	stored, err := r.execWhileMBID(ctx, updateArtistNameQuery, "name", id, mbid, name)
 	if err != nil || !stored {
-		return err
+		return false, err
 	}
 
 	r.db.logger.Info(ctx, "artist name updated",
@@ -503,7 +503,7 @@ func (r *ArtistRepository) UpdateName(ctx context.Context, id, mbid, name string
 		slog.String("id", id),
 		slog.String("name", name),
 	)
-	return nil
+	return true, nil
 }
 
 // UpdateKnownNames replaces the known names read for mbid, only while the

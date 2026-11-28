@@ -803,16 +803,20 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 			slog.String("mbid", mbid),
 		)
 	case catalog.Name != currentName:
-		if err := uc.artistRepo.UpdateName(ctx, artistID, mbid, catalog.Name); err != nil {
+		stored, err := uc.artistRepo.UpdateName(ctx, artistID, mbid, catalog.Name)
+		if err != nil {
 			return outcome, fmt.Errorf("update name of artist %s: %w", artistID, err)
 		}
 		name = catalog.Name
-		outcome.renamed = true
-		uc.logger.Info(ctx, "artist name updated to canonical", analyticslog.Attrs(analyticslog.TopicCatalogSync,
-			slog.String("artist_id", artistID),
-			slog.String("old_name", currentName),
-			slog.String("new_name", catalog.Name),
-		)...)
+		// Not stored when the MBID was replaced since it was looked up.
+		if stored {
+			outcome.renamed = true
+			uc.logger.Info(ctx, "artist name updated to canonical", analyticslog.Attrs(analyticslog.TopicCatalogSync,
+				slog.String("artist_id", artistID),
+				slog.String("old_name", currentName),
+				slog.String("new_name", catalog.Name),
+			)...)
+		}
 	}
 
 	// Aliases change on their own, so the known names are stored also when the

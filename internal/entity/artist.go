@@ -382,15 +382,16 @@ type ArtistRepository interface {
 	ListByKnownNames(ctx context.Context, names []string) ([]*Artist, error)
 
 	// UpdateName sets the display name of the artist with the given id to
-	// name, which was read for mbid. When the artist's MBID is no longer mbid
-	// (UpdateMBID replaced it after the name was read), nothing changes and it
-	// succeeds, so another person's name is never stored.
+	// name, which was read for mbid, and reports whether it stored the name.
+	// When the artist's MBID is no longer mbid (UpdateMBID replaced it after
+	// the name was read), nothing changes and it succeeds with false, so
+	// another person's name is never stored.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
-	UpdateName(ctx context.Context, id, mbid, name string) error
+	UpdateName(ctx context.Context, id, mbid, name string) (stored bool, err error)
 
 	// UpdateActivityEnded sets whether the artist's activity has ended, as
 	// read from the music catalog for mbid. Setting the value the artist

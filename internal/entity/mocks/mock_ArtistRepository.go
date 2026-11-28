@@ -1305,20 +1305,29 @@ func (_c *MockArtistRepository_UpdateMBID_Call) RunAndReturn(run func(ctx contex
 }
 
 // UpdateName provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) UpdateName(ctx context.Context, id string, mbid string, name string) error {
+func (_mock *MockArtistRepository) UpdateName(ctx context.Context, id string, mbid string, name string) (bool, error) {
 	ret := _mock.Called(ctx, id, mbid, name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateName")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) (bool, error)); ok {
+		return returnFunc(ctx, id, mbid, name)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string) bool); ok {
 		r0 = returnFunc(ctx, id, mbid, name)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = returnFunc(ctx, id, mbid, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockArtistRepository_UpdateName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateName'
@@ -1363,12 +1372,12 @@ func (_c *MockArtistRepository_UpdateName_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockArtistRepository_UpdateName_Call) Return(err error) *MockArtistRepository_UpdateName_Call {
-	_c.Call.Return(err)
+func (_c *MockArtistRepository_UpdateName_Call) Return(stored bool, err error) *MockArtistRepository_UpdateName_Call {
+	_c.Call.Return(stored, err)
 	return _c
 }
 
-func (_c *MockArtistRepository_UpdateName_Call) RunAndReturn(run func(ctx context.Context, id string, mbid string, name string) error) *MockArtistRepository_UpdateName_Call {
+func (_c *MockArtistRepository_UpdateName_Call) RunAndReturn(run func(ctx context.Context, id string, mbid string, name string) (bool, error)) *MockArtistRepository_UpdateName_Call {
 	_c.Call.Return(run)
 	return _c
 }
