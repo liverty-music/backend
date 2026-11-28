@@ -51,7 +51,7 @@ func giveDetails(t *testing.T, db *rdb.Database, repo *rdb.ArtistRepository, id 
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, repo.UpdateFanart(ctx, id, artistMBID(t, db, id), &entity.Fanart{ArtistThumb: []entity.FanartImage{{ID: "1", URL: "https://example.com/1.jpg"}}}, time.Now()))
-	require.NoError(t, repo.UpdateActivityEnded(ctx, id, true))
+	require.NoError(t, repo.UpdateActivityEnded(ctx, id, artistMBID(t, db, id), true))
 	require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(id, "https://namesake.example/")))
 	require.NoError(t, repo.MarkOfficialSiteChecked(ctx, id, time.Now()))
 }
@@ -67,7 +67,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
 
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "PENTHOUSE", true))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "PENTHOUSE", true, nil))
 
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -82,9 +82,9 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 	t.Run("Second correction", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidC, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidC, "Penthouse", false, nil))
 
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -96,9 +96,9 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 	t.Run("Back to an earlier MBID", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidA, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidA, "Penthouse", false, nil))
 
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		before, err := repo.Get(ctx, id)
 		require.NoError(t, err)
 
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidA, "PENTHOUSE", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidA, "PENTHOUSE", false, nil))
 
 		after, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -133,10 +133,10 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
 		other := seedArtist(t, db, "Other", mbidB)
-		require.NoError(t, repo.UpdateMBID(ctx, other, mbidC, "Other", false)) // Other: mbid C, listening_mbid B
+		require.NoError(t, repo.UpdateMBID(ctx, other, mbidC, "Other", false, nil)) // Other: mbid C, listening_mbid B
 
 		for _, taken := range []string{mbidC, mbidB} { // as mbid, then as listening_mbid
-			err := repo.UpdateMBID(ctx, id, taken, "Penthouse", false)
+			err := repo.UpdateMBID(ctx, id, taken, "Penthouse", false, nil)
 			assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 		}
 
@@ -150,7 +150,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 	t.Run("Unknown artist", func(t *testing.T) {
 		cleanTables(t, db)
 
-		err := repo.UpdateMBID(ctx, entity.NewID(), mbidA, "Nobody", false)
+		err := repo.UpdateMBID(ctx, entity.NewID(), mbidA, "Nobody", false, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -160,7 +160,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
 
-		err := repo.UpdateMBID(ctx, id, "too-short", "Penthouse", false)
+		err := repo.UpdateMBID(ctx, id, "too-short", "Penthouse", false, nil)
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		got, err := repo.Get(ctx, id)
@@ -175,7 +175,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		id := seedArtist(t, db, "Penthouse", mbidA)
 		giveDetails(t, db, repo, id)
 
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
 		got, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		// @spec components/entity/artist/update-fanart "Images of a replaced MBID"
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
 		// An image sync that resolved images for mbidA before the correction
 		// finishes after it.
@@ -216,7 +216,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		require.NoError(t, err)
 
 		done := make(chan error, 1)
-		go func() { done <- repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false) }()
+		go func() { done <- repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil) }()
 
 		select {
 		case err := <-done:
@@ -248,7 +248,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 			}()
 			go func() {
 				defer wg.Done()
-				updateErr = repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false)
+				updateErr = repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil)
 			}()
 			wg.Wait()
 
@@ -356,7 +356,7 @@ func TestArtistRepository_ListByMBIDs_ListeningMBID(t *testing.T) {
 	t.Run("Replaced MBID", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
 		got, err := repo.ListByMBIDs(ctx, []string{mbidA})
 
@@ -370,7 +370,7 @@ func TestArtistRepository_ListByMBIDs_ListeningMBID(t *testing.T) {
 	t.Run("Two MBIDs of one artist", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 		seedArtist(t, db, "Someone else", mbidC)
 
 		got, err := repo.ListByMBIDs(ctx, []string{mbidC, mbidA, mbidB})
@@ -385,7 +385,7 @@ func TestArtistRepository_ListByMBIDs_ListeningMBID(t *testing.T) {
 	t.Run("Corrected artist keeps its identity", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 
 		byListening, err := repo.ListByMBIDs(ctx, []string{mbidA})
 		require.NoError(t, err)
@@ -402,10 +402,10 @@ func TestArtistRepository_ListByMBIDs_ListeningMBID(t *testing.T) {
 	t.Run("One owner per MBID", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 		stranger := seedArtist(t, db, "Stranger", mbidC)
 
-		require.ErrorIs(t, repo.UpdateMBID(ctx, stranger, mbidA, "Stranger", false), apperr.ErrAlreadyExists)
+		require.ErrorIs(t, repo.UpdateMBID(ctx, stranger, mbidA, "Stranger", false, nil), apperr.ErrAlreadyExists)
 		_, err := repo.Create(ctx, entity.NewArtist("Namesake", mbidA))
 		require.NoError(t, err)
 
@@ -423,7 +423,7 @@ func TestArtistRepository_Create_ListeningMBID(t *testing.T) {
 	t.Run("Replaced MBID", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false, nil))
 		before := countAnnouncements(t, db)
 
 		got, err := repo.Create(ctx, entity.NewArtist("Penthouse", mbidA), entity.NewArtist("New one", mbidD))

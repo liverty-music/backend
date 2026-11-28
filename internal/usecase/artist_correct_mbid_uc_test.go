@@ -37,7 +37,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "PENTHOUSE", MBID: newMBID, ActivityEnded: false}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "PENTHOUSE", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "PENTHOUSE", false, []string(nil)).Return(nil).Once()
 		after := &entity.Artist{ID: "artist-1", Name: "PENTHOUSE", MBID: newMBID, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusVerified}
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(after, nil).Once()
 
@@ -47,6 +47,21 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		assert.Equal(t, after, got)
 	})
 
+	// @spec components/usecase/artist/correct-mbid "MBID chosen"
+	t.Run("MBID chosen", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		names := []string{"ヨルシカ", "yorushika"}
+		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "ヨルシカ", MBID: newMBID, KnownNames: names}, nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "ヨルシカ", false, names).Return(nil).Once()
+		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(correctedArtist(), nil).Once()
+
+		_, err := d.uc.CorrectMBID(ctx, "artist-1", newMBID)
+
+		require.NoError(t, err)
+	})
+
 	// @spec components/usecase/artist/correct-mbid "Redirected MBID"
 	t.Run("Redirected MBID taken by another artist", func(t *testing.T) {
 		t.Parallel()
@@ -54,7 +69,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "Penthouse", MBID: canonical}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", canonical, "Penthouse", false).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", canonical, "Penthouse", false, []string(nil)).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
 
 		_, err := d.uc.CorrectMBID(ctx, "artist-1", newMBID)
 
@@ -68,7 +83,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "Penthouse", MBID: canonical}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", canonical, "Penthouse", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", canonical, "Penthouse", false, []string(nil)).Return(nil).Once()
 		after := &entity.Artist{ID: "artist-1", Name: "Penthouse", MBID: canonical, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusVerified}
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(after, nil).Once()
 
@@ -100,7 +115,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d.idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "PENTHOUSE", MBID: oldMBID, ActivityEnded: true}, nil).Once()
 		// The same MBID goes to UpdateMBID, which keeps the images and the
 		// official site of an unchanged MBID and marks it Verified.
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", oldMBID, "PENTHOUSE", true).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", oldMBID, "PENTHOUSE", true, []string(nil)).Return(nil).Once()
 		after := &entity.Artist{ID: "artist-1", Name: "PENTHOUSE", MBID: oldMBID, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusVerified, ActivityEnded: true}
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(after, nil).Once()
 
@@ -115,7 +130,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "", MBID: newMBID}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "Penthouse", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "Penthouse", false, []string(nil)).Return(nil).Once()
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(correctedArtist(), nil).Once()
 
 		_, err := d.uc.CorrectMBID(ctx, "artist-1", newMBID)
@@ -151,7 +166,7 @@ func TestArtistUseCase_CorrectMBID(t *testing.T) {
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(ambiguous(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "Penthouse", MBID: newMBID}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "Penthouse", false).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", newMBID, "Penthouse", false, []string(nil)).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
 
 		_, err := d.uc.CorrectMBID(ctx, "artist-1", newMBID)
 

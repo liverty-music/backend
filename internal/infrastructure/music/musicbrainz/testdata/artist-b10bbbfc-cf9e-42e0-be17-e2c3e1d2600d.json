@@ -1,43 +1,518 @@
 {
-  "area": {
-    "disambiguation": "",
-    "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
-    "iso-3166-1-codes": [
-      "GB"
-    ],
-    "name": "United Kingdom",
-    "sort-name": "United Kingdom",
-    "type": null,
-    "type-id": null
-  },
-  "begin-area": {
-    "disambiguation": "",
-    "id": "c249c30e-88ab-4b2f-a745-96a25bd7afee",
-    "iso-3166-2-codes": [
-      "GB-LIV"
-    ],
-    "name": "Liverpool",
-    "sort-name": "Liverpool",
-    "type": null,
-    "type-id": null
-  },
-  "country": "GB",
-  "disambiguation": "UK rock band, “The Fab Four”",
-  "end-area": null,
-  "gender": null,
-  "gender-id": null,
+  "aliases": [
+    {
+      "type": "Artist name",
+      "locale": "en",
+      "ended": false,
+      "begin": null,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "Beatles",
+      "end": null,
+      "name": "Beatles"
+    },
+    {
+      "primary": null,
+      "sort-name": "Beetles",
+      "type-id": "1937e404-b981-3cb7-8151-4c86ebfc8d8e",
+      "name": "Beetles",
+      "end": null,
+      "type": "Search hint",
+      "begin": null,
+      "locale": null,
+      "ended": false
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "Bítlarnir",
+      "end": null,
+      "name": "Bítlarnir",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "is",
+      "begin": null
+    },
+    {
+      "type": "Artist name",
+      "locale": "de",
+      "ended": false,
+      "begin": null,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "Beatles, Die",
+      "primary": false,
+      "end": null,
+      "name": "Die Beatles"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "Beatles, I",
+      "primary": false,
+      "end": null,
+      "name": "I Beatles",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "it",
+      "begin": null
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "Beatles, Les",
+      "primary": false,
+      "end": null,
+      "name": "Les Beatles",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "fr",
+      "begin": null
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": true,
+      "sort-name": "Beatles, Los",
+      "end": null,
+      "name": "Los Beatles",
+      "type": "Artist name",
+      "locale": "es",
+      "ended": false,
+      "begin": null
+    },
+    {
+      "primary": true,
+      "sort-name": "Beatles, The",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "The Beatles",
+      "end": null,
+      "type": "Artist name",
+      "begin": null,
+      "locale": "en",
+      "ended": false
+    },
+    {
+      "type": "Artist name",
+      "begin": null,
+      "locale": "en",
+      "ended": false,
+      "sort-name": "Silver Beatles, The",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "The Silver Beatles",
+      "end": null
+    },
+    {
+      "ended": false,
+      "locale": null,
+      "begin": null,
+      "type": "Search hint",
+      "end": null,
+      "name": "fab four",
+      "type-id": "1937e404-b981-3cb7-8151-4c86ebfc8d8e",
+      "primary": null,
+      "sort-name": "fab four"
+    },
+    {
+      "ended": false,
+      "locale": "ru",
+      "begin": null,
+      "type": "Artist name",
+      "end": null,
+      "name": "Битлз",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "Битлз"
+    },
+    {
+      "type": "Artist name",
+      "begin": null,
+      "ended": false,
+      "locale": "mk",
+      "sort-name": "Битлси",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "Битлси",
+      "end": null
+    },
+    {
+      "name": "Бітлз",
+      "end": null,
+      "sort-name": "Бітлз",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "ended": false,
+      "locale": "uk",
+      "type": "Artist name"
+    },
+    {
+      "end": null,
+      "name": "Պիթլս",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "Պիթլս",
+      "primary": false,
+      "locale": "hy",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "די ביטלס",
+      "end": null,
+      "name": "די ביטלס",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "yi",
+      "begin": null
+    },
+    {
+      "type": "Artist name",
+      "locale": "he",
+      "ended": false,
+      "begin": null,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "הביטלס",
+      "end": null,
+      "name": "הביטלס"
+    },
+    {
+      "ended": false,
+      "locale": "ar",
+      "begin": null,
+      "type": "Artist name",
+      "end": null,
+      "name": "البيتلز",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "البيتلز"
+    },
+    {
+      "name": "بیتلز",
+      "end": null,
+      "primary": false,
+      "sort-name": "بیتلز",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "ended": false,
+      "locale": "fa",
+      "type": "Artist name"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "بیٹلز",
+      "end": null,
+      "name": "بیٹلز",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "ur",
+      "begin": null
+    },
+    {
+      "begin": null,
+      "locale": "ne",
+      "ended": false,
+      "type": "Artist name",
+      "name": "द बिटल्स",
+      "end": null,
+      "primary": false,
+      "sort-name": "द बिटल्स",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "द बीटल्स",
+      "end": null,
+      "name": "द बीटल्स",
+      "type": "Artist name",
+      "ended": false,
+      "locale": "hi",
+      "begin": null
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "দ্য বিটল্‌স",
+      "primary": false,
+      "end": null,
+      "name": "দ্য বিটল্‌স",
+      "type": "Artist name",
+      "locale": "bn",
+      "ended": false,
+      "begin": null
+    },
+    {
+      "name": "ਦ ਬੀਟਲਜ਼",
+      "end": null,
+      "sort-name": "ਦ ਬੀਟਲਜ਼",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "locale": "pa",
+      "ended": false,
+      "type": "Artist name"
+    },
+    {
+      "name": "ધ બિટલ્સ",
+      "end": null,
+      "primary": false,
+      "sort-name": "ધ બિટલ્સ",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "locale": "gu",
+      "ended": false,
+      "type": "Artist name"
+    },
+    {
+      "begin": null,
+      "locale": "ta",
+      "ended": false,
+      "type": "Artist name",
+      "name": "பீட்டில்ஸ்",
+      "end": null,
+      "sort-name": "பீட்டில்ஸ்",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "ద బీటిల్స్",
+      "primary": false,
+      "end": null,
+      "name": "ద బీటిల్స్",
+      "type": "Artist name",
+      "locale": "te",
+      "ended": false,
+      "begin": null
+    },
+    {
+      "name": "ದಿ ಬೀಟಲ್ಸ್",
+      "end": null,
+      "sort-name": "ದಿ ಬೀಟಲ್ಸ್",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "locale": "kn",
+      "ended": false,
+      "type": "Artist name"
+    },
+    {
+      "end": null,
+      "name": "ദി ബീറ്റിൽസ്",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "primary": false,
+      "sort-name": "ദി ബീറ്റിൽസ്",
+      "locale": "ml",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name"
+    },
+    {
+      "type": "Artist name",
+      "ended": false,
+      "locale": "th",
+      "begin": null,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "เดอะบีเทิลส์",
+      "primary": false,
+      "end": null,
+      "name": "เดอะบีเทิลส์"
+    },
+    {
+      "end": null,
+      "name": "ဘီးတဲလ်အဖွဲ့",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "ဘီးတဲလ်အဖွဲ့",
+      "primary": false,
+      "locale": "my",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name"
+    },
+    {
+      "type": "Artist name",
+      "begin": null,
+      "ended": false,
+      "locale": "ka",
+      "primary": false,
+      "sort-name": "ბითლზი",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "ბითლზი",
+      "end": null
+    },
+    {
+      "primary": false,
+      "sort-name": "ዘ ቢተልስ",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "ዘ ቢተልስ",
+      "end": null,
+      "type": "Artist name",
+      "begin": null,
+      "ended": false,
+      "locale": "am"
+    },
+    {
+      "begin": null,
+      "locale": "sat",
+      "ended": false,
+      "type": "Artist name",
+      "name": "ᱫᱚ ᱵᱤᱴᱞᱮᱥ",
+      "end": null,
+      "sort-name": "ᱫᱚ ᱵᱤᱴᱞᱮᱥ",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc"
+    },
+    {
+      "begin": null,
+      "locale": "ja",
+      "ended": false,
+      "type": "Artist name",
+      "name": "ザ・ビートルズ",
+      "end": null,
+      "sort-name": "ビートルズ（ザ）",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc"
+    },
+    {
+      "locale": "ja",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name",
+      "end": null,
+      "name": "ビートルズ",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "ビートルズ",
+      "primary": true
+    },
+    {
+      "sort-name": "披头士",
+      "primary": true,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "披头士",
+      "end": null,
+      "type": "Artist name",
+      "begin": null,
+      "locale": "zh_Hans",
+      "ended": false
+    },
+    {
+      "type": "Artist name",
+      "locale": "zh_Hans",
+      "ended": false,
+      "begin": null,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "披头士乐队",
+      "primary": false,
+      "end": null,
+      "name": "披头士乐队"
+    },
+    {
+      "primary": true,
+      "sort-name": "披头士乐队",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "披头士乐队",
+      "end": null,
+      "type": "Artist name",
+      "begin": null,
+      "ended": false,
+      "locale": "zh_Hans_CN"
+    },
+    {
+      "name": "披頭四",
+      "end": null,
+      "primary": true,
+      "sort-name": "披頭四",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "begin": null,
+      "ended": false,
+      "locale": "zh_Hant",
+      "type": "Artist name"
+    },
+    {
+      "type": null,
+      "ended": false,
+      "locale": "zh_Hant",
+      "begin": null,
+      "type-id": null,
+      "sort-name": "披頭四樂團",
+      "primary": false,
+      "end": null,
+      "name": "披頭四樂團"
+    },
+    {
+      "end": null,
+      "name": "披頭四樂隊",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "披頭四樂隊",
+      "primary": false,
+      "locale": "zh_Hant",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name"
+    },
+    {
+      "end": null,
+      "name": "더 비틀즈",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "더 비틀즈",
+      "primary": true,
+      "locale": "ko",
+      "ended": false,
+      "begin": null,
+      "type": "Artist name"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "비틀스",
+      "primary": false,
+      "end": null,
+      "name": "비틀스",
+      "type": "Artist name",
+      "locale": "ko",
+      "ended": false,
+      "begin": null
+    }
+  ],
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
   "id": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d",
-  "ipis": [],
+  "sort-name": "Beatles, The",
   "isnis": [
     "0000000121707484"
   ],
+  "area": {
+    "type": null,
+    "iso-3166-1-codes": [
+      "GB"
+    ],
+    "sort-name": "United Kingdom",
+    "disambiguation": "",
+    "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
+    "type-id": null,
+    "name": "United Kingdom"
+  },
+  "gender": null,
+  "disambiguation": "UK rock band, “The Fab Four”",
+  "country": "GB",
+  "ipis": [],
+  "name": "The Beatles",
+  "gender-id": null,
+  "type": "Group",
+  "begin-area": {
+    "sort-name": "Liverpool",
+    "id": "c249c30e-88ab-4b2f-a745-96a25bd7afee",
+    "disambiguation": "",
+    "type-id": null,
+    "name": "Liverpool",
+    "type": null,
+    "iso-3166-2-codes": [
+      "GB-LIV"
+    ]
+  },
   "life-span": {
     "begin": "1960-03-27",
-    "end": "1970-04-10",
-    "ended": true
+    "ended": true,
+    "end": "1970-04-10"
   },
-  "name": "The Beatles",
-  "sort-name": "Beatles, The",
-  "type": "Group",
-  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+  "end-area": null
 }

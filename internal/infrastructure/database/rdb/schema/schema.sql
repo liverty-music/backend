@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS artists (
     fanart_sync_time TIMESTAMPTZ,
     official_site_check_time TIMESTAMPTZ,
     activity_ended BOOLEAN NOT NULL DEFAULT false,
+    known_names TEXT[] NOT NULL DEFAULT '{}',
     CONSTRAINT chk_artists_mbid_format CHECK (char_length(mbid) = 36),
     CONSTRAINT chk_artists_listening_mbid_format CHECK (char_length(listening_mbid) = 36),
     CONSTRAINT chk_artists_mbid_status CHECK (mbid_status IN ('unverified', 'verified', 'ambiguous')),
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS artists (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_listening_mbid ON artists(listening_mbid);
+CREATE INDEX IF NOT EXISTS idx_artists_known_names ON artists USING gin (known_names);
 
 COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe to for concert notifications';
 COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7, application-generated)';
@@ -71,6 +73,7 @@ COMMENT ON COLUMN artists.fanart IS 'Cached fanart.tv API response containing co
 COMMENT ON COLUMN artists.fanart_sync_time IS 'Timestamp of the last successful fanart.tv API sync for this artist';
 COMMENT ON COLUMN artists.official_site_check_time IS 'Timestamp of the last official-site check in MusicBrainz for this artist, whatever the check found. NULL when never checked.';
 COMMENT ON COLUMN artists.activity_ended IS 'True when MusicBrainz marks the artist''s activity as ended (a group dissolved, a solo artist died); false when it does not or before the artist was first read from MusicBrainz. Name search, charts and similar-artist lists leave out ended artists, and concert and ticket-sale searches skip them.';
+COMMENT ON COLUMN artists.known_names IS 'Names the artist is found by: its name and every alias MusicBrainz gives for it, each once and normalized (Unicode NFKC, lowercased, surrounding white space removed, inner runs made one space). A similar artist the listening service lists without an MBID is matched against them.';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (

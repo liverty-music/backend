@@ -40,47 +40,73 @@ func TestArtistUseCase_Refresh(t *testing.T) {
 		catalog     catalog
 		// wantName is the name passed to UpdateName; empty when it must not be called.
 		wantName string
+		// wantKnownNames are the names passed to UpdateKnownNames; nil when it
+		// must not be called.
+		wantKnownNames []string
 		// wantEnded is the value passed to UpdateActivityEnded; nil when it must not be called.
 		wantEnded      *bool
 		updateNameErr  error
+		updateNamesErr error
 		updateEndedErr error
 		wantErr        error
 	}{
 		{
 			// @spec components/usecase/artist/refresh "Catalog name differs"
-			name:        "Catalog name differs",
-			currentName: "the band",
-			catalog:     catalog{artist: &entity.Artist{Name: "The Band", MBID: mbid}},
-			wantName:    "The Band",
-			wantEnded:   new(false),
+			name:           "Catalog name differs",
+			currentName:    "the band",
+			catalog:        catalog{artist: &entity.Artist{Name: "The Band", MBID: mbid}},
+			wantName:       "The Band",
+			wantKnownNames: []string{"the band"},
+			wantEnded:      new(false),
 		},
 		{
 			// @spec components/usecase/artist/refresh "Catalog name equal"
-			name:        "Catalog name equal",
-			currentName: "The Band",
-			catalog:     catalog{artist: &entity.Artist{Name: "The Band", MBID: mbid}},
-			wantEnded:   new(false),
+			name:           "Catalog name equal",
+			currentName:    "The Band",
+			catalog:        catalog{artist: &entity.Artist{Name: "The Band", MBID: mbid}},
+			wantEnded:      new(false),
+			wantKnownNames: []string{"the band"},
+		},
+		{
+			// @spec components/usecase/artist/refresh "Alias added in the catalog"
+			name:           "Alias added in the catalog",
+			currentName:    "ヨルシカ",
+			catalog:        catalog{artist: &entity.Artist{Name: "ヨルシカ", MBID: mbid, KnownNames: []string{"ヨルシカ", "yorushika"}}},
+			wantKnownNames: []string{"ヨルシカ", "yorushika"},
+			wantEnded:      new(false),
+		},
+		{
+			// @spec components/usecase/artist/refresh "Names cannot be stored"
+			name:           "Names cannot be stored",
+			currentName:    "The Band",
+			catalog:        catalog{artist: &entity.Artist{Name: "The Band", MBID: mbid}},
+			wantKnownNames: []string{"the band"},
+			updateNamesErr: apperr.ErrNotFound,
+			wantErr:        apperr.ErrNotFound,
 		},
 		{
 			// @spec components/usecase/artist/refresh "Catalog name empty"
-			name:        "Catalog name empty",
-			currentName: "The Band",
-			catalog:     catalog{artist: &entity.Artist{Name: "", MBID: mbid}},
-			wantEnded:   new(false),
+			name:           "Catalog name empty",
+			currentName:    "The Band",
+			catalog:        catalog{artist: &entity.Artist{Name: "", MBID: mbid}},
+			wantEnded:      new(false),
+			wantKnownNames: []string{"the band"},
 		},
 		{
 			// @spec components/usecase/artist/refresh "Catalog marks the activity as ended"
-			name:        "Catalog marks the activity as ended",
-			currentName: "SMAP",
-			catalog:     catalog{artist: &entity.Artist{Name: "SMAP", MBID: mbid, ActivityEnded: true}},
-			wantEnded:   new(true),
+			name:           "Catalog marks the activity as ended",
+			currentName:    "SMAP",
+			catalog:        catalog{artist: &entity.Artist{Name: "SMAP", MBID: mbid, ActivityEnded: true}},
+			wantEnded:      new(true),
+			wantKnownNames: []string{"smap"},
 		},
 		{
 			// @spec components/usecase/artist/refresh "Catalog no longer marks the activity as ended"
-			name:        "Catalog no longer marks the activity as ended",
-			currentName: "ELLEGARDEN",
-			catalog:     catalog{artist: &entity.Artist{Name: "ELLEGARDEN", MBID: mbid, ActivityEnded: false}},
-			wantEnded:   new(false),
+			name:           "Catalog no longer marks the activity as ended",
+			currentName:    "ELLEGARDEN",
+			catalog:        catalog{artist: &entity.Artist{Name: "ELLEGARDEN", MBID: mbid, ActivityEnded: false}},
+			wantEnded:      new(false),
+			wantKnownNames: []string{"ellegarden"},
 		},
 		{
 			// @spec components/usecase/artist/refresh "MBID unknown to the catalog"
@@ -103,6 +129,7 @@ func TestArtistUseCase_Refresh(t *testing.T) {
 			wantEnded:      new(false),
 			updateEndedErr: apperr.ErrNotFound,
 			wantErr:        apperr.ErrNotFound,
+			wantKnownNames: []string{"the band"},
 		},
 		{
 			// @spec components/usecase/artist/refresh "Name update fails"
@@ -124,10 +151,13 @@ func TestArtistUseCase_Refresh(t *testing.T) {
 
 			idManager.EXPECT().GetArtist(anyCtx, mbid).Return(tt.catalog.artist, tt.catalog.err).Once()
 			if tt.wantName != "" {
-				repo.EXPECT().UpdateName(anyCtx, artistID, tt.wantName).Return(tt.updateNameErr).Once()
+				repo.EXPECT().UpdateName(anyCtx, artistID, mbid, tt.wantName).Return(tt.updateNameErr == nil, tt.updateNameErr).Once()
+			}
+			if tt.wantKnownNames != nil {
+				repo.EXPECT().UpdateKnownNames(anyCtx, artistID, mbid, tt.wantKnownNames).Return(tt.updateNamesErr).Once()
 			}
 			if tt.wantEnded != nil {
-				repo.EXPECT().UpdateActivityEnded(anyCtx, artistID, *tt.wantEnded).Return(tt.updateEndedErr).Once()
+				repo.EXPECT().UpdateActivityEnded(anyCtx, artistID, mbid, *tt.wantEnded).Return(tt.updateEndedErr).Once()
 			}
 
 			err := uc.Refresh(t.Context(), artistID, mbid, tt.currentName)
@@ -139,6 +169,45 @@ func TestArtistUseCase_Refresh(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestArtistUseCase_Refresh_MBIDCorrectedDuringRefresh(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/usecase/artist/refresh "MBID corrected during a refresh"
+	repo := mocks.NewMockArtistRepository(t)
+	idManager := mocks.NewMockArtistIdentityManager(t)
+	uc := newRefreshUseCase(t, repo, idManager, time.Now)
+	// The catalog answered for oldMBID, and an admin then corrected the artist
+	// to newMBID. Every write names oldMBID, so the repository changes nothing
+	// and succeeds (components/entity/artist/update-name and the like).
+	idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "PENTHOUSE", MBID: oldMBID, ActivityEnded: true}, nil).Once()
+	repo.EXPECT().UpdateName(anyCtx, "artist-1", oldMBID, "PENTHOUSE").Return(false, nil).Once()
+	repo.EXPECT().UpdateKnownNames(anyCtx, "artist-1", oldMBID, []string{"penthouse"}).Return(nil).Once()
+	repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", oldMBID, true).Return(nil).Once()
+
+	require.NoError(t, uc.Refresh(t.Context(), "artist-1", oldMBID, "Penthouse"))
+}
+
+func TestArtistUseCase_RefreshDue_NameNotStored(t *testing.T) {
+	t.Parallel()
+
+	repo := mocks.NewMockArtistRepository(t)
+	idManager := mocks.NewMockArtistIdentityManager(t)
+	uc := newRefreshUseCase(t, repo, idManager, time.Now)
+	artist := &entity.Artist{ID: "artist-1", Name: "Penthouse", MBID: oldMBID}
+	repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Once()
+	repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{artist}, nil).Once()
+	idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "PENTHOUSE", MBID: oldMBID}, nil).Once()
+	// The MBID was replaced after the lookup, so the name is not stored.
+	repo.EXPECT().UpdateName(anyCtx, "artist-1", oldMBID, "PENTHOUSE").Return(false, nil).Once()
+	repo.EXPECT().UpdateKnownNames(anyCtx, "artist-1", oldMBID, []string{"penthouse"}).Return(nil).Once()
+	repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", oldMBID, false).Return(nil).Once()
+
+	summary, err := uc.RefreshDue(t.Context())
+
+	require.NoError(t, err)
+	assert.Zero(t, summary.Renamed, "a name that was not stored is not counted")
 }
 
 func TestArtistUseCase_RefreshDue(t *testing.T) {
@@ -160,7 +229,8 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{}, nil).Maybe()
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, 7).Return([]*entity.Artist{artist}, nil).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-1").Return(&entity.Artist{Name: "The Band", MBID: "mbid-1", ActivityEnded: true}, nil).Once()
-		repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", true).Return(nil).Once()
+		repo.EXPECT().UpdateKnownNames(anyCtx, "artist-1", "mbid-1", []string{"the band"}).Return(nil).Once()
+		repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", "mbid-1", true).Return(nil).Once()
 
 		summary, err := uc.RefreshDue(t.Context())
 
@@ -238,8 +308,9 @@ func TestArtistUseCase_RefreshDue(t *testing.T) {
 		repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{failing, renamed}, nil).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-0").Return(nil, apperr.ErrUnavailable).Once()
 		idManager.EXPECT().GetArtist(anyCtx, "mbid-1").Return(&entity.Artist{Name: "Band 1", MBID: "mbid-1"}, nil).Once()
-		repo.EXPECT().UpdateName(anyCtx, "artist-1", "Band 1").Return(nil).Once()
-		repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", false).Return(nil).Once()
+		repo.EXPECT().UpdateName(anyCtx, "artist-1", "mbid-1", "Band 1").Return(true, nil).Once()
+		repo.EXPECT().UpdateKnownNames(anyCtx, "artist-1", "mbid-1", []string{"band 1"}).Return(nil).Once()
+		repo.EXPECT().UpdateActivityEnded(anyCtx, "artist-1", "mbid-1", false).Return(nil).Once()
 
 		summary, err := uc.RefreshDue(t.Context())
 

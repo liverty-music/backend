@@ -430,52 +430,45 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 	repo := rdb.NewArtistRepository(db, testOutbox)
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		setup   func() string // returns artist ID
-		newName string
-		wantErr error
-	}{
-		{
-			name: "updates name successfully",
-			setup: func() string {
-				cleanTables(t, db)
-				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-00000000ee01"))
-				require.NoError(t, err)
-				return created[0].ID
-			},
-			newName: "New Name",
-		},
-		{
-			name: "returns NotFound for unknown ID",
-			setup: func() string {
-				cleanTables(t, db)
-				return "00000000-0000-0000-0000-000000000000"
-			},
-			newName: "Anything",
-			wantErr: apperr.ErrNotFound,
-		},
-	}
+	// @spec components/entity/artist/update-name "Known artist"
+	t.Run("Known artist", func(t *testing.T) {
+		cleanTables(t, db)
+		const mbid = "77777777-7777-7777-7777-00000000ee01"
+		artistID := seedArtist(t, db, "Old Name", mbid)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			artistID := tt.setup()
+		stored, err := repo.UpdateName(ctx, artistID, mbid, "New Name")
 
-			err := repo.UpdateName(ctx, artistID, tt.newName)
+		require.NoError(t, err)
+		assert.True(t, stored)
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.Equal(t, "New Name", got.Name)
+	})
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
+	// @spec components/entity/artist/update-name "Name of a replaced MBID"
+	t.Run("Name of a replaced MBID", func(t *testing.T) {
+		cleanTables(t, db)
+		const mbidA, mbidB = "77777777-7777-7777-7777-00000000ee02", "77777777-7777-7777-7777-00000000ee03"
+		artistID := seedArtist(t, db, "Namesake", mbidA)
+		require.NoError(t, repo.UpdateMBID(ctx, artistID, mbidB, "Right Name", false, nil))
 
-			require.NoError(t, err)
+		stored, err := repo.UpdateName(ctx, artistID, mbidA, "Namesake")
 
-			// Verify the name was actually updated.
-			got, err := repo.Get(ctx, artistID)
-			require.NoError(t, err)
-			assert.Equal(t, tt.newName, got.Name)
-		})
-	}
+		require.NoError(t, err)
+		assert.False(t, stored)
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.Equal(t, "Right Name", got.Name)
+	})
+
+	// @spec components/entity/artist/update-name "Unknown artist"
+	t.Run("Unknown artist", func(t *testing.T) {
+		cleanTables(t, db)
+
+		_, err := repo.UpdateName(ctx, entity.NewID(), "77777777-7777-7777-7777-00000000ee04", "Anything")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
 }
 
 func TestArtistRepository_Get(t *testing.T) {
@@ -777,7 +770,7 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "SMAP", "60000000-0000-0000-0000-00000000aa01")
 
-		err := repo.UpdateActivityEnded(ctx, artistID, true)
+		err := repo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), true)
 
 		require.NoError(t, err)
 		got, err := repo.Get(ctx, artistID)
@@ -789,9 +782,9 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 	t.Run("Activity resumed in the catalog", func(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "ELLEGARDEN", "60000000-0000-0000-0000-00000000aa02")
-		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
+		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), true))
 
-		err := repo.UpdateActivityEnded(ctx, artistID, false)
+		err := repo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), false)
 
 		require.NoError(t, err)
 		got, err := repo.Get(ctx, artistID)
@@ -803,11 +796,11 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 	t.Run("Same value", func(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "BiSH", "60000000-0000-0000-0000-00000000aa03")
-		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, true))
+		require.NoError(t, repo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), true))
 		before, err := repo.Get(ctx, artistID)
 		require.NoError(t, err)
 
-		err = repo.UpdateActivityEnded(ctx, artistID, true)
+		err = repo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), true)
 
 		require.NoError(t, err)
 		after, err := repo.Get(ctx, artistID)
@@ -815,11 +808,26 @@ func TestArtistRepository_UpdateActivityEnded(t *testing.T) {
 		assert.Equal(t, before, after)
 	})
 
+	// @spec components/entity/artist/update-activity-ended "Status of a replaced MBID"
+	t.Run("Status of a replaced MBID", func(t *testing.T) {
+		cleanTables(t, db)
+		const mbidA, mbidB = "60000000-0000-0000-0000-00000000aa04", "60000000-0000-0000-0000-00000000aa05"
+		artistID := seedArtist(t, db, "Penthouse", mbidA)
+		require.NoError(t, repo.UpdateMBID(ctx, artistID, mbidB, "Penthouse", false, nil))
+
+		err := repo.UpdateActivityEnded(ctx, artistID, mbidA, true)
+
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.False(t, got.ActivityEnded)
+	})
+
 	// @spec components/entity/artist/update-activity-ended "Unknown artist"
 	t.Run("Unknown artist", func(t *testing.T) {
 		cleanTables(t, db)
 
-		err := repo.UpdateActivityEnded(ctx, entity.NewID(), true)
+		err := repo.UpdateActivityEnded(ctx, entity.NewID(), "60000000-0000-0000-0000-00000000aa09", true)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

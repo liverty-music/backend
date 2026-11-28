@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Artist represents a musical artist or group recorded in the system.
@@ -54,6 +57,42 @@ type Artist struct {
 	// OrganizerID is the Organizer that represents the artist; nil when no
 	// Organizer does. An artist has at most one.
 	OrganizerID *string
+	// KnownNames are the names the artist is found by: its name and every
+	// alias the music catalog gives for it, each in the form [NormalizeName]
+	// returns and each once. See [NewKnownNames].
+	KnownNames []string
+}
+
+// NormalizeName returns the form of an artist name that known names are stored
+// and looked up in: compatibility forms unified (Unicode NFKC), letters
+// lowercased, surrounding white space removed and each inner run of white
+// space made one space.
+func NormalizeName(name string) string {
+	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(name))), " ")
+}
+
+// NewKnownNames returns the known names of an artist with the given names (its
+// name and aliases): each normalized and listed once, in the order first
+// given. A name that normalizes to nothing is left out. The result is never
+// nil.
+func NewKnownNames(names ...string) []string {
+	known := make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		n := NormalizeName(name)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		known = append(known, n)
+	}
+	return known
+}
+
+// IsKnownAs reports whether the artist is known by name: whether the name's
+// normalized form is among its known names.
+func (a *Artist) IsKnownAs(name string) bool {
+	return slices.Contains(a.KnownNames, NormalizeName(name))
 }
 
 // MBIDStatus records whether an artist's MBID was checked against the music
@@ -280,6 +319,8 @@ type ArtistRepository interface {
 	// A new artist keeps the id it was given, or gets a fresh id when it has
 	// none, and is stored with its MBID, ListeningMBID, MBIDStatus and
 	// ActivityEnded. All of the new artists are registered or none of them.
+	// A new artist is stored with the known names it was given, with its name
+	// added when missing; a registered artist keeps its known names.
 	//
 	// # Possible errors:
 	//
@@ -329,32 +370,64 @@ type ArtistRepository interface {
 	//   - Internal: database query failure.
 	ListByMBIDs(ctx context.Context, mbids []string) ([]*Artist, error)
 
-	// UpdateName updates the display name of an artist identified by ID.
+	// ListByKnownNames returns every registered artist that has at least one
+	// of the given names among its known names, a name being compared in the
+	// form [NormalizeName] returns, whatever the artist's MBIDStatus and
+	// ActivityEnded. Each artist is returned once; the order is unspecified.
+	// It is empty when no artist has any of them or no name is given.
 	//
 	// # Possible errors:
 	//
-	//   - NotFound: no artist exists with the provided ID.
-	//   - Internal: database execution failure.
-	UpdateName(ctx context.Context, id string, name string) error
+	//   - Internal: database query failure.
+	ListByKnownNames(ctx context.Context, names []string) ([]*Artist, error)
 
-	// UpdateActivityEnded sets whether the artist's activity has ended, as last
-	// read from the music catalog. Setting the value the artist already has
-	// succeeds and changes nothing.
+	// UpdateName sets the display name of the artist with the given id to
+	// name, which was read for mbid, and reports whether it stored the name.
+	// When the artist's MBID is no longer mbid (UpdateMBID replaced it after
+	// the name was read), nothing changes and it succeeds with false, so
+	// another person's name is never stored.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
-	UpdateActivityEnded(ctx context.Context, id string, ended bool) error
+	UpdateName(ctx context.Context, id, mbid, name string) (stored bool, err error)
+
+	// UpdateActivityEnded sets whether the artist's activity has ended, as
+	// read from the music catalog for mbid. Setting the value the artist
+	// already has succeeds and changes nothing. When the artist's MBID is no
+	// longer mbid, nothing changes and it succeeds.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	UpdateActivityEnded(ctx context.Context, id, mbid string, ended bool) error
+
+	// UpdateKnownNames replaces the known names of the artist with the given id
+	// with names, which were read for mbid, each stored as [NewKnownNames]
+	// returns it, and changes nothing else. When the artist's MBID is no
+	// longer mbid, nothing changes and it succeeds.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	//
+	// # Announces
+	//
+	// Nothing.
+	UpdateKnownNames(ctx context.Context, id, mbid string, names []string) error
 
 	// UpdateMBID sets, in one change, the MBID of the artist with the given id
-	// to mbid, its name to name, its activity status to activityEnded and its
-	// MBIDStatus to Verified, keeping its ListeningMBID, so the listening
+	// to mbid, its name to name, its activity status to activityEnded, its
+	// known names to knownNames (those of the artist mbid names, with name
+	// added when missing) and its MBIDStatus to Verified, keeping its ListeningMBID, so the listening
 	// service's results still find the same artist. When the MBID changes, the
 	// same change clears what was read from the replaced MBID's person: the
 	// images and their sync time, the official site and the official site
 	// check time. Given the artist's own MBID it sets the name, the activity
-	// status and the MBIDStatus and clears nothing. It checks and writes under
+	// status, the known names and the MBIDStatus and clears nothing. It checks and writes under
 	// the lock Create shares, so a registration cannot take the MBID in
 	// between.
 	//
@@ -369,7 +442,7 @@ type ArtistRepository interface {
 	// # Announces
 	//
 	// Nothing.
-	UpdateMBID(ctx context.Context, id, mbid, name string, activityEnded bool) error
+	UpdateMBID(ctx context.Context, id, mbid, name string, activityEnded bool, knownNames []string) error
 
 	// MarkMBIDAmbiguous sets the MBIDStatus of the artist with the given id to
 	// Ambiguous and changes nothing else. An artist already Ambiguous stays
@@ -521,7 +594,9 @@ type ArtistSearcher interface {
 
 // ArtistIdentityManager handles canonical identity resolution for artists.
 type ArtistIdentityManager interface {
-	// GetArtist resolves an MBID into a complete, canonical Artist entity.
+	// GetArtist resolves an MBID into the canonical artist: its name, MBID,
+	// activity status and, as KnownNames, the catalog's name and every alias
+	// the catalog lists for it.
 	//
 	// # Possible errors:
 	//

@@ -1,0 +1,78 @@
+{
+  "gender": null,
+  "name": "ヨルシカ",
+  "country": "JP",
+  "type": "Group",
+  "isnis": [
+    "0000000470771409"
+  ],
+  "end-area": null,
+  "gender-id": null,
+  "sort-name": "Yorushika",
+  "area": {
+    "type": null,
+    "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+    "iso-3166-1-codes": [
+      "JP"
+    ],
+    "sort-name": "Japan",
+    "type-id": null,
+    "name": "Japan",
+    "disambiguation": ""
+  },
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+  "disambiguation": "",
+  "ipis": [],
+  "begin-area": {
+    "type-id": null,
+    "name": "Japan",
+    "disambiguation": "",
+    "type": null,
+    "iso-3166-1-codes": [
+      "JP"
+    ],
+    "sort-name": "Japan",
+    "id": "2db42837-c832-3c27-b4a3-08198f75693c"
+  },
+  "life-span": {
+    "begin": "2017-04",
+    "ended": false,
+    "end": null
+  },
+  "id": "dfc6a151-3792-4695-8fda-f64723eaa788",
+  "aliases": [
+    {
+      "begin": null,
+      "locale": null,
+      "name": "YORUSHIKA",
+      "type-id": null,
+      "sort-name": "YORUSHIKA",
+      "primary": null,
+      "ended": false,
+      "type": null,
+      "end": null
+    },
+    {
+      "end": null,
+      "type": "Artist name",
+      "ended": false,
+      "primary": true,
+      "sort-name": "Yorushika",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "name": "Yorushika",
+      "begin": null,
+      "locale": "en"
+    },
+    {
+      "sort-name": "ヨルシカ",
+      "primary": true,
+      "ended": false,
+      "type": "Artist name",
+      "end": null,
+      "name": "ヨルシカ",
+      "begin": null,
+      "locale": "ja",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc"
+    }
+  ]
+}

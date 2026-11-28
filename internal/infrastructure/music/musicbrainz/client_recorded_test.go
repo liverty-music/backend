@@ -21,8 +21,8 @@ import (
 // which resets connections in CI, is not called.
 //
 // The files in testdata are the responses of
-// `curl 'https://musicbrainz.org/ws/2/artist/<mbid>?fmt=json'`, recorded on
-// 2026-11-21 and indented.
+// `curl 'https://musicbrainz.org/ws/2/artist/<mbid>?inc=aliases&fmt=json'`,
+// recorded on 2026-11-28 and indented.
 func TestClient_GetArtist_RecordedResponses(t *testing.T) {
 	t.Parallel()
 
@@ -31,6 +31,8 @@ func TestClient_GetArtist_RecordedResponses(t *testing.T) {
 		mbid          string
 		wantName      string
 		activityEnded bool
+		// wantKnownNames, when set, are the known names the artist must have.
+		wantKnownNames []string
 	}{
 		// @spec components/entity/artist/get-artist "Known MBID"
 		{name: "Radiohead", mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711", wantName: "Radiohead"},
@@ -38,6 +40,10 @@ func TestClient_GetArtist_RecordedResponses(t *testing.T) {
 		{name: "UVERworld", mbid: "a107bff6-58da-4302-83ad-317e86a1811c", wantName: "UVERworld"},
 		// @spec components/entity/artist/get-artist "Ended activity"
 		{name: "The Beatles", mbid: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", wantName: "The Beatles", activityEnded: true},
+		// @spec components/entity/artist/get-artist "Artist with aliases"
+		{name: "Yorushika", mbid: "dfc6a151-3792-4695-8fda-f64723eaa788", wantName: "ヨルシカ", wantKnownNames: []string{"ヨルシカ", "yorushika"}},
+		// @spec components/entity/artist/get-artist "Artist without aliases"
+		{name: "Penthouse", mbid: "9604bb00-65c5-4b67-a174-c46c063ba794", wantName: "Penthouse", wantKnownNames: []string{"penthouse"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -45,7 +51,7 @@ func TestClient_GetArtist_RecordedResponses(t *testing.T) {
 			body, err := os.ReadFile(filepath.Join("testdata", "artist-"+tt.mbid+".json"))
 			require.NoError(t, err)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if strings.TrimPrefix(r.URL.Path, "/") != tt.mbid {
+				if strings.TrimPrefix(r.URL.Path, "/") != tt.mbid || r.URL.Query().Get("inc") != "aliases" {
 					http.NotFound(w, r)
 					return
 				}
@@ -62,6 +68,9 @@ func TestClient_GetArtist_RecordedResponses(t *testing.T) {
 			assert.Equal(t, tt.wantName, artist.Name)
 			assert.Equal(t, tt.mbid, artist.MBID)
 			assert.Equal(t, tt.activityEnded, artist.ActivityEnded)
+			if tt.wantKnownNames != nil {
+				assert.Equal(t, tt.wantKnownNames, artist.KnownNames)
+			}
 		})
 	}
 }
