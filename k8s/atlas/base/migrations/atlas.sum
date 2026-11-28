@@ -1,4 +1,4 @@
-h1:fEUGh42RLU4HnelQYTuz2KmW3z8pyPuKC6zx5pfO0p4=
+h1:4UrVL1zL6bAcFRgizJNtfAZPZKBsAyeF3gx6shSZZiM=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -157,3 +157,4 @@ h1:fEUGh42RLU4HnelQYTuz2KmW3z8pyPuKC6zx5pfO0p4=
 20261128071639_comment_rejected_concerts_discovery.sql h1:tHsvdXuNDuSY78KLoSpnoUn+1oGSphE+OtLQF9Cw2Rw=
 20261128081810_verify_artist_mbid.sql h1:slGXpiCu4vl6LZ2umwjDzxyybVKAOL/l+dpyhoAgCxU=
 20261128133546_add_artist_known_names.sql h1:JTKETYzaubS62IDfDyguK2kTb5EVktUQNQCNzq+TLQw=
+20261128142253_backfill_artist_known_names.sql h1:YDPAlT7BXYtEBR0Mbwuevw3F4n7ji9gMy56B96Q8l5c=
