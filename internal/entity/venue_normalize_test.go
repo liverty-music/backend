@@ -103,8 +103,16 @@ func TestNormalizeVenueName_UnannouncedVenue(t *testing.T) {
 		})
 	}
 
+	// @spec components/entity/venue "Venue to be announced later is missing"
+	for _, in := range []string{"会場後日発表予定", "会場未定", "後日発表予定", "会場 後日発表予定"} {
+		t.Run("missing: "+in, func(t *testing.T) {
+			t.Parallel()
+			assert.Empty(t, entity.NormalizeVenueName(in))
+		})
+	}
+
 	// @spec components/entity/venue "A real name containing a marker word is kept"
-	for _, in := range []string{"TBA Hall Osaka", "未定会館", "Zepp Haneda"} {
+	for _, in := range []string{"TBA Hall Osaka", "未定会館", "会場未定ホール", "Zepp Haneda"} {
 		t.Run("kept: "+in, func(t *testing.T) {
 			t.Parallel()
 			got := entity.NormalizeVenueName(in)

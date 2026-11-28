@@ -220,11 +220,15 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 		return uc.readFailed(ctx, in, fmt.Errorf("failed to list existing concerts: %w", err))
 	}
 	// Pending concert candidates are left out so they are not staged again.
-	// The rejection log is intentionally not consulted: a rejected concert can
-	// always re-enter the queue on a later search.
 	pendingKeys, err := uc.concertCandidateRepo.ListPendingDedupKeysByArtist(ctx, in.ArtistID)
 	if err != nil {
 		return uc.readFailed(ctx, in, fmt.Errorf("failed to list pending concert candidate keys: %w", err))
+	}
+	// A listing an admin settled (rejected, or kept as a duplicate) is left
+	// out while it is found unchanged; a corrected listing is staged again.
+	rejected, err := uc.rejectedConcertRepo.ListByArtist(ctx, in.ArtistID)
+	if err != nil {
+		return uc.readFailed(ctx, in, fmt.Errorf("failed to list rejected concerts: %w", err))
 	}
 
 	if !uc.clock().Before(in.SearchTime.Add(searchWindow)) {
@@ -250,7 +254,7 @@ func (uc *concertUseCase) searchOnce(ctx context.Context, in ConcertSearchAttemp
 		Called:     true,
 		EndTime:    uc.clock(),
 		ArtistName: artist.Name,
-		Series:     uc.filterNewSeries(ctx, in.ArtistID, scraped, existing, pendingKeys),
+		Series:     uc.filterNewSeries(ctx, in.ArtistID, scraped, existing, pendingKeys, rejected),
 	}, nil
 }
 
@@ -286,13 +290,15 @@ func (uc *concertUseCase) readFailed(ctx context.Context, in ConcertSearchAttemp
 }
 
 // filterNewSeries leaves out of scraped the events already published
-// (existing) or pending review (pendingKeys), and the series that empties.
+// (existing), pending review (pendingKeys) or settled by an admin with the
+// same listing (rejected), and the series that empties.
 func (uc *concertUseCase) filterNewSeries(
 	ctx context.Context,
 	artistID string,
 	scraped []*entity.DiscoveredSeries,
 	existing []*entity.Concert,
 	pendingKeys []entity.ConcertCandidateDedupKey,
+	rejected []*entity.RejectedConcert,
 ) []*entity.DiscoveredSeries {
 	scrapedEvents := entity.SumSeriesEvents(scraped)
 
@@ -308,6 +314,7 @@ func (uc *concertUseCase) filterNewSeries(
 	// Further deduplicate against pending concert candidates: events pending
 	// review are dropped and a series emptied by that is removed entirely.
 	newSeries = entity.DropPending(newSeries, pendingKeys)
+	newSeries = entity.DropRejected(artistID, newSeries, rejected)
 
 	if filtered := scrapedEvents - entity.SumSeriesEvents(newSeries); filtered > 0 {
 		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",

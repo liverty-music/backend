@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pannpers/go-apperr/apperr"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/stretchr/testify/assert"
@@ -135,5 +137,66 @@ func TestRejectedConcertRepository_Append(t *testing.T) {
 		).Scan(&reviewedBy)
 		require.NoError(t, err)
 		assert.Nil(t, reviewedBy)
+	})
+}
+
+func TestRejectedConcertRepository_ListByArtist(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	repo := rdb.NewRejectedConcertRepository(db)
+	ctx := context.Background()
+
+	appendEntry := func(t *testing.T, artistID, venue string, start *entity.TimeOfDay) *entity.RejectedConcert {
+		t.Helper()
+		e := &entity.RejectedConcert{
+			ID:              uuid.NewV7().String(),
+			ArtistID:        artistID,
+			ArtistName:      "Test Artist",
+			Title:           "Show",
+			LocalDate:       time.Date(2027, 1, 25, 0, 0, 0, 0, time.UTC),
+			StartTime:       start,
+			ListedVenueName: venue,
+			Reason:          "duplicate",
+		}
+		require.NoError(t, repo.Append(ctx, e))
+		return e
+	}
+
+	// @spec components/entity/rejected-concert/list-by-artist "Two entries"
+	t.Run("returns the artist's entries with their listing, oldest first", func(t *testing.T) {
+		cleanTables(t, db)
+		artistID := uuid.NewV7().String()
+		first := appendEntry(t, artistID, "【振替公演】仙台GIGS", &entity.TimeOfDay{Hour: 19})
+		second := appendEntry(t, artistID, "Zepp Haneda", nil)
+		appendEntry(t, uuid.NewV7().String(), "Zepp Namba", nil)
+
+		got, err := repo.ListByArtist(ctx, artistID)
+
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Equal(t, first.ID, got[0].ID)
+		assert.Equal(t, artistID, got[0].ArtistID)
+		assert.Equal(t, "【振替公演】仙台GIGS", got[0].ListedVenueName)
+		assert.True(t, first.LocalDate.Equal(got[0].LocalDate), "local date")
+		assert.Equal(t, &entity.TimeOfDay{Hour: 19}, got[0].StartTime)
+		assert.Equal(t, second.ID, got[1].ID)
+		assert.Nil(t, got[1].StartTime, "an unknown start time stays unknown")
+	})
+
+	// @spec components/entity/rejected-concert/list-by-artist "None"
+	t.Run("returns an empty list for an artist with no entry", func(t *testing.T) {
+		cleanTables(t, db)
+		appendEntry(t, uuid.NewV7().String(), "Zepp Namba", nil)
+
+		got, err := repo.ListByArtist(ctx, uuid.NewV7().String())
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("fails with InvalidArgument without an artist", func(t *testing.T) {
+		_, err := repo.ListByArtist(ctx, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

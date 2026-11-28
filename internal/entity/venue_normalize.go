@@ -82,15 +82,20 @@ func unannouncedVenueKey(name string) string {
 }
 
 // isUnannouncedVenue reports whether a normalized name only says that the
-// venue is not yet announced: the whole name is one of the markers, or it
-// contains 某所. A real venue whose name contains a marker word, such as
-// "TBA Hall Osaka", is not one.
+// venue is not yet announced: the whole name is one of the markers, or 未定 or
+// 後日発表 with 会場 before it, 予定 after it, or both ("会場後日発表予定"), or
+// it contains 某所. A real venue whose name contains a marker word, such as
+// "TBA Hall Osaka" or "未定会館", is not one.
 func isUnannouncedVenue(normalized string) bool {
 	if strings.Contains(normalized, undisclosedPlace) {
 		return true
 	}
-	_, ok := unannouncedVenueMarkers[unannouncedVenueKey(normalized)]
-	return ok
+	key := unannouncedVenueKey(normalized)
+	if _, ok := unannouncedVenueMarkers[key]; ok {
+		return true
+	}
+	core := strings.TrimSuffix(strings.TrimPrefix(key, "会場"), "予定")
+	return core == "未定" || core == "後日発表"
 }
 
 // NormalizeVenueName is the one normalization of a listed venue name: every

@@ -169,6 +169,7 @@ configMapGenerator:
   - migrations/20261127041852_comment_forget_removed_identities.sql
   - migrations/20261127044913_add_event_other_listed_venue_names.sql
   - migrations/20261128014818_add_artist_other_mbids.sql
+  - migrations/20261128071639_comment_rejected_concerts_discovery.sql
 # The reference data directory (see reference-data-migration.yaml). The keys
 # are the bare file names, as Atlas reads the directory from the ConfigMap.
 - name: atlas-reference-data-dir

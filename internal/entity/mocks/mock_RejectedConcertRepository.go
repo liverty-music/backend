@@ -103,3 +103,71 @@ func (_c *MockRejectedConcertRepository_Append_Call) RunAndReturn(run func(ctx c
 	_c.Call.Return(run)
 	return _c
 }
+
+// ListByArtist provides a mock function for the type MockRejectedConcertRepository
+func (_mock *MockRejectedConcertRepository) ListByArtist(ctx context.Context, artistID string) ([]*entity.RejectedConcert, error) {
+	ret := _mock.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByArtist")
+	}
+
+	var r0 []*entity.RejectedConcert
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*entity.RejectedConcert, error)); ok {
+		return returnFunc(ctx, artistID)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*entity.RejectedConcert); ok {
+		r0 = returnFunc(ctx, artistID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.RejectedConcert)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRejectedConcertRepository_ListByArtist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByArtist'
+type MockRejectedConcertRepository_ListByArtist_Call struct {
+	*mock.Call
+}
+
+// ListByArtist is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockRejectedConcertRepository_Expecter) ListByArtist(ctx any, artistID any) *MockRejectedConcertRepository_ListByArtist_Call {
+	return &MockRejectedConcertRepository_ListByArtist_Call{Call: _e.mock.On("ListByArtist", ctx, artistID)}
+}
+
+func (_c *MockRejectedConcertRepository_ListByArtist_Call) Run(run func(ctx context.Context, artistID string)) *MockRejectedConcertRepository_ListByArtist_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRejectedConcertRepository_ListByArtist_Call) Return(rejectedConcerts []*entity.RejectedConcert, err error) *MockRejectedConcertRepository_ListByArtist_Call {
+	_c.Call.Return(rejectedConcerts, err)
+	return _c
+}
+
+func (_c *MockRejectedConcertRepository_ListByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string) ([]*entity.RejectedConcert, error)) *MockRejectedConcertRepository_ListByArtist_Call {
+	_c.Call.Return(run)
+	return _c
+}

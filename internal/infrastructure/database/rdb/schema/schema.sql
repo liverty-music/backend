@@ -425,9 +425,10 @@ COMMENT ON COLUMN concert_candidates.resolved_place_id IS 'Google Places place i
 COMMENT ON COLUMN concert_candidates.find_time IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
 
 -- Rejected concerts (append-only)
--- Every rejection is recorded here for search-quality analysis. It is NEVER read
--- by the discovery dedup path and so does not suppress future staging. artist_id
--- has no foreign key so history survives artist deletion.
+-- Every rejection is recorded here for search-quality analysis, and discovery
+-- reads it to leave out a found event that is the same listing as an entry
+-- (artist, local date, listed venue, start time). artist_id has no foreign key
+-- so history survives artist deletion.
 CREATE TABLE IF NOT EXISTS rejected_concerts (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL,
@@ -447,7 +448,7 @@ CREATE TABLE IF NOT EXISTS rejected_concerts (
     CONSTRAINT chk_rejected_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE rejected_concerts IS 'Append-only record of rejected concert candidates, used for searcher-quality analysis only. Not consulted by discovery dedup; never suppresses re-discovery.';
+COMMENT ON TABLE rejected_concerts IS 'Append-only record of rejected concert candidates, used for searcher-quality analysis and by discovery, which leaves out a found event that is the same listing (artist, local date, listed venue, start time) as an entry.';
 COMMENT ON COLUMN rejected_concerts.id IS 'Unique rejected concert identifier (UUIDv7, application-generated).';
 COMMENT ON COLUMN rejected_concerts.artist_id IS 'The performing artist the rejected concert was discovered for. Intentionally not a foreign key so the log survives artist deletion.';
 COMMENT ON COLUMN rejected_concerts.artist_name IS 'Artist display name captured at rejection time for readability.';
@@ -546,7 +547,7 @@ COMMENT ON INDEX idx_concert_candidates_find_time IS 'Orders the review queue by
 
 -- Rejected concerts indexes
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_artist_id ON rejected_concerts(artist_id);
-COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysis of repeated rejection patterns';
+COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysis of repeated rejection patterns and discovery reading an artist''s entries';
 
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_reject_time ON rejected_concerts(reject_time);
 COMMENT ON INDEX idx_rejected_concerts_reject_time IS 'Supports time-windowed analysis of rejections';
