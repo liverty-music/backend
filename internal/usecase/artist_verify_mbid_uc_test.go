@@ -54,7 +54,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(artist, nil).Once()
 		d.namesakes.EXPECT().ListNamesakes(anyCtx, "ado").Return([]*entity.CatalogArtist{{MBID: jpBand, Name: "Ado"}}, nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "Ado", MBID: jpBand, ActivityEnded: true}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Ado", true).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Ado", true, []string(nil)).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
@@ -66,22 +66,25 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
 		d.expectNamesakes(map[string]bool{ukBand: true}, ukBand, jpBand)
 		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", ukBand, "Penthouse", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", ukBand, "Penthouse", false, []string(nil)).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
 
 	// @spec components/usecase/artist/verify-mbid "A namesake is the only one with an official site"
+	// @spec components/usecase/artist/verify-mbid "Namesake chosen"
 	t.Run("A namesake is the only one with an official site", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
-		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "PENTHOUSE", MBID: jpBand, ActivityEnded: false}, nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{
+			Name: "PENTHOUSE", MBID: jpBand, ActivityEnded: false, KnownNames: []string{"penthouse", "ペントハウス"},
+		}, nil).Once()
 		// UpdateMBID keeps the listening MBID; the corrected MBID and the
 		// Japanese band's name and status go in one write.
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", false, []string{"penthouse", "ペントハウス"}).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
@@ -116,18 +119,20 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, ukBand).Return(nil, apperr.New(codes.NotFound, "no such artist")).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, jpBand).Return(homepageRelations("Penthouse", "https://penthouse.example/"), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "Penthouse", MBID: jpBand}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Penthouse", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Penthouse", false, []string(nil)).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
 
 	// @spec components/usecase/artist/verify-mbid "Several have an official site"
+	// @spec components/usecase/artist/verify-mbid "Ambiguous"
 	t.Run("Several have an official site", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
 		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{ukBand: true, jpBand: true}, ukBand, jpBand)
+		// MarkMBIDAmbiguous is the only write: no known name changes.
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, "artist-1").Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
@@ -220,7 +225,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "Penthouse", MBID: jpBand}, nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Penthouse", false).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Penthouse", false, []string(nil)).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, "artist-1").Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
@@ -242,7 +247,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "PENTHOUSE", MBID: jpBand, ActivityEnded: true}, nil).Once()
 		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{{MBID: jpBand, Name: "PENTHOUSE"}}, nil).Once()
 		// No official-site lookup is expected: the survivor is the artist itself.
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", true).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", true, []string(nil)).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
@@ -264,7 +269,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		}, nil).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, jpBand).Return(homepageRelations("PENTHOUSE", "https://penthouse.example/"), nil).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, otherBand).Return(homepageRelations("Penthouse", ""), nil).Once()
-		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", false).Return(nil).Once()
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", false, []string(nil)).Return(nil).Once()
 
 		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
 	})
@@ -308,8 +313,8 @@ func TestArtistUseCase_RefreshDue_VerifiesUnverified(t *testing.T) {
 		for _, a := range artists {
 			d.repo.EXPECT().Get(anyCtx, a.ID).Return(a, nil).Once()
 			d.expectNoNamesake(a.Name, a.MBID, a.Name)
-			d.repo.EXPECT().UpdateMBID(anyCtx, a.ID, a.MBID, a.Name, false).
-				Run(func(_ context.Context, id, _, _ string, _ bool) { order = append(order, id) }).Return(nil).Once()
+			d.repo.EXPECT().UpdateMBID(anyCtx, a.ID, a.MBID, a.Name, false, []string(nil)).
+				Run(func(_ context.Context, id, _, _ string, _ bool, _ []string) { order = append(order, id) }).Return(nil).Once()
 		}
 		d.repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{}, nil).Once()
 

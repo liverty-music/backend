@@ -447,7 +447,7 @@ func TestFollowRepository_ListAll(t *testing.T) {
 	t.Run("Followed artist whose activity has ended", func(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "ListAll Ended", "a4000000-0000-0000-0000-000000000005")
-		require.NoError(t, artistRepo.UpdateActivityEnded(ctx, artistID, true))
+		require.NoError(t, artistRepo.UpdateActivityEnded(ctx, artistID, artistMBID(t, db, artistID), true))
 		userID := seedUser(t, db, "ListAll User 4", "listall-user4@test.com", "ext-listall-04")
 		require.NoError(t, followRepo.Follow(ctx, userID, artistID))
 

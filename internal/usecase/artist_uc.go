@@ -74,7 +74,9 @@ type ArtistUseCase interface {
 
 	// ListSimilar returns the artists the listening service lists as similar
 	// to the target artist (looked up by its listening MBID), only the ones
-	// offered to fans. When limit is greater than zero, the result is capped
+	// offered to fans. A result without an MBID stands for the registered
+	// artist, other than the target, that alone is known by its name; it
+	// registers nothing. When limit is greater than zero, the result is capped
 	// to that many entries; otherwise every offered artist of the 50-artist
 	// lookup is returned. Artists it registers are Unverified.
 	//
@@ -106,9 +108,10 @@ type ArtistUseCase interface {
 
 	// Refresh reads the artist again from the music catalog by its MBID. It
 	// adopts the catalog's name when it is not empty and differs from
-	// currentName, and then stores whether the catalog marks the artist's
-	// activity as ended. An MBID the catalog does not know changes nothing and
-	// succeeds, since reading it again cannot succeed.
+	// currentName, and then stores the catalog's known names of the artist and
+	// whether it marks the artist's activity as ended. These are stored only
+	// while the artist still has that MBID. An MBID the catalog does not know
+	// changes nothing and succeeds, since reading it again cannot succeed.
 	//
 	// # Possible errors:
 	//
@@ -264,12 +267,16 @@ func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*en
 	}
 	// Normalize artist name using MBID
 	artist.ActivityEnded = false
+	// Without the catalog's names the artist is known by its name only, which
+	// Artist.Create adds.
+	artist.KnownNames = nil
 	mbArtist, err := uc.idManager.GetArtist(ctx, artist.MBID)
 	if err != nil {
 		// Log warning but proceed with provided name if normalization fails
 		uc.logger.Warn(ctx, "failed to normalize artist name from MBID", slog.String("mbid", artist.MBID), slog.Any("error", err))
 	} else {
 		artist.ActivityEnded = mbArtist.ActivityEnded
+		artist.KnownNames = mbArtist.KnownNames
 		if artist.Name != mbArtist.Name {
 			// Update name to canonical name from MusicBrainz
 			artist.Name = mbArtist.Name
@@ -397,6 +404,7 @@ func (uc *artistUseCase) decideBeforeRegistering(ctx context.Context, artists []
 		a.MBID = decision.mbid
 		a.Name = decision.name
 		a.ActivityEnded = decision.activityEnded
+		a.KnownNames = decision.knownNames
 	}
 }
 
@@ -405,7 +413,8 @@ func (uc *artistUseCase) decideBeforeRegistering(ctx context.Context, artists []
 // result is cached under the artist id alone, so calls with any limit share it.
 // Each call leaves out the artists not offered to fans and returns the first
 // limit of the rest, or all of them when limit is 0.
-// Fetched artists are auto-persisted to ensure valid database IDs.
+// Fetched artists with an MBID are auto-persisted to ensure valid database IDs;
+// those without one are matched to registered artists by name.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
 	cacheKey := fmt.Sprintf("similar:%s", artistID)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
@@ -429,21 +438,87 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 		return nil, err
 	}
 
-	// Filter out entries with empty MBID.
-	filtered := entity.FilterArtistsByMBID(artists)
-
-	// Persist via read-then-write helper.
-	persisted, err := uc.persistArtists(ctx, filtered, nil)
+	// Register the entries with an MBID, then match the others by name.
+	byMBID, err := uc.registerArtists(ctx, entity.FilterArtistsByMBID(artists), nil)
+	if err != nil {
+		return nil, err
+	}
+	matched, err := uc.matchByName(ctx, artist.ID, artists)
 	if err != nil {
 		return nil, err
 	}
 
+	similar := listedOnce(artists, func(a *entity.Artist) *entity.Artist {
+		if a.MBID == "" {
+			return matched[a]
+		}
+		return registeredAs(byMBID, a)
+	})
+
 	// Cache the full lookup so a later call with a larger limit is served too.
 	// The cache keeps the artists not offered to fans: a later call reads
 	// their status again.
-	uc.cache.Set(cacheKey, persisted)
+	uc.cache.Set(cacheKey, similar)
 
-	return firstN(offered(persisted), limit), nil
+	return firstN(offered(similar), limit), nil
+}
+
+// matchByName returns, for each result without an MBID that stands for a
+// registered artist, that artist: the only registered one known by the result's
+// name, offered to fans or not, unless it is the seed. It looks all the names
+// up with one call, registers nothing and logs how many results matched.
+func (uc *artistUseCase) matchByName(ctx context.Context, seedID string, results []*entity.Artist) (map[*entity.Artist]*entity.Artist, error) {
+	var unnamed []*entity.Artist
+	var names []string
+	for _, r := range results {
+		if r.MBID == "" {
+			unnamed = append(unnamed, r)
+			names = append(names, r.Name)
+		}
+	}
+	if len(unnamed) == 0 {
+		return nil, nil
+	}
+
+	registered, err := uc.artistRepo.ListByKnownNames(ctx, names)
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make(map[*entity.Artist]*entity.Artist, len(unnamed))
+	var single, several int
+	unmatched := []string{}
+	for _, r := range unnamed {
+		var known []*entity.Artist
+		for _, a := range registered {
+			if a.IsKnownAs(r.Name) {
+				known = append(known, a)
+			}
+		}
+		switch len(known) {
+		case 0:
+			unmatched = append(unmatched, r.Name)
+		case 1:
+			single++
+			if known[0].ID != seedID {
+				matched[r] = known[0]
+			}
+		default:
+			several++
+		}
+	}
+
+	// These counts decide whether looking unmatched names up in the music
+	// catalog is worth building, so they are kept for analysis.
+	uc.logger.Info(ctx, "similar artists without MBID", analyticslog.Attrs(analyticslog.TopicCatalogSync,
+		slog.String("seed_artist_id", seedID),
+		slog.Int("matched", single),
+		slog.Int("matched_several", several),
+		slog.Int("unmatched", len(unmatched)),
+		slog.Any("unmatched_names", unmatched),
+	)...)
+
+	return matched, nil
 }
 
 // firstN returns the first n artists, or all of them when n is 0 or exceeds
@@ -530,15 +605,27 @@ func (uc *artistUseCase) offeredNow(ctx context.Context, artists []*entity.Artis
 	return result, nil
 }
 
-// persistArtists looks up existing artists by MBID (an artist's MBID or its
-// listening MBID), creates only missing ones, and returns the artists in the
-// original input order, each once. When decide is not nil it is given the
+// persistArtists registers the artists as registerArtists does and returns the
+// registered artists in the original input order, each once.
+func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) ([]*entity.Artist, error) {
+	byMBID, err := uc.registerArtists(ctx, artists, decide)
+	if err != nil {
+		return nil, err
+	}
+	return listedOnce(artists, func(a *entity.Artist) *entity.Artist {
+		return registeredAs(byMBID, a)
+	}), nil
+}
+
+// registerArtists looks up existing artists by MBID (an artist's MBID or its
+// listening MBID), creates only missing ones, and returns the registered
+// artists indexed by their MBIDs. When decide is not nil it is given the
 // missing artists to settle their MBIDs before they are created. All input
 // artists must have a non-empty listening MBID, the MBID the listening
 // service returned (caller responsibility).
-func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) ([]*entity.Artist, error) {
+func (uc *artistUseCase) registerArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) (map[string]*entity.Artist, error) {
 	if len(artists) == 0 {
-		return []*entity.Artist{}, nil
+		return map[string]*entity.Artist{}, nil
 	}
 
 	ctx, span := otel.Tracer("usecase/artist").Start(ctx, "PersistArtists")
@@ -585,24 +672,33 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 
 	span.SetAttributes(attribute.Int("persist.created_count", len(missing)))
 
-	// Step 5: Merge preserving input order.
-	// An artist is listed once, even when several inputs resolve to it.
-	result := make([]*entity.Artist, 0, len(artists))
-	listed := make(map[string]bool, len(artists))
-	for _, a := range artists {
-		// A match whose MBID was corrected to one another artist already holds
-		// is that artist: Create returned it, indexed under its own MBIDs.
-		persisted, ok := existingSet[a.ListeningMBID]
-		if !ok {
-			persisted, ok = existingSet[a.MBID]
-		}
-		if ok && !listed[persisted.ID] {
-			listed[persisted.ID] = true
-			result = append(result, persisted)
+	return existingSet, nil
+}
+
+// registeredAs returns the registered artist a match stands for in index, or
+// nil. A match whose MBID was corrected to one another artist already holds is
+// that artist: Create returned it, indexed under its own MBIDs.
+func registeredAs(index map[string]*entity.Artist, match *entity.Artist) *entity.Artist {
+	if a, ok := index[match.ListeningMBID]; ok {
+		return a
+	}
+	return index[match.MBID]
+}
+
+// listedOnce returns the artist resolve gives for each result, in the results'
+// order. A result it gives none for is left out, and an artist is listed once,
+// at its first position, even when several results resolve to it.
+func listedOnce(results []*entity.Artist, resolve func(*entity.Artist) *entity.Artist) []*entity.Artist {
+	artists := make([]*entity.Artist, 0, len(results))
+	listed := make(map[string]bool, len(results))
+	for _, r := range results {
+		a := resolve(r)
+		if a != nil && !listed[a.ID] {
+			listed[a.ID] = true
+			artists = append(artists, a)
 		}
 	}
-
-	return result, nil
+	return artists
 }
 
 // indexByMBIDs adds each artist to index under its MBID and its listening
@@ -664,7 +760,7 @@ func (uc *artistUseCase) CorrectMBID(ctx context.Context, artistID, mbid string)
 	if name == "" {
 		name = artist.Name
 	}
-	if err := uc.artistRepo.UpdateMBID(ctx, artistID, canonical, name, catalog.ActivityEnded); err != nil {
+	if err := uc.artistRepo.UpdateMBID(ctx, artistID, canonical, name, catalog.ActivityEnded, catalog.KnownNames); err != nil {
 		return nil, err
 	}
 	uc.logger.Info(ctx, "artist mbid corrected",
@@ -681,8 +777,9 @@ func (uc *artistUseCase) Refresh(ctx context.Context, artistID, mbid, currentNam
 	return err
 }
 
-// refresh reads the artist from the catalog and stores its name and activity
-// status, reporting what it found.
+// refresh reads the artist from the catalog and stores its name, known names
+// and activity status, reporting what it found. Every write names the MBID it
+// looked up, so it changes nothing when the MBID was replaced in the meantime.
 func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentName string) (artistRefreshOutcome, error) {
 	var outcome artistRefreshOutcome
 
@@ -698,6 +795,7 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 		return outcome, fmt.Errorf("get artist %s from the catalog: %w", artistID, err)
 	}
 
+	name := currentName
 	switch {
 	case catalog.Name == "":
 		uc.logger.Warn(ctx, "catalog returned an empty name; keeping the current name",
@@ -705,9 +803,10 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 			slog.String("mbid", mbid),
 		)
 	case catalog.Name != currentName:
-		if err := uc.artistRepo.UpdateName(ctx, artistID, catalog.Name); err != nil {
+		if err := uc.artistRepo.UpdateName(ctx, artistID, mbid, catalog.Name); err != nil {
 			return outcome, fmt.Errorf("update name of artist %s: %w", artistID, err)
 		}
+		name = catalog.Name
 		outcome.renamed = true
 		uc.logger.Info(ctx, "artist name updated to canonical", analyticslog.Attrs(analyticslog.TopicCatalogSync,
 			slog.String("artist_id", artistID),
@@ -716,7 +815,14 @@ func (uc *artistUseCase) refresh(ctx context.Context, artistID, mbid, currentNam
 		)...)
 	}
 
-	if err := uc.artistRepo.UpdateActivityEnded(ctx, artistID, catalog.ActivityEnded); err != nil {
+	// Aliases change on their own, so the known names are stored also when the
+	// name is unchanged.
+	knownNames := entity.NewKnownNames(append([]string{name}, catalog.KnownNames...)...)
+	if err := uc.artistRepo.UpdateKnownNames(ctx, artistID, mbid, knownNames); err != nil {
+		return outcome, fmt.Errorf("update known names of artist %s: %w", artistID, err)
+	}
+
+	if err := uc.artistRepo.UpdateActivityEnded(ctx, artistID, mbid, catalog.ActivityEnded); err != nil {
 		return outcome, fmt.Errorf("update activity status of artist %s: %w", artistID, err)
 	}
 	outcome.ended = catalog.ActivityEnded

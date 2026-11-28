@@ -1,0 +1,42 @@
+{
+  "begin-area": {
+    "sort-name": "Tokyo",
+    "id": "8dc97297-ac95-4d33-82bc-e07fab26fb5f",
+    "iso-3166-2-codes": [
+      "JP-13"
+    ],
+    "type": null,
+    "name": "Tokyo",
+    "disambiguation": "",
+    "type-id": null
+  },
+  "ipis": [],
+  "id": "9604bb00-65c5-4b67-a174-c46c063ba794",
+  "life-span": {
+    "ended": false,
+    "begin": "2018",
+    "end": null
+  },
+  "aliases": [],
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+  "disambiguation": "Japanese city soul band",
+  "gender-id": null,
+  "isnis": [],
+  "type": "Group",
+  "country": "JP",
+  "end-area": null,
+  "area": {
+    "sort-name": "Tokyo",
+    "iso-3166-2-codes": [
+      "JP-13"
+    ],
+    "id": "8dc97297-ac95-4d33-82bc-e07fab26fb5f",
+    "type": null,
+    "disambiguation": "",
+    "name": "Tokyo",
+    "type-id": null
+  },
+  "sort-name": "Penthouse",
+  "gender": null,
+  "name": "Penthouse"
+}

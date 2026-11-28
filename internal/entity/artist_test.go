@@ -285,3 +285,49 @@ func TestCatalogArtist_Validate(t *testing.T) {
 	unnamed.Name = ""
 	assert.ErrorIs(t, unnamed.Validate(), apperr.ErrInvalidArgument)
 }
+
+func TestNewKnownNames(t *testing.T) {
+	t.Parallel()
+
+	t.Run("letter case and width are unified", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/artist "Letter case and width"
+		a := &entity.Artist{KnownNames: entity.NewKnownNames("Ｓａｕｃｙ　Dog")}
+
+		assert.Equal(t, []string{"saucy dog"}, a.KnownNames)
+		assert.True(t, a.IsKnownAs("Saucy dog"))
+	})
+
+	t.Run("an alias is a known name", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/artist "Alias"
+		a := &entity.Artist{Name: "ヨルシカ", KnownNames: entity.NewKnownNames("ヨルシカ", "Yorushika")}
+
+		assert.True(t, a.IsKnownAs("yorushika"))
+		assert.True(t, a.IsKnownAs("ヨルシカ"))
+	})
+
+	t.Run("the same name is held once", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/artist "Same name twice"
+		assert.Equal(t, []string{"sumika"}, entity.NewKnownNames("sumika", "SUMIKA"))
+	})
+
+	t.Run("part of a name does not match", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/entity/artist "Part of a name"
+		a := &entity.Artist{KnownNames: entity.NewKnownNames("tomoo kosugi")}
+
+		assert.False(t, a.IsKnownAs("tomoo"))
+	})
+
+	t.Run("white space is trimmed and collapsed", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, []string{"back number"}, entity.NewKnownNames(" \tback \u3000 number\n", "  "))
+	})
+
+	t.Run("no name gives an empty list", func(t *testing.T) {
+		t.Parallel()
+		assert.Equal(t, []string{}, entity.NewKnownNames())
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -117,9 +118,12 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		// @spec components/usecase/artist/create "Catalog has a different name"
 		d := newArtistTestDeps(t)
 		artist := &entity.Artist{Name: "the band", MBID: mbid}
-		d.idManager.EXPECT().GetArtist(anyCtx, mbid).Return(&entity.Artist{Name: "The Band", MBID: mbid}, nil).Once()
+		// @spec components/usecase/artist/create "Catalog lists aliases"
+		names := []string{"the band", "ザ・バンド"}
+		d.idManager.EXPECT().GetArtist(anyCtx, mbid).Return(&entity.Artist{Name: "The Band", MBID: mbid, KnownNames: names}, nil).Once()
 		d.repo.EXPECT().Create(anyCtx, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.Name == "The Band" && a.MBID == mbid && a.ListeningMBID == mbid && a.MBIDStatus == entity.MBIDStatusVerified
+			return a.Name == "The Band" && a.MBID == mbid && a.ListeningMBID == mbid && a.MBIDStatus == entity.MBIDStatusVerified &&
+				slices.Equal(a.KnownNames, names)
 		})).RunAndReturn(func(_ context.Context, a ...*entity.Artist) ([]*entity.Artist, error) {
 			return a, nil
 		}).Once()
@@ -138,7 +142,9 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		artist := &entity.Artist{Name: "the band", MBID: mbid, ActivityEnded: true}
 		d.idManager.EXPECT().GetArtist(anyCtx, mbid).Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
 		d.repo.EXPECT().Create(anyCtx, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.Name == "the band" && a.ListeningMBID == mbid && a.MBIDStatus == entity.MBIDStatusVerified && !a.ActivityEnded
+			// No known name is given, so Artist.Create stores the name as the only one.
+			return a.Name == "the band" && a.ListeningMBID == mbid && a.MBIDStatus == entity.MBIDStatusVerified && !a.ActivityEnded &&
+				a.KnownNames == nil
 		})).RunAndReturn(func(_ context.Context, a ...*entity.Artist) ([]*entity.Artist, error) {
 			return a, nil
 		}).Once()
@@ -681,6 +687,7 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		}, nil).Once()
 		// No Create expectation: registering the result without an MBID fails the mock.
 		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"sim-x"}).Return([]*entity.Artist{known}, nil).Once()
+		d.repo.EXPECT().ListByKnownNames(anyCtx, []string{"No MBID"}).Return([]*entity.Artist{}, nil).Once()
 
 		result, err := d.uc.ListSimilar(ctx, "seed-id", int32(0))
 
@@ -922,6 +929,123 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 	})
 }
 
+func TestArtistUseCase_ListSimilar_NameMatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	// knownAs returns a registered artist offered to fans that is known by names.
+	knownAs := func(id, mbid string, names ...string) *entity.Artist {
+		a := verifiedArtist(id, names[0], mbid)
+		a.KnownNames = entity.NewKnownNames(names...)
+		return a
+	}
+	// run expects a lookup whose similar artists are results, those with an
+	// MBID being the registered ones, and whose names without an MBID find
+	// named, and returns what ListSimilar answers for the seed.
+	run := func(t *testing.T, d *artistTestDeps, seed *entity.Artist, results, registered []*entity.Artist, names []string, named []*entity.Artist) []*entity.Artist {
+		t.Helper()
+		d.repo.EXPECT().Get(ctx, seed.ID).Return(seed, nil).Once()
+		d.searcher.EXPECT().ListSimilar(ctx, seed, int32(50)).Return(results, nil).Once()
+		if len(registered) > 0 {
+			d.repo.EXPECT().ListByMBIDs(anyCtx, mock.Anything).Return(registered, nil).Once()
+		}
+		// No Create expectation: registering anything here fails the mock.
+		d.repo.EXPECT().ListByKnownNames(anyCtx, names).Return(named, nil).Once()
+
+		got, err := d.uc.ListSimilar(ctx, seed.ID, 0)
+
+		require.NoError(t, err)
+		return got
+	}
+	seed := knownAs("seed-id", "seed-mbid", "Seed", "シード")
+
+	// @spec components/usecase/artist/list-similar "Registered artist listed by a romanized name"
+	// @spec stories/discover-artists "Romanized name"
+	t.Run("returns the artist known by the alias at the result's position", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		first := knownAs("id-first", "mbid-first", "First")
+		last := knownAs("id-last", "mbid-last", "Last")
+		yorushika := knownAs("id-yorushika", "mbid-yorushika", "ヨルシカ", "Yorushika")
+
+		got := run(t, d, seed, []*entity.Artist{
+			entity.NewArtist("First", "mbid-first"), entity.NewArtist("Yorushika", ""), entity.NewArtist("Last", "mbid-last"),
+		}, []*entity.Artist{first, last}, []string{"Yorushika"}, []*entity.Artist{yorushika})
+
+		assert.Equal(t, []*entity.Artist{first, yorushika, last}, got)
+		logs := d.logs.String()
+		assert.Contains(t, logs, "similar artists without MBID")
+		assert.Contains(t, logs, `"seed_artist_id":"seed-id"`)
+		assert.Contains(t, logs, `"matched":1,"matched_several":0,"unmatched":0`)
+	})
+
+	// @spec components/usecase/artist/list-similar "Two registered artists have the name"
+	t.Run("returns neither of two artists sharing the name", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		offeredOne := knownAs("id-1", "mbid-1", "tomoo")
+		unoffered := knownAs("id-2", "mbid-2", "TOMOO")
+		unoffered.MBIDStatus = entity.MBIDStatusUnverified
+
+		got := run(t, d, seed, []*entity.Artist{entity.NewArtist("tomoo", ""), entity.NewArtist("Nobody", "")}, nil,
+			[]string{"tomoo", "Nobody"}, []*entity.Artist{offeredOne, unoffered})
+
+		assert.Empty(t, got)
+		logs := d.logs.String()
+		assert.Contains(t, logs, `"matched":0,"matched_several":1,"unmatched":1`)
+		assert.Contains(t, logs, `"unmatched_names":["Nobody"]`)
+	})
+
+	// @spec components/usecase/artist/list-similar "Matched artist not offered"
+	t.Run("leaves out a matched artist not offered to fans", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		unoffered := knownAs("id-1", "mbid-1", "tomoo")
+		unoffered.ActivityEnded = true
+
+		got := run(t, d, seed, []*entity.Artist{entity.NewArtist("tomoo", "")}, nil, []string{"tomoo"}, []*entity.Artist{unoffered})
+
+		assert.Empty(t, got)
+	})
+
+	// @spec components/usecase/artist/list-similar "Same artist listed twice"
+	t.Run("lists an artist found by MBID and by name once, at its first position", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		other := knownAs("id-other", "mbid-other", "Other")
+		yorushika := knownAs("id-yorushika", "mbid-yorushika", "ヨルシカ", "Yorushika")
+
+		got := run(t, d, seed, []*entity.Artist{
+			entity.NewArtist("Yorushika", ""), entity.NewArtist("Other", "mbid-other"), entity.NewArtist("ヨルシカ", "mbid-yorushika"),
+		}, []*entity.Artist{other, yorushika}, []string{"Yorushika"}, []*entity.Artist{yorushika})
+
+		assert.Equal(t, []*entity.Artist{yorushika, other}, got)
+	})
+
+	// @spec components/usecase/artist/list-similar "Match is the seed"
+	t.Run("does not return the seed", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		got := run(t, d, seed, []*entity.Artist{entity.NewArtist("シード", "")}, nil, []string{"シード"}, []*entity.Artist{seed})
+
+		assert.Empty(t, got)
+	})
+
+	// @spec components/usecase/artist/list-similar "Name lookup fails"
+	t.Run("fails when the name lookup fails", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		d.repo.EXPECT().Get(ctx, "seed-id").Return(seed, nil).Once()
+		d.searcher.EXPECT().ListSimilar(ctx, seed, int32(50)).Return([]*entity.Artist{entity.NewArtist("tomoo", "")}, nil).Once()
+		d.repo.EXPECT().ListByKnownNames(anyCtx, []string{"tomoo"}).Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
+
+		_, err := d.uc.ListSimilar(ctx, "seed-id", 0)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+}
+
 func TestArtistUseCase_Search(t *testing.T) {
 	t.Parallel()
 
@@ -1097,8 +1221,13 @@ func TestArtistUseCase_Search(t *testing.T) {
 			entity.NewArtist("Existing", "mbid-existing"), entity.NewArtist("New", "mbid-new"),
 		}, nil).Once()
 		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-existing", "mbid-new"}).Return([]*entity.Artist{existing}, nil).Once()
-		d.expectNoNamesake("New", "mbid-new", "New")
-		d.repo.EXPECT().Create(mock.Anything, withStatus("mbid-new", "mbid-new", entity.MBIDStatusVerified)).Return([]*entity.Artist{created}, nil).Once()
+		// @spec components/usecase/artist/search "Verified match"
+		names := []string{"new", "ニュー"}
+		d.namesakes.EXPECT().ListNamesakes(anyCtx, "New").Return([]*entity.CatalogArtist{{MBID: "mbid-new", Name: "New"}}, nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, "mbid-new").Return(&entity.Artist{Name: "New", MBID: "mbid-new", KnownNames: names}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
+			return a.ListeningMBID == "mbid-new" && a.MBIDStatus == entity.MBIDStatusVerified && slices.Equal(a.KnownNames, names)
+		})).Return([]*entity.Artist{created}, nil).Once()
 
 		result, err := d.uc.Search(ctx, "mixed")
 
@@ -1176,19 +1305,23 @@ func TestArtistUseCase_Search(t *testing.T) {
 	})
 
 	// @spec components/usecase/artist/search "New match that is ambiguous"
+	// @spec components/usecase/artist/search "Ambiguous match"
 	t.Run("registers an ambiguous new match, logs it and does not return it", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		created := &entity.Artist{ID: "id-1", Name: "Penthouse", MBID: oldMBID, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusAmbiguous}
 		d.searcher.EXPECT().Search(ctx, "Penthouse").Return([]*entity.Artist{entity.NewArtist("Penthouse", oldMBID)}, nil).Once()
 		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{oldMBID}).Return([]*entity.Artist{}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "Penthouse", MBID: oldMBID}, nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "Penthouse", MBID: oldMBID, KnownNames: []string{"penthouse", "alias"}}, nil).Once()
 		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
 			{MBID: oldMBID, Name: "Penthouse"}, {MBID: newMBID, Name: "Penthouse"},
 		}, nil).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, oldMBID).Return(homepageRelations("Penthouse", ""), nil).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, newMBID).Return(homepageRelations("Penthouse", ""), nil).Once()
-		d.repo.EXPECT().Create(mock.Anything, withStatus(oldMBID, oldMBID, entity.MBIDStatusAmbiguous)).Return([]*entity.Artist{created}, nil).Once()
+		// No known name is given, so Artist.Create stores the match's name only.
+		d.repo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
+			return a.Name == "Penthouse" && a.MBIDStatus == entity.MBIDStatusAmbiguous && a.KnownNames == nil
+		})).Return([]*entity.Artist{created}, nil).Once()
 
 		got, err := d.uc.Search(ctx, "Penthouse")
 

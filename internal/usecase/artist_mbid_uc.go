@@ -17,10 +17,12 @@ type mbidDecision struct {
 	// mbid is the verified MBID: the canonical MBID the catalog returned for
 	// the chosen one. Empty when Ambiguous.
 	mbid string
-	// name and activityEnded are the catalog's name (the registered name when
-	// the catalog gives none) and activity status for mbid.
+	// name, activityEnded and knownNames are the catalog's name (the
+	// registered name when the catalog gives none), activity status and known
+	// names for mbid.
 	name          string
 	activityEnded bool
+	knownNames    []string
 	// candidates are the MBIDs that were compared: the artist's own and its
 	// namesakes'. Logged with an Ambiguous decision.
 	candidates []string
@@ -140,6 +142,7 @@ func verified(catalog *entity.Artist, chosen, name string, candidates []string) 
 		mbid:          catalog.MBID,
 		name:          catalog.Name,
 		activityEnded: catalog.ActivityEnded,
+		knownNames:    catalog.KnownNames,
 		candidates:    candidates,
 	}
 	if decided.mbid == "" {
@@ -198,7 +201,7 @@ func (uc *artistUseCase) verifyMBID(ctx context.Context, artistID string) (entit
 		return "", err
 	}
 	if decision.status == entity.MBIDStatusVerified {
-		err := uc.artistRepo.UpdateMBID(ctx, artistID, decision.mbid, decision.name, decision.activityEnded)
+		err := uc.artistRepo.UpdateMBID(ctx, artistID, decision.mbid, decision.name, decision.activityEnded, decision.knownNames)
 		switch {
 		case errors.Is(err, apperr.ErrAlreadyExists):
 			decision = ambiguous(decision.candidates, "another artist holds MBID "+decision.mbid)

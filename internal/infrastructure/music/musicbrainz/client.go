@@ -75,7 +75,14 @@ type artistResponse struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
 	LifeSpan  lifeSpan      `json:"life-span"`
+	Aliases   []artistAlias `json:"aliases"`
 	Relations []urlRelation `json:"relations"`
+}
+
+// artistAlias is another name MusicBrainz records for an artist: a
+// transliteration, a former name, a search hint or a legal name.
+type artistAlias struct {
+	Name string `json:"name"`
 }
 
 // lifeSpan is the artist's active period. MusicBrainz sets ended to true when a
@@ -194,12 +201,13 @@ func (c *client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 	)
 }
 
-// GetArtist retrieves canonical artist data using an MBID: the name, the MBID
-// and whether the artist's activity has ended (life-span.ended).
+// GetArtist retrieves canonical artist data using an MBID: the name, the MBID,
+// whether the artist's activity has ended (life-span.ended) and, as the known
+// names, the name and every alias.
 func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, error) {
 	c.logger.Info(ctx, "getting artist", slog.String("mbid", mbid))
 
-	url := fmt.Sprintf("%s%s?fmt=json", c.baseURL, mbid)
+	url := fmt.Sprintf("%s%s?inc=aliases&fmt=json", c.baseURL, mbid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -226,6 +234,12 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 
 	artist := entity.NewArtist(data.Name, data.ID)
 	artist.ActivityEnded = data.LifeSpan.Ended != nil && *data.LifeSpan.Ended
+	names := make([]string, 0, len(data.Aliases)+1)
+	names = append(names, data.Name)
+	for _, a := range data.Aliases {
+		names = append(names, a.Name)
+	}
+	artist.KnownNames = entity.NewKnownNames(names...)
 	return artist, nil
 }
 

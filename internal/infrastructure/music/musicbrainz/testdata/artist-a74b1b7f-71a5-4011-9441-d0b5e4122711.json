@@ -1,40 +1,108 @@
 {
-  "area": {
-    "disambiguation": "",
-    "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
-    "iso-3166-1-codes": [
-      "GB"
-    ],
-    "name": "United Kingdom",
-    "sort-name": "United Kingdom",
-    "type": null,
-    "type-id": null
-  },
-  "begin-area": {
-    "disambiguation": "",
-    "id": "d840d4b3-8987-4626-928b-398de760cc24",
-    "name": "Abingdon-on-Thames",
-    "sort-name": "Abingdon-on-Thames",
-    "type": null,
-    "type-id": null
-  },
-  "country": "GB",
-  "disambiguation": "",
-  "end-area": null,
-  "gender": null,
-  "gender-id": null,
-  "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
-  "ipis": [],
   "isnis": [
     "0000000115475162"
   ],
+  "begin-area": {
+    "id": "d840d4b3-8987-4626-928b-398de760cc24",
+    "name": "Abingdon-on-Thames",
+    "sort-name": "Abingdon-on-Thames",
+    "type-id": null,
+    "type": null,
+    "disambiguation": ""
+  },
   "life-span": {
-    "begin": "1991",
     "end": null,
+    "begin": "1991",
     "ended": false
   },
-  "name": "Radiohead",
+  "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+  "gender-id": null,
+  "end-area": null,
+  "ipis": [],
+  "country": "GB",
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+  "aliases": [
+    {
+      "locale": null,
+      "begin": null,
+      "ended": false,
+      "primary": null,
+      "name": "Radio Head",
+      "type-id": "1937e404-b981-3cb7-8151-4c86ebfc8d8e",
+      "sort-name": "Radio Head",
+      "end": null,
+      "type": "Search hint"
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "Radiohead",
+      "name": "Radiohead",
+      "type": "Artist name",
+      "end": null,
+      "primary": true,
+      "ended": false,
+      "locale": "en",
+      "begin": null
+    },
+    {
+      "locale": null,
+      "begin": null,
+      "primary": null,
+      "ended": false,
+      "type-id": "1937e404-b981-3cb7-8151-4c86ebfc8d8e",
+      "sort-name": "Radiohead & Thom Yorke",
+      "name": "Radiohead & Thom Yorke",
+      "type": "Search hint",
+      "end": null
+    },
+    {
+      "primary": null,
+      "ended": false,
+      "type-id": "1937e404-b981-3cb7-8151-4c86ebfc8d8e",
+      "sort-name": "r/head",
+      "name": "r/head",
+      "type": "Search hint",
+      "end": null,
+      "locale": null,
+      "begin": null
+    },
+    {
+      "name": "レディオヘッド",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "れでぃおへっど",
+      "end": null,
+      "type": "Artist name",
+      "ended": false,
+      "primary": true,
+      "locale": "ja",
+      "begin": null
+    },
+    {
+      "locale": "zh",
+      "begin": null,
+      "ended": false,
+      "primary": true,
+      "name": "电台司令",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "sort-name": "电台司令",
+      "end": null,
+      "type": "Artist name"
+    }
+  ],
   "sort-name": "Radiohead",
+  "name": "Radiohead",
   "type": "Group",
-  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+  "gender": null,
+  "area": {
+    "disambiguation": "",
+    "type": null,
+    "iso-3166-1-codes": [
+      "GB"
+    ],
+    "sort-name": "United Kingdom",
+    "type-id": null,
+    "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
+    "name": "United Kingdom"
+  },
+  "disambiguation": ""
 }

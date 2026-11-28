@@ -1,40 +1,75 @@
 {
-  "area": {
-    "disambiguation": "",
-    "id": "2db42837-c832-3c27-b4a3-08198f75693c",
-    "iso-3166-1-codes": [
-      "JP"
-    ],
-    "name": "Japan",
-    "sort-name": "Japan",
-    "type": null,
-    "type-id": null
-  },
-  "begin-area": {
-    "disambiguation": "",
-    "id": "d835a6af-e21b-4c1e-a3ad-be2c4080f09f",
-    "name": "Kusatsu",
-    "sort-name": "Kusatsu",
-    "type": null,
-    "type-id": null
+  "sort-name": "UVERworld",
+  "aliases": [
+    {
+      "type": "Artist name",
+      "locale": "ja",
+      "name": "SOUND極ROAD",
+      "begin": null,
+      "ended": true,
+      "sort-name": "SOUND GOKU ROAD",
+      "primary": false,
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "end": null
+    },
+    {
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "end": null,
+      "ended": false,
+      "sort-name": "ウーバーワールド",
+      "primary": true,
+      "begin": null,
+      "type": "Artist name",
+      "locale": "ja_JP",
+      "name": "UVERworld"
+    },
+    {
+      "begin": null,
+      "locale": null,
+      "type": null,
+      "name": "ウーバーワールド",
+      "type-id": null,
+      "end": null,
+      "sort-name": "ウーバーワールド",
+      "ended": false,
+      "primary": null
+    }
+  ],
+  "isnis": [],
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+  "type": "Group",
+  "life-span": {
+    "ended": false,
+    "end": null,
+    "begin": "2003"
   },
   "country": "JP",
-  "disambiguation": "",
-  "end-area": null,
-  "gender": null,
-  "gender-id": null,
-  "id": "a107bff6-58da-4302-83ad-317e86a1811c",
   "ipis": [
     "00587391993"
   ],
-  "isnis": [],
-  "life-span": {
-    "begin": "2003",
-    "end": null,
-    "ended": false
+  "gender": null,
+  "disambiguation": "",
+  "area": {
+    "type": null,
+    "id": "2db42837-c832-3c27-b4a3-08198f75693c",
+    "name": "Japan",
+    "type-id": null,
+    "iso-3166-1-codes": [
+      "JP"
+    ],
+    "disambiguation": "",
+    "sort-name": "Japan"
   },
+  "end-area": null,
+  "id": "a107bff6-58da-4302-83ad-317e86a1811c",
   "name": "UVERworld",
-  "sort-name": "UVERworld",
-  "type": "Group",
-  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+  "gender-id": null,
+  "begin-area": {
+    "type-id": null,
+    "sort-name": "Kusatsu",
+    "id": "d835a6af-e21b-4c1e-a3ad-be2c4080f09f",
+    "type": null,
+    "disambiguation": "",
+    "name": "Kusatsu"
+  }
 }

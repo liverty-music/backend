@@ -26,10 +26,11 @@ const (
 	// mbid or listening_mbid of a registered artist. The check runs under
 	// artistMBIDLockQuery; ON CONFLICT is the unique indexes' backstop.
 	insertArtistsWithMBIDUnnestQuery = `
-		INSERT INTO artists (id, name, mbid, listening_mbid, mbid_status, activity_ended)
-		SELECT t.id, t.name, t.mbid, t.listening_mbid, t.mbid_status, t.activity_ended
-		FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::bool[])
-			AS t(id, name, mbid, listening_mbid, mbid_status, activity_ended)
+		INSERT INTO artists (id, name, mbid, listening_mbid, mbid_status, activity_ended, known_names)
+		SELECT t.id, t.name, t.mbid, t.listening_mbid, t.mbid_status, t.activity_ended,
+			ARRAY(SELECT jsonb_array_elements_text(t.known_names))
+		FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[], $6::bool[], $7::jsonb[])
+			AS t(id, name, mbid, listening_mbid, mbid_status, activity_ended, known_names)
 		WHERE NOT EXISTS (
 			SELECT 1 FROM artists x
 			WHERE x.mbid IN (t.mbid, t.listening_mbid) OR x.listening_mbid IN (t.mbid, t.listening_mbid)
@@ -45,7 +46,7 @@ const (
 	// mbid or its listening_mbid, once per artist in the order of the first
 	// given MBID that finds it (WITH ORDINALITY).
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		JOIN LATERAL (
 			SELECT min(t.ord) AS ord
@@ -55,16 +56,16 @@ const (
 		ORDER BY m.ord
 	`
 	listArtistsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 	`
 	getArtistQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.mbid = $1
 	`
@@ -75,7 +76,7 @@ const (
 		SELECT EXISTS (SELECT 1 FROM artists WHERE id = $1)
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.fanart_sync_time IS NULL
 		   OR (a.fanart_sync_time < $1
@@ -92,22 +93,33 @@ const (
 		INSERT INTO artist_official_site (id, artist_id, url)
 		VALUES ($1, $2, $3)
 	`
+	// A value read from the catalog for an MBID is stored only while the
+	// artist still has that MBID.
 	updateArtistNameQuery = `
-		UPDATE artists SET name = $2 WHERE id = $1
+		UPDATE artists SET name = $3 WHERE id = $1 AND mbid = $2
 	`
 	updateArtistActivityEndedQuery = `
-		UPDATE artists SET activity_ended = $2 WHERE id = $1
+		UPDATE artists SET activity_ended = $3 WHERE id = $1 AND mbid = $2
+	`
+	updateArtistKnownNamesQuery = `
+		UPDATE artists SET known_names = $3 WHERE id = $1 AND mbid = $2
+	`
+	// && (overlap) is served by the GIN index on known_names.
+	listArtistsByKnownNamesQuery = `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
+		FROM artists a
+		WHERE a.known_names && $1::text[]
 	`
 	// The slot comes from the UUID's last two bytes, which UUIDv7 fills with
 	// random bits, so artists spread evenly and an artist never changes slot.
 	listArtistsRefreshDueQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE ((get_byte(uuid_send(a.id), 14) << 8) | get_byte(uuid_send(a.id), 15)) % $1 = $2
 		ORDER BY a.id
 	`
 	listStaleOfficialSiteQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
 		  AND (a.official_site_check_time IS NULL OR a.official_site_check_time < $1)
@@ -118,7 +130,7 @@ const (
 		UPDATE artist_official_site SET url = $2 WHERE artist_id = $1
 	`
 	listArtistsByMBIDStatusQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, a.known_names, ` + artistOrganizerColumn + `
 		FROM artists a
 		WHERE a.mbid_status = $1
 		ORDER BY a.id
@@ -143,13 +155,14 @@ const (
 		    name = $3,
 		    activity_ended = $4,
 		    mbid_status = 'verified',
+		    known_names = $5,
 		    fanart = NULL,
 		    fanart_sync_time = NULL,
 		    official_site_check_time = NULL
 		WHERE id = $1
 	`
 	verifyArtistMBIDQuery = `
-		UPDATE artists SET name = $2, activity_ended = $3, mbid_status = 'verified' WHERE id = $1
+		UPDATE artists SET name = $2, activity_ended = $3, known_names = $4, mbid_status = 'verified' WHERE id = $1
 	`
 	deleteArtistOfficialSiteQuery = `
 		DELETE FROM artist_official_site WHERE artist_id = $1
@@ -171,14 +184,14 @@ const artistOrganizerColumn = `(SELECT oa.organizer_id FROM organizer_artists oa
 // scanArtist scans a row into an Artist entity including nullable fanart and
 // official site check columns. The row selects id, name, mbid, fanart,
 // fanart_sync_time, official_site_check_time, activity_ended, listening_mbid,
-// mbid_status and artistOrganizerColumn, in that order.
+// mbid_status, known_names and artistOrganizerColumn, in that order.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var a entity.Artist
 	var fanartJSON []byte
 	var syncedAt *time.Time
 	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.ActivityEnded, &a.ListeningMBID, &a.MBIDStatus, &a.OrganizerID); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt, &a.ActivityEnded, &a.ListeningMBID, &a.MBIDStatus, &a.KnownNames, &a.OrganizerID); err != nil {
 		return nil, err
 	}
 	if officialSiteCheckedAt.Valid {
@@ -218,7 +231,10 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	if err != nil {
 		return nil, err
 	}
-	cols := newArtistColumns(merged)
+	cols, err := newArtistColumns(merged)
+	if err != nil {
+		return nil, err
+	}
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -289,12 +305,16 @@ func fetchRegistered(ctx context.Context, tx pgx.Tx, mbids []string, inserted ma
 type artistColumns struct {
 	ids, names, mbids, listeningMBIDs, statuses []string
 	activityEnded                               []bool
+	// knownNames holds each artist's known names as a JSON array: unnest
+	// cannot take one array per row.
+	knownNames []string
 }
 
 // newArtistColumns returns the artists as the parallel columns of the bulk
 // insert, giving an artist with no id a new one and an artist with no
-// MBIDStatus Unverified.
-func newArtistColumns(artists []*entity.Artist) artistColumns {
+// MBIDStatus Unverified. Each artist's known names are its given ones and its
+// name.
+func newArtistColumns(artists []*entity.Artist) (artistColumns, error) {
 	var c artistColumns
 	for _, a := range artists {
 		if a.ID == "" {
@@ -310,8 +330,19 @@ func newArtistColumns(artists []*entity.Artist) artistColumns {
 		c.listeningMBIDs = append(c.listeningMBIDs, a.ListeningMBID)
 		c.statuses = append(c.statuses, string(status))
 		c.activityEnded = append(c.activityEnded, a.ActivityEnded)
+		known, err := json.Marshal(knownNamesWith(a.Name, a.KnownNames))
+		if err != nil {
+			return artistColumns{}, apperr.Wrap(err, codes.Internal, "failed to marshal known names")
+		}
+		c.knownNames = append(c.knownNames, string(known))
 	}
-	return c
+	return c, nil
+}
+
+// knownNamesWith returns the known names to store for an artist of the given
+// name: the given known names, with the name added when missing.
+func knownNamesWith(name string, knownNames []string) []string {
+	return entity.NewKnownNames(append([]string{name}, knownNames...)...)
 }
 
 // givenMBIDs returns every MBID and listening MBID of the given artists (nil
@@ -352,7 +383,7 @@ func insertArtists(ctx context.Context, tx pgx.Tx, c artistColumns) (map[string]
 	if len(c.ids) == 0 {
 		return inserted, nil
 	}
-	insRows, err := tx.Query(ctx, insertArtistsWithMBIDUnnestQuery, c.ids, c.names, c.mbids, c.listeningMBIDs, c.statuses, c.activityEnded)
+	insRows, err := tx.Query(ctx, insertArtistsWithMBIDUnnestQuery, c.ids, c.names, c.mbids, c.listeningMBIDs, c.statuses, c.activityEnded, c.knownNames)
 	if err != nil {
 		return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(c.ids)))
 	}
@@ -389,6 +420,30 @@ func (r *ArtistRepository) ListByMBIDs(ctx context.Context, mbids []string) ([]*
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "error iterating artist rows by mbids")
+	}
+	return artists, nil
+}
+
+// ListByKnownNames returns the artists that have any of the names among their
+// known names.
+func (r *ArtistRepository) ListByKnownNames(ctx context.Context, names []string) ([]*entity.Artist, error) {
+	known := entity.NewKnownNames(names...)
+	if len(known) == 0 {
+		return []*entity.Artist{}, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listArtistsByKnownNamesQuery, known)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list artists by known names", slog.Int("count", len(known)))
+	}
+	artists, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Artist, error) {
+		return scanArtist(row.Scan)
+	})
+	if err != nil {
+		return nil, toAppErr(err, "failed to scan artists by known names")
+	}
+	if artists == nil {
+		artists = []*entity.Artist{}
 	}
 	return artists, nil
 }
@@ -435,14 +490,12 @@ func (r *ArtistRepository) GetByMBID(ctx context.Context, mbid string) (*entity.
 	return a, nil
 }
 
-// UpdateName updates the display name of an artist.
-func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name string) error {
-	tag, err := r.db.Pool.Exec(ctx, updateArtistNameQuery, id, name)
-	if err != nil {
-		return toAppErr(err, "failed to update artist name", slog.String("id", id))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "artist not found")
+// UpdateName sets the display name read for mbid, only while the artist still
+// has that MBID: UpdateMBID may have replaced it since.
+func (r *ArtistRepository) UpdateName(ctx context.Context, id, mbid, name string) error {
+	stored, err := r.execWhileMBID(ctx, updateArtistNameQuery, "name", id, mbid, name)
+	if err != nil || !stored {
+		return err
 	}
 
 	r.db.logger.Info(ctx, "artist name updated",
@@ -453,8 +506,47 @@ func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name strin
 	return nil
 }
 
-// UpdateMBID sets the artist's MBID, name and activity status and marks its
-// MBID Verified, keeping its listening_mbid; a changed MBID also clears what
+// UpdateKnownNames replaces the known names read for mbid, only while the
+// artist still has that MBID.
+//
+// # Announces
+//
+// Nothing.
+func (r *ArtistRepository) UpdateKnownNames(ctx context.Context, id, mbid string, names []string) error {
+	_, err := r.execWhileMBID(ctx, updateArtistKnownNamesQuery, "known names", id, mbid, entity.NewKnownNames(names...))
+	return err
+}
+
+// execWhileMBID runs query, an update of one value of the artist with the id $1
+// that applies only while its mbid is $2, and reports whether it stored the
+// value. It stores nothing and succeeds when the artist has another MBID by
+// now, and fails with NotFound when no artist has the id. what names the value
+// in errors and logs.
+func (r *ArtistRepository) execWhileMBID(ctx context.Context, query, what, id, mbid string, value any) (bool, error) {
+	tag, err := r.db.Pool.Exec(ctx, query, id, mbid, value)
+	if err != nil {
+		return false, toAppErr(err, "failed to update artist "+what, slog.String("id", id))
+	}
+	if tag.RowsAffected() > 0 {
+		return true, nil
+	}
+
+	var exists bool
+	if err := r.db.Pool.QueryRow(ctx, artistExistsQuery, id).Scan(&exists); err != nil {
+		return false, toAppErr(err, "failed to check the artist", slog.String("id", id))
+	}
+	if !exists {
+		return false, apperr.New(codes.NotFound, "artist not found", slog.String("id", id))
+	}
+	r.db.logger.Info(ctx, "artist "+what+" not stored: the artist's MBID changed after it was read",
+		slog.String("id", id),
+		slog.String("mbid", mbid),
+	)
+	return false, nil
+}
+
+// UpdateMBID sets the artist's MBID, name, activity status and known names and
+// marks its MBID Verified, keeping its listening_mbid; a changed MBID also clears what
 // was read from the replaced MBID's person (images, official site, check
 // time). It runs in one transaction under the lock Create shares and the
 // artist's row lock.
@@ -462,10 +554,12 @@ func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name strin
 // # Announces
 //
 // Nothing.
-func (r *ArtistRepository) UpdateMBID(ctx context.Context, id, mbid, name string, activityEnded bool) error {
+func (r *ArtistRepository) UpdateMBID(ctx context.Context, id, mbid, name string, activityEnded bool, knownNames []string) error {
 	if err := entity.ValidateMBID(mbid); err != nil {
 		return err
 	}
+
+	known := knownNamesWith(name, knownNames)
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -483,7 +577,7 @@ func (r *ArtistRepository) UpdateMBID(ctx context.Context, id, mbid, name string
 		return toAppErr(err, "failed to lock artist for mbid update", slog.String("id", id))
 	}
 	if current == mbid {
-		if _, err := tx.Exec(ctx, verifyArtistMBIDQuery, id, name, activityEnded); err != nil {
+		if _, err := tx.Exec(ctx, verifyArtistMBIDQuery, id, name, activityEnded, known); err != nil {
 			return toAppErr(err, "failed to verify artist mbid", slog.String("id", id))
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -500,7 +594,7 @@ func (r *ArtistRepository) UpdateMBID(ctx context.Context, id, mbid, name string
 		return apperr.New(codes.AlreadyExists, "another artist has the mbid", slog.String("id", id), slog.String("mbid", mbid))
 	}
 
-	if _, err := tx.Exec(ctx, updateArtistMBIDQuery, id, mbid, name, activityEnded); err != nil {
+	if _, err := tx.Exec(ctx, updateArtistMBIDQuery, id, mbid, name, activityEnded, known); err != nil {
 		return toAppErr(err, "failed to update artist mbid", slog.String("id", id))
 	}
 	if _, err := tx.Exec(ctx, deleteArtistOfficialSiteQuery, id); err != nil {
@@ -554,16 +648,11 @@ func (r *ArtistRepository) ListByMBIDStatus(ctx context.Context, status entity.M
 	return artists, nil
 }
 
-// UpdateActivityEnded sets whether the artist's activity has ended.
-func (r *ArtistRepository) UpdateActivityEnded(ctx context.Context, id string, ended bool) error {
-	tag, err := r.db.Pool.Exec(ctx, updateArtistActivityEndedQuery, id, ended)
-	if err != nil {
-		return toAppErr(err, "failed to update artist activity ended", slog.String("id", id))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "artist not found")
-	}
-	return nil
+// UpdateActivityEnded sets whether the artist's activity has ended, as read for
+// mbid, only while the artist still has that MBID.
+func (r *ArtistRepository) UpdateActivityEnded(ctx context.Context, id, mbid string, ended bool) error {
+	_, err := r.execWhileMBID(ctx, updateArtistActivityEndedQuery, "activity ended", id, mbid, ended)
+	return err
 }
 
 // ListRefreshDue returns the artists in the given slot out of slots, ordered by id.
