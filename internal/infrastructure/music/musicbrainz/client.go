@@ -363,7 +363,7 @@ func parseActivityDate(s string) *entity.ActivityDate {
 		}
 		nums[i] = n
 	}
-	if nums[0] < 1 || nums[1] < 0 || nums[1] > 12 || nums[2] < 0 || nums[2] > 31 {
+	if nums[0] < 1 || nums[0] > 9999 || nums[1] < 0 || nums[1] > 12 || nums[2] < 0 || nums[2] > 31 {
 		return nil
 	}
 	return &entity.ActivityDate{Year: nums[0], Month: nums[1], Day: nums[2]}

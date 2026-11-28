@@ -426,16 +426,19 @@ type ArtistRepository interface {
 
 	// Fanart operations
 
-	// UpdateFanart replaces the artist's fanart with the given fanart and
-	// sets the time of the image check to syncTime. When fanart is nil, the
-	// artist is left with no fanart, removing any earlier images, and the
-	// check time is still set.
+	// UpdateFanart replaces the artist's fanart with the given fanart, which
+	// was resolved for mbid, and sets the time of the image check to
+	// syncTime. When fanart is nil, the artist is left with no fanart,
+	// removing any earlier images, and the check time is still set. When the
+	// artist's MBID is no longer mbid (it was corrected after the images were
+	// resolved), nothing changes and it succeeds, so another person's images
+	// are never stored.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: no artist exists with the provided ID.
 	//   - Internal: database execution failure.
-	UpdateFanart(ctx context.Context, id string, fanart *Fanart, syncTime time.Time) error
+	UpdateFanart(ctx context.Context, id, mbid string, fanart *Fanart, syncTime time.Time) error
 
 	// ListStaleOrMissingFanart returns the artists whose images are due for a
 	// check at now: artists never checked, whoever registered them, and

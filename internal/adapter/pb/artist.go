@@ -113,9 +113,10 @@ func FromCatalogArtists(cs []*entity.CatalogArtist) []*entityv1.CatalogArtist {
 	return msgs
 }
 
-// fromActivityDate maps an ActivityDate to its message; nil stays nil.
+// fromActivityDate maps an ActivityDate to its message; nil, and a date
+// outside what google.type.Date holds, map to nil.
 func fromActivityDate(d *entity.ActivityDate) *entityv1.ActivityDate {
-	if d == nil {
+	if d == nil || d.Year < 1 || d.Year > 9999 || d.Month < 0 || d.Month > 12 || d.Day < 0 || d.Day > 31 {
 		return nil
 	}
 	return &entityv1.ActivityDate{Value: &date.Date{Year: int32(d.Year), Month: int32(d.Month), Day: int32(d.Day)}}

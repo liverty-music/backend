@@ -224,7 +224,7 @@ func (s *discoverStory) checkedAt(artistID string, at time.Time) {
 	s.t.Helper()
 	artist, err := s.artistRepo.Get(s.ctx, artistID)
 	require.NoError(s.t, err)
-	require.NoError(s.t, s.artistRepo.UpdateFanart(s.ctx, artistID, artist.Fanart, at))
+	require.NoError(s.t, s.artistRepo.UpdateFanart(s.ctx, artistID, artist.MBID, artist.Fanart, at))
 }
 
 // runDaily runs the daily image run's steps as cmd/job/artist-image-sync does.

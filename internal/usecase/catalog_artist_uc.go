@@ -21,7 +21,8 @@ type CatalogArtistUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - NotFound: no artist has the id.
+	//   - NotFound: no artist has the id. A namesake the catalog does not know
+	//     is listed without an official site instead.
 	//   - Unavailable: the catalog is down or rate-limited.
 	//   - Internal: unexpected failure.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.CatalogArtist, error)
@@ -72,11 +73,13 @@ func (uc *catalogArtistUseCase) ListByArtist(ctx context.Context, artistID strin
 		result = append(result, current)
 	}
 	for _, n := range namesakes {
-		rels, err := uc.officialSites.ListOfficialSiteRelations(ctx, n.MBID)
+		// A namesake the catalog no longer knows (merged or deleted after its
+		// search index was built) has no official site.
+		site, err := officialSiteOf(ctx, uc.officialSites, n.MBID)
 		if err != nil {
-			return nil, fmt.Errorf("list official site relations of %s: %w", n.MBID, err)
+			return nil, err
 		}
-		n.OfficialSiteURL = nonEmptyURL(entity.SelectOfficialSite(*rels))
+		n.OfficialSiteURL = nonEmptyURL(site)
 		result = append(result, n)
 	}
 	return result, nil

@@ -416,3 +416,12 @@ func storable(v *entity.Venue) *entity.Venue {
 	}
 	return v
 }
+
+// artistMBID returns the artist's current MBID, the one its images are
+// resolved for.
+func artistMBID(t *testing.T, db *rdb.Database, id string) string {
+	t.Helper()
+	var mbid string
+	require.NoError(t, db.Pool.QueryRow(context.Background(), `SELECT mbid FROM artists WHERE id = $1`, id).Scan(&mbid))
+	return mbid
+}

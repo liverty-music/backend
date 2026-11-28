@@ -37,50 +37,104 @@ func ambiguous(candidates []string, reason string) mbidDecision {
 // the music catalog's artists of the same name (components/usecase/artist/
 // verify-mbid): with no other namesake the MBID is verified; otherwise the one
 // candidate (its own MBID included) with an official homepage is verified,
-// and with none or several the MBID is ambiguous. A verified MBID comes with
-// the catalog's name and activity status; an MBID to verify that the catalog
-// does not know makes the MBID ambiguous. It stores nothing, and it returns
+// and with none or several the MBID is ambiguous. The artist's own MBID is
+// compared in the canonical form the catalog returns for it, so a merged MBID
+// is not its own namesake. A verified MBID comes with the catalog's name and
+// activity status; an MBID to verify that the catalog does not know makes the
+// MBID ambiguous. It stores nothing, and it returns
 // the error of the first catalog read that fails, so nothing is decided on
 // partial reads.
 func (uc *artistUseCase) decideMBID(ctx context.Context, name, mbid string) (mbidDecision, error) {
+	own, canonical, err := uc.canonicalMBID(ctx, mbid)
+	if err != nil {
+		return mbidDecision{}, err
+	}
+
 	namesakes, err := uc.namesakes.ListNamesakes(ctx, name)
 	if err != nil {
 		return mbidDecision{}, fmt.Errorf("list namesakes of %q: %w", name, err)
 	}
-	candidates := []string{mbid}
+	candidates := []string{canonical}
 	for _, n := range namesakes {
-		if n.MBID != mbid {
+		if n.MBID != canonical && n.MBID != mbid {
 			candidates = append(candidates, n.MBID)
 		}
 	}
 
-	chosen := mbid
+	chosen := canonical
+	catalog := own
 	if len(candidates) > 1 {
-		var withSite []string
-		for _, candidate := range candidates {
-			site, err := officialSiteOf(ctx, uc.officialSites, candidate)
-			if err != nil {
-				return mbidDecision{}, err
-			}
-			if site != "" {
-				withSite = append(withSite, candidate)
-			}
+		withSite, err := uc.withOfficialSite(ctx, candidates)
+		if err != nil {
+			return mbidDecision{}, err
 		}
 		if len(withSite) != 1 {
 			return ambiguous(candidates, fmt.Sprintf("%d of the %d artists of the name have an official homepage", len(withSite), len(candidates))), nil
 		}
 		chosen = withSite[0]
+		if chosen != canonical {
+			if catalog, err = uc.catalogArtist(ctx, chosen); err != nil {
+				return mbidDecision{}, err
+			}
+		}
 	}
-
-	catalog, err := uc.idManager.GetArtist(ctx, chosen)
-	switch {
-	case errors.Is(err, apperr.ErrNotFound):
+	if catalog == nil {
 		// An MBID the catalog does not know needs a person: an Unverified
 		// artist always comes from the listening service.
 		return ambiguous(candidates, "the catalog does not know MBID "+chosen), nil
-	case err != nil:
-		return mbidDecision{}, fmt.Errorf("get artist %s from the catalog: %w", chosen, err)
 	}
+	return verified(catalog, chosen, name, candidates), nil
+}
+
+// canonicalMBID reads the artist's own MBID from the catalog. The catalog
+// answers a merged MBID with the surviving artist, and its name search lists
+// only the survivor, so the own MBID is compared in that canonical form: the
+// survivor is the artist itself, not a namesake. own is nil, and canonical the
+// given MBID, when the catalog does not know it.
+func (uc *artistUseCase) canonicalMBID(ctx context.Context, mbid string) (own *entity.Artist, canonical string, err error) {
+	own, err = uc.catalogArtist(ctx, mbid)
+	if err != nil {
+		return nil, "", err
+	}
+	if own != nil && own.MBID != "" {
+		return own, own.MBID, nil
+	}
+	return own, mbid, nil
+}
+
+// catalogArtist reads an MBID from the catalog, or returns nil when the
+// catalog does not know it.
+func (uc *artistUseCase) catalogArtist(ctx context.Context, mbid string) (*entity.Artist, error) {
+	artist, err := uc.idManager.GetArtist(ctx, mbid)
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("get artist %s from the catalog: %w", mbid, err)
+	}
+	return artist, nil
+}
+
+// withOfficialSite returns the candidates the catalog records an official
+// homepage for, in order.
+func (uc *artistUseCase) withOfficialSite(ctx context.Context, candidates []string) ([]string, error) {
+	var withSite []string
+	for _, candidate := range candidates {
+		site, err := officialSiteOf(ctx, uc.officialSites, candidate)
+		if err != nil {
+			return nil, err
+		}
+		if site != "" {
+			withSite = append(withSite, candidate)
+		}
+	}
+	return withSite, nil
+}
+
+// verified is the Verified decision for the catalog's record of the chosen
+// MBID, falling back to the chosen MBID and the registered name where the
+// record has none.
+func verified(catalog *entity.Artist, chosen, name string, candidates []string) mbidDecision {
 	decided := mbidDecision{
 		status:        entity.MBIDStatusVerified,
 		mbid:          catalog.MBID,
@@ -94,7 +148,7 @@ func (uc *artistUseCase) decideMBID(ctx context.Context, name, mbid string) (mbi
 	if decided.name == "" {
 		decided.name = name
 	}
-	return decided, nil
+	return decided
 }
 
 // officialSiteOf returns the official homepage the catalog records for the

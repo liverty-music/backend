@@ -1006,16 +1006,16 @@ func (_c *MockArtistRepository_UpdateActivityEnded_Call) RunAndReturn(run func(c
 }
 
 // UpdateFanart provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *entity.Fanart, syncTime time.Time) error {
-	ret := _mock.Called(ctx, id, fanart, syncTime)
+func (_mock *MockArtistRepository) UpdateFanart(ctx context.Context, id string, mbid string, fanart *entity.Fanart, syncTime time.Time) error {
+	ret := _mock.Called(ctx, id, mbid, fanart, syncTime)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateFanart")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *entity.Fanart, time.Time) error); ok {
-		r0 = returnFunc(ctx, id, fanart, syncTime)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, *entity.Fanart, time.Time) error); ok {
+		r0 = returnFunc(ctx, id, mbid, fanart, syncTime)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1030,13 +1030,14 @@ type MockArtistRepository_UpdateFanart_Call struct {
 // UpdateFanart is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id string
+//   - mbid string
 //   - fanart *entity.Fanart
 //   - syncTime time.Time
-func (_e *MockArtistRepository_Expecter) UpdateFanart(ctx any, id any, fanart any, syncTime any) *MockArtistRepository_UpdateFanart_Call {
-	return &MockArtistRepository_UpdateFanart_Call{Call: _e.mock.On("UpdateFanart", ctx, id, fanart, syncTime)}
+func (_e *MockArtistRepository_Expecter) UpdateFanart(ctx any, id any, mbid any, fanart any, syncTime any) *MockArtistRepository_UpdateFanart_Call {
+	return &MockArtistRepository_UpdateFanart_Call{Call: _e.mock.On("UpdateFanart", ctx, id, mbid, fanart, syncTime)}
 }
 
-func (_c *MockArtistRepository_UpdateFanart_Call) Run(run func(ctx context.Context, id string, fanart *entity.Fanart, syncTime time.Time)) *MockArtistRepository_UpdateFanart_Call {
+func (_c *MockArtistRepository_UpdateFanart_Call) Run(run func(ctx context.Context, id string, mbid string, fanart *entity.Fanart, syncTime time.Time)) *MockArtistRepository_UpdateFanart_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1046,19 +1047,24 @@ func (_c *MockArtistRepository_UpdateFanart_Call) Run(run func(ctx context.Conte
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 *entity.Fanart
+		var arg2 string
 		if args[2] != nil {
-			arg2 = args[2].(*entity.Fanart)
+			arg2 = args[2].(string)
 		}
-		var arg3 time.Time
+		var arg3 *entity.Fanart
 		if args[3] != nil {
-			arg3 = args[3].(time.Time)
+			arg3 = args[3].(*entity.Fanart)
+		}
+		var arg4 time.Time
+		if args[4] != nil {
+			arg4 = args[4].(time.Time)
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -1069,7 +1075,7 @@ func (_c *MockArtistRepository_UpdateFanart_Call) Return(err error) *MockArtistR
 	return _c
 }
 
-func (_c *MockArtistRepository_UpdateFanart_Call) RunAndReturn(run func(ctx context.Context, id string, fanart *entity.Fanart, syncTime time.Time) error) *MockArtistRepository_UpdateFanart_Call {
+func (_c *MockArtistRepository_UpdateFanart_Call) RunAndReturn(run func(ctx context.Context, id string, mbid string, fanart *entity.Fanart, syncTime time.Time) error) *MockArtistRepository_UpdateFanart_Call {
 	_c.Call.Return(run)
 	return _c
 }

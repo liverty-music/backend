@@ -249,6 +249,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("stores and retrieves fanart data", func(t *testing.T) {
+		// @spec components/entity/artist/update-fanart "Images given"
 		cleanTables(t, db)
 		created, err := repo.Create(ctx, entity.NewArtist("Fanart Artist", "fa000000-0000-0000-0000-00000000dd01"))
 		require.NoError(t, err)
@@ -264,7 +265,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 		}
 		syncTime := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
 
-		err = repo.UpdateFanart(ctx, artistID, fanart, syncTime)
+		err = repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), fanart, syncTime)
 		require.NoError(t, err)
 
 		got, err := repo.Get(ctx, artistID)
@@ -280,13 +281,14 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("stores nil fanart with sync time", func(t *testing.T) {
+		// @spec components/entity/artist/update-fanart "No images given"
 		cleanTables(t, db)
 		created, err := repo.Create(ctx, entity.NewArtist("No Fanart", "fa000000-0000-0000-0000-00000000dd02"))
 		require.NoError(t, err)
 		artistID := created[0].ID
 
 		syncTime := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-		err = repo.UpdateFanart(ctx, artistID, nil, syncTime)
+		err = repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), nil, syncTime)
 		require.NoError(t, err)
 
 		got, err := repo.Get(ctx, artistID)
@@ -297,8 +299,9 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("returns NotFound for unknown ID", func(t *testing.T) {
+		// @spec components/entity/artist/update-fanart "Unknown artist"
 		cleanTables(t, db)
-		err := repo.UpdateFanart(ctx, "00000000-0000-0000-0000-000000000000", nil, time.Now())
+		err := repo.UpdateFanart(ctx, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000", nil, time.Now())
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
@@ -323,7 +326,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 		staleID := seedArtist(t, db, "Stale", "50000000-0000-0000-0000-00000000aa01")
 		neverID := seedArtist(t, db, "Never", "50000000-0000-0000-0000-00000000aa02")
 		followArtist(t, db, userID, staleID)
-		require.NoError(t, repo.UpdateFanart(ctx, staleID, fanart, daysAgo(8)))
+		require.NoError(t, repo.UpdateFanart(ctx, staleID, artistMBID(t, db, staleID), fanart, daysAgo(8)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, time.Now(), age, 10)
 
@@ -350,7 +353,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 	t.Run("Stale artist nobody follows", func(t *testing.T) {
 		cleanTables(t, db)
 		artistID := seedArtist(t, db, "Unfollowed Stale", "50000000-0000-0000-0000-00000000cc01")
-		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(30)))
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), fanart, daysAgo(30)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, time.Now(), age, 10)
 
@@ -366,7 +369,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 			userID := seedUser(t, db, fmt.Sprintf("Fan %d", i), fmt.Sprintf("fan-fanart-%d@example.com", i), fmt.Sprintf("ext-fan-fanart-%d", i))
 			followArtist(t, db, userID, artistID)
 		}
-		require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, daysAgo(8)))
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), fanart, daysAgo(8)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, time.Now(), age, 10)
 
@@ -380,7 +383,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 		userID := seedUser(t, db, "Fan", "fan-fanart-recent@example.com", "ext-fan-fanart-recent")
 		artistID := seedArtist(t, db, "No Images", "50000000-0000-0000-0000-00000000ee01")
 		followArtist(t, db, userID, artistID)
-		require.NoError(t, repo.UpdateFanart(ctx, artistID, nil, daysAgo(2)))
+		require.NoError(t, repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), nil, daysAgo(2)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, time.Now(), age, 10)
 
@@ -411,8 +414,8 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 		followedID := seedArtist(t, db, "Fresh Followed", "50000000-0000-0000-0000-00000000ff01")
 		unfollowedID := seedArtist(t, db, "Old Unfollowed", "50000000-0000-0000-0000-00000000ff02")
 		followArtist(t, db, userID, followedID)
-		require.NoError(t, repo.UpdateFanart(ctx, followedID, fanart, time.Now()))
-		require.NoError(t, repo.UpdateFanart(ctx, unfollowedID, fanart, daysAgo(30)))
+		require.NoError(t, repo.UpdateFanart(ctx, followedID, artistMBID(t, db, followedID), fanart, time.Now()))
+		require.NoError(t, repo.UpdateFanart(ctx, unfollowedID, artistMBID(t, db, unfollowedID), fanart, daysAgo(30)))
 
 		got, err := repo.ListStaleOrMissingFanart(ctx, time.Now(), age, 10)
 
@@ -948,7 +951,7 @@ func TestArtistRepository_FanartDueParity(t *testing.T) {
 				followArtist(t, db, userID, artistID)
 			}
 			if sync != nil {
-				require.NoError(t, repo.UpdateFanart(ctx, artistID, fanart, *sync))
+				require.NoError(t, repo.UpdateFanart(ctx, artistID, artistMBID(t, db, artistID), fanart, *sync))
 			}
 
 			got, err := repo.ListStaleOrMissingFanart(ctx, now, entity.FanartStaleAge, 10)

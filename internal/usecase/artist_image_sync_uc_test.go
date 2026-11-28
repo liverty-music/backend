@@ -68,7 +68,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, fanart, refreshNow).
+					UpdateFanart(ctx, artistID, mbid, fanart, refreshNow).
 					Return(nil).
 					Once()
 			},
@@ -93,7 +93,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), refreshNow).
+					UpdateFanart(ctx, artistID, mbid, (*entity.Fanart)(nil), refreshNow).
 					Return(nil).
 					Once()
 			},
@@ -109,7 +109,7 @@ func TestArtistImageSyncUseCase_SyncArtistImage(t *testing.T) {
 					Once()
 
 				d.artistRepo.EXPECT().
-					UpdateFanart(ctx, artistID, (*entity.Fanart)(nil), refreshNow).
+					UpdateFanart(ctx, artistID, mbid, (*entity.Fanart)(nil), refreshNow).
 					Return(apperr.New(codes.Internal, "db error")).
 					Once()
 			},

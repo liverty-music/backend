@@ -47,10 +47,10 @@ func setMBIDStatus(t *testing.T, db *rdb.Database, id string, status entity.MBID
 
 // giveDetails gives the artist images, an official site, an official site
 // check time and an ended activity.
-func giveDetails(t *testing.T, repo *rdb.ArtistRepository, id string) {
+func giveDetails(t *testing.T, db *rdb.Database, repo *rdb.ArtistRepository, id string) {
 	t.Helper()
 	ctx := context.Background()
-	require.NoError(t, repo.UpdateFanart(ctx, id, &entity.Fanart{ArtistThumb: []entity.FanartImage{{ID: "1", URL: "https://example.com/1.jpg"}}}, time.Now()))
+	require.NoError(t, repo.UpdateFanart(ctx, id, artistMBID(t, db, id), &entity.Fanart{ArtistThumb: []entity.FanartImage{{ID: "1", URL: "https://example.com/1.jpg"}}}, time.Now()))
 	require.NoError(t, repo.UpdateActivityEnded(ctx, id, true))
 	require.NoError(t, repo.CreateOfficialSite(ctx, entity.NewOfficialSite(id, "https://namesake.example/")))
 	require.NoError(t, repo.MarkOfficialSiteChecked(ctx, id, time.Now()))
@@ -110,7 +110,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 	t.Run("Own MBID", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		giveDetails(t, repo, id)
+		giveDetails(t, db, repo, id)
 		setMBIDStatus(t, db, id, entity.MBIDStatusAmbiguous)
 		before, err := repo.Get(ctx, id)
 		require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 	t.Run("Namesake's details removed", func(t *testing.T) {
 		cleanTables(t, db)
 		id := seedArtist(t, db, "Penthouse", mbidA)
-		giveDetails(t, repo, id)
+		giveDetails(t, db, repo, id)
 
 		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
 
@@ -185,6 +185,23 @@ func TestArtistRepository_UpdateMBID(t *testing.T) {
 		assert.False(t, got.ActivityEnded)
 		_, err = repo.GetOfficialSite(ctx, id)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("Images resolved for the replaced MBID are not stored", func(t *testing.T) {
+		// @spec components/entity/artist/update-fanart "Images of a replaced MBID"
+		cleanTables(t, db)
+		id := seedArtist(t, db, "Penthouse", mbidA)
+		require.NoError(t, repo.UpdateMBID(ctx, id, mbidB, "Penthouse", false))
+
+		// An image sync that resolved images for mbidA before the correction
+		// finishes after it.
+		err := repo.UpdateFanart(ctx, id, mbidA, &entity.Fanart{ArtistThumb: []entity.FanartImage{{ID: "1", URL: "https://namesake.example/1.jpg"}}}, time.Now())
+
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Nil(t, got.Fanart, "the namesake's images are not stored")
+		assert.Nil(t, got.FanartSyncTime, "the artist stays due for its first image check")
 	})
 
 	// @spec components/entity/artist/update-mbid "Registered at the same time"

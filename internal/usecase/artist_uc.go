@@ -590,7 +590,13 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 	result := make([]*entity.Artist, 0, len(artists))
 	listed := make(map[string]bool, len(artists))
 	for _, a := range artists {
-		if persisted, ok := existingSet[a.ListeningMBID]; ok && !listed[persisted.ID] {
+		// A match whose MBID was corrected to one another artist already holds
+		// is that artist: Create returned it, indexed under its own MBIDs.
+		persisted, ok := existingSet[a.ListeningMBID]
+		if !ok {
+			persisted, ok = existingSet[a.MBID]
+		}
+		if ok && !listed[persisted.ID] {
 			listed[persisted.ID] = true
 			result = append(result, persisted)
 		}

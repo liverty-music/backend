@@ -106,6 +106,25 @@ func TestCatalogArtistUseCase_ListByArtist(t *testing.T) {
 		assert.Equal(t, jpBand, got[1].MBID)
 	})
 
+	// @spec components/usecase/catalog-artist/list-by-artist "Namesake unknown to the catalog"
+	t.Run("Namesake unknown to the catalog", func(t *testing.T) {
+		t.Parallel()
+		d := newCatalogArtistTestDeps(t)
+		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
+			{MBID: ukBand, Name: "Penthouse"}, {MBID: jpBand, Name: "Penthouse"},
+		}, nil).Once()
+		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, ukBand).Return(homepageRelations("Penthouse", ""), nil).Once()
+		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, jpBand).Return(nil, apperr.New(codes.NotFound, "no such artist")).Once()
+
+		got, err := d.uc.ListByArtist(ctx, "artist-1")
+
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Equal(t, jpBand, got[1].MBID)
+		assert.Nil(t, got[1].OfficialSiteURL)
+	})
+
 	// @spec components/usecase/catalog-artist/list-by-artist "Unknown artist"
 	t.Run("Unknown artist", func(t *testing.T) {
 		t.Parallel()

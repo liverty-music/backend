@@ -69,7 +69,10 @@ const (
 		WHERE a.mbid = $1
 	`
 	updateFanartQuery = `
-		UPDATE artists SET fanart = $2, fanart_sync_time = $3 WHERE id = $1
+		UPDATE artists SET fanart = $2, fanart_sync_time = $3 WHERE id = $1 AND mbid = $4
+	`
+	artistExistsQuery = `
+		SELECT EXISTS (SELECT 1 FROM artists WHERE id = $1)
 	`
 	listStaleOrMissingFanartQuery = `
 		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_sync_time, a.official_site_check_time, a.activity_ended, a.listening_mbid, a.mbid_status, ` + artistOrganizerColumn + `
@@ -616,8 +619,10 @@ func (r *ArtistRepository) GetOfficialSite(ctx context.Context, artistID string)
 	return &s, nil
 }
 
-// UpdateFanart replaces the cached fanart.tv data for an artist.
-func (r *ArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *entity.Fanart, syncTime time.Time) error {
+// UpdateFanart replaces the cached fanart.tv data for an artist, only while
+// the artist still has the MBID the images were resolved for: UpdateMBID may
+// have replaced it since.
+func (r *ArtistRepository) UpdateFanart(ctx context.Context, id, mbid string, fanart *entity.Fanart, syncTime time.Time) error {
 	var fanartJSON []byte
 	if fanart != nil {
 		var err error
@@ -627,12 +632,23 @@ func (r *ArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *
 		}
 	}
 
-	tag, err := r.db.Pool.Exec(ctx, updateFanartQuery, id, fanartJSON, syncTime)
+	tag, err := r.db.Pool.Exec(ctx, updateFanartQuery, id, fanartJSON, syncTime, mbid)
 	if err != nil {
 		return toAppErr(err, "failed to update fanart", slog.String("id", id))
 	}
 	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "artist not found")
+		var exists bool
+		if err := r.db.Pool.QueryRow(ctx, artistExistsQuery, id).Scan(&exists); err != nil {
+			return toAppErr(err, "failed to check the artist", slog.String("id", id))
+		}
+		if !exists {
+			return apperr.New(codes.NotFound, "artist not found")
+		}
+		r.db.logger.Info(ctx, "artist fanart not stored: the artist's MBID changed after the images were resolved",
+			slog.String("id", id),
+			slog.String("mbid", mbid),
+		)
+		return nil
 	}
 
 	r.db.logger.Info(ctx, "artist fanart updated",

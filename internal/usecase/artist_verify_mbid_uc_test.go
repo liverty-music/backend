@@ -76,6 +76,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "PENTHOUSE", MBID: jpBand, ActivityEnded: false}, nil).Once()
 		// UpdateMBID keeps the listening MBID; the corrected MBID and the
@@ -90,6 +91,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(nil, ukBand, jpBand, plBand)
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, "artist-1").Return(nil).Once()
 
@@ -109,6 +111,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(nil, apperr.New(codes.NotFound, "no such artist")).Once()
 		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{{MBID: jpBand, Name: "Penthouse"}}, nil).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, ukBand).Return(nil, apperr.New(codes.NotFound, "no such artist")).Once()
 		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, jpBand).Return(homepageRelations("Penthouse", "https://penthouse.example/"), nil).Once()
@@ -123,6 +126,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{ukBand: true, jpBand: true}, ukBand, jpBand)
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, "artist-1").Return(nil).Once()
 
@@ -153,6 +157,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
 		// No write is expected: the artist stays Unverified.
 
@@ -186,8 +191,9 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
-		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{{MBID: ukBand, Name: "Penthouse"}}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
+		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
+		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
 		// No write is expected: nothing is stored before every read succeeded.
 
 		err := d.uc.VerifyMBID(ctx, "artist-1")
@@ -211,6 +217,7 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(&entity.Artist{Name: "Penthouse", MBID: jpBand}, nil).Once()
 		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "Penthouse", false).Return(apperr.New(codes.AlreadyExists, "another artist has the mbid")).Once()
@@ -224,10 +231,27 @@ func TestArtistUseCase_VerifyMBID(t *testing.T) {
 		assert.Contains(t, logs, "another artist holds MBID "+jpBand)
 	})
 
+	// @spec components/usecase/artist/verify-mbid "Merged MBID"
+	t.Run("Merged MBID", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+		// The listening service files the artist under ukBand, which the
+		// catalog merged into jpBand: the lookup answers with jpBand, and the
+		// name search lists only jpBand.
+		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "PENTHOUSE", MBID: jpBand, ActivityEnded: true}, nil).Once()
+		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{{MBID: jpBand, Name: "PENTHOUSE"}}, nil).Once()
+		// No official-site lookup is expected: the survivor is the artist itself.
+		d.repo.EXPECT().UpdateMBID(anyCtx, "artist-1", jpBand, "PENTHOUSE", true).Return(nil).Once()
+
+		require.NoError(t, d.uc.VerifyMBID(ctx, "artist-1"))
+	})
+
 	t.Run("a namesake the catalog does not know makes the MBID ambiguous", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)
 		d.repo.EXPECT().Get(anyCtx, "artist-1").Return(unverifiedPenthouse(), nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(map[string]bool{jpBand: true}, ukBand, jpBand)
 		d.idManager.EXPECT().GetArtist(anyCtx, jpBand).Return(nil, apperr.New(codes.NotFound, "no such artist")).Once()
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, "artist-1").Return(nil).Once()
@@ -286,7 +310,7 @@ func TestArtistUseCase_RefreshDue_VerifiesUnverified(t *testing.T) {
 		// the last two artists are never looked at.
 		for _, a := range artists[:3] {
 			d.repo.EXPECT().Get(anyCtx, a.ID).Return(a, nil).Once()
-			d.namesakes.EXPECT().ListNamesakes(anyCtx, a.Name).Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
+			d.idManager.EXPECT().GetArtist(anyCtx, a.MBID).Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
 		}
 		d.repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{}, nil).Once()
 
@@ -304,6 +328,7 @@ func TestArtistUseCase_RefreshDue_VerifiesUnverified(t *testing.T) {
 		penthouse := unverifiedPenthouse()
 		d.repo.EXPECT().ListByMBIDStatus(anyCtx, entity.MBIDStatusUnverified).Return([]*entity.Artist{penthouse}, nil).Once()
 		d.repo.EXPECT().Get(anyCtx, penthouse.ID).Return(penthouse, nil).Once()
+		d.idManager.EXPECT().GetArtist(anyCtx, ukBand).Return(&entity.Artist{Name: "Penthouse", MBID: ukBand}, nil).Once()
 		d.expectNamesakes(nil, ukBand, jpBand)
 		d.repo.EXPECT().MarkMBIDAmbiguous(anyCtx, penthouse.ID).Return(nil).Once()
 		d.repo.EXPECT().ListRefreshDue(anyCtx, 30, mock.AnythingOfType("int")).Return([]*entity.Artist{}, nil).Once()
