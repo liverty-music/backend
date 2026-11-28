@@ -6,7 +6,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// OfficialSiteUseCase records an artist's official site.
+// OfficialSiteUseCase records and corrects an artist's official site. Only an
+// admin reaches it (see the admin OfficialSiteService).
 type OfficialSiteUseCase interface {
 	// Create mints a fresh OfficialSite for the artist from the given
 	// URL and persists it. An artist has at most one official site.
@@ -17,6 +18,16 @@ type OfficialSiteUseCase interface {
 	//   - FailedPrecondition: no artist exists with the given artistID.
 	//   - Internal: database execution failure.
 	Create(ctx context.Context, artistID, url string) error
+
+	// Update replaces the URL of the artist's stored official site, keeping
+	// the site's id.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: the URL is not a valid official site URL.
+	//   - NotFound: the artist has no official site, or no artist has the id.
+	//   - Internal: database execution failure.
+	Update(ctx context.Context, artistID, url string) error
 }
 
 // officialSiteUseCase implements [OfficialSiteUseCase].
@@ -34,4 +45,9 @@ func NewOfficialSiteUseCase(artistRepo entity.ArtistRepository) OfficialSiteUseC
 // Create implements [OfficialSiteUseCase].
 func (uc *officialSiteUseCase) Create(ctx context.Context, artistID, url string) error {
 	return uc.artistRepo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, url))
+}
+
+// Update implements [OfficialSiteUseCase].
+func (uc *officialSiteUseCase) Update(ctx context.Context, artistID, url string) error {
+	return uc.artistRepo.UpdateOfficialSiteURL(ctx, artistID, url)
 }

@@ -15,6 +15,7 @@ import (
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
 	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/notification/v1/notificationv1connect"
+	adminofficialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/official_site/v1/official_sitev1connect"
 	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/admin/user/v1/userv1connect"
@@ -25,7 +26,6 @@ import (
 	identityverificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
 	lotteryentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/notification/v1/notificationv1connect"
-	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/official_site/v1/official_sitev1connect"
 	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/order/v1/orderv1connect"
 	organizerareaconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/area/v1/areav1connect"
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/v2/liverty_music/rpc/organizer/artist/v1/artistv1connect"
@@ -674,9 +674,6 @@ func (w *apiWiring) fanHandlers() []server.RPCHandlerFunc {
 		func(s *connect.Server) {
 			orderconnect.RegisterOrderServiceHandler(s, rpc.NewOrderHandler(w.orderUC, w.userUC, logger))
 		},
-		func(s *connect.Server) {
-			officialsiteconnect.RegisterOfficialSiteServiceHandler(s, rpc.NewOfficialSiteHandler(usecase.NewOfficialSiteUseCase(w.artistRepo), logger))
-		},
 		// Fan-facing WalletPublicKeyService: Register, Get (signed-in fan only).
 		func(s *connect.Server) {
 			walletpublickeyconnect.RegisterWalletPublicKeyServiceHandler(s, rpc.NewWalletPublicKeyHandler(w.walletPublicKeyUC, w.userUC, logger))
@@ -798,6 +795,10 @@ func (w *apiWiring) adminServer() *server.ConnectServer {
 		// Admin ArtistService: ListByOrganizer.
 		func(s *connect.Server) {
 			adminartistconnect.RegisterArtistServiceHandler(s, rpc.NewAdminArtistHandler(w.artistUC, logger))
+		},
+		// Admin OfficialSiteService: Create, Update.
+		func(s *connect.Server) {
+			adminofficialsiteconnect.RegisterOfficialSiteServiceHandler(s, rpc.NewAdminOfficialSiteHandler(usecase.NewOfficialSiteUseCase(w.artistRepo), logger))
 		},
 		// Admin NotificationService: NotifyNewConcerts.
 		func(s *connect.Server) {
