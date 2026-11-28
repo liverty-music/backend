@@ -725,6 +725,7 @@ func TestArtistUseCase_Search(t *testing.T) {
 
 	t.Run("filters empty MBID and deduplicates by MBID", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/artist/search "Match without MBID"
 		d := newArtistTestDeps(t)
 
 		fetched := []*entity.Artist{
@@ -752,6 +753,7 @@ func TestArtistUseCase_Search(t *testing.T) {
 
 	t.Run("returns NotFound when all entries filtered out", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/artist/search "No match with an MBID"
 		d := newArtistTestDeps(t)
 
 		d.searcher.EXPECT().Search(ctx, "test").Return([]*entity.Artist{
@@ -851,6 +853,7 @@ func TestArtistUseCase_Search(t *testing.T) {
 
 	t.Run("persistArtists reuses existing artists from DB", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/artist/search "Known and new matches"
 		d := newArtistTestDeps(t)
 
 		fetched := []*entity.Artist{

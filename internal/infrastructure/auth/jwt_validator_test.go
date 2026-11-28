@@ -189,7 +189,10 @@ func TestValidateToken_UnknownKeyID(t *testing.T) {
 	valid := createTestToken(t, privateKey, server.URL, "user-1", "fan@example.com", "", time.Hour)
 	_, err = validator.ValidateToken(context.Background(), valid)
 	require.NoError(t, err)
-	requests := jwks.requests.Load()
+	// The first validation registers the URL, which starts a background fetch,
+	// and may also fetch synchronously when that fetch has not finished. Wait
+	// until the background fetch has landed, so it is not counted below.
+	requests := waitForSettledRequests(t, &jwks.requests)
 
 	unknown := createTestToken(t, newSigningKey(t), server.URL, "user-1", "fan@example.com", "", time.Hour, withKeyID("rotated-key-id"))
 	_, err = validator.ValidateToken(context.Background(), unknown)
@@ -199,6 +202,20 @@ func TestValidateToken_UnknownKeyID(t *testing.T) {
 	// until its scheduled refresh, so a caller cannot make the server hit
 	// the sign-in service once per request by sending made-up key ids.
 	assert.Equal(t, requests, jwks.requests.Load(), "an unknown kid is served from the cache")
+}
+
+// waitForSettledRequests waits until the request count stops changing for
+// 200 ms and returns it.
+func waitForSettledRequests(t *testing.T, requests *atomic.Int32) int32 {
+	t.Helper()
+	var settled int32
+	require.Eventually(t, func() bool {
+		before := requests.Load()
+		time.Sleep(200 * time.Millisecond)
+		settled = requests.Load()
+		return before == settled
+	}, 5*time.Second, 10*time.Millisecond, "the JWKS request count did not settle")
+	return settled
 }
 
 // newSigningKey returns an RSA key that no test JWKS publishes.
