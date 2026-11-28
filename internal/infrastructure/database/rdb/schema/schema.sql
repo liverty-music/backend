@@ -425,9 +425,10 @@ COMMENT ON COLUMN concert_candidates.resolved_place_id IS 'Google Places place i
 COMMENT ON COLUMN concert_candidates.find_time IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
 
 -- Rejected concerts (append-only)
--- Every rejection is recorded here for search-quality analysis. It is NEVER read
--- by the discovery dedup path and so does not suppress future staging. artist_id
--- has no foreign key so history survives artist deletion.
+-- Every rejection is recorded here for search-quality analysis, and discovery
+-- reads it to leave out a found event that is the same listing as an entry
+-- (artist, local date, listed venue, start time). artist_id has no foreign key
+-- so history survives artist deletion.
 CREATE TABLE IF NOT EXISTS rejected_concerts (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL,
