@@ -257,7 +257,7 @@ func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 
-	t.Run("a newly found artist is registered verified and gets its images", func(t *testing.T) {
+	t.Run("a newly found artist is registered, verified from its announcement and found again", func(t *testing.T) {
 		// @spec stories/discover-artists "Newly discovered artist"
 		s := newDiscoverStory(t, db)
 		mbid := uuid.NewV4().String()
@@ -268,25 +268,27 @@ func TestStory_DiscoverArtists_RegisteredAndEnriched(t *testing.T) {
 		got, err := s.artists.Search(s.ctx, "yorushika")
 
 		require.NoError(t, err)
-		require.Len(t, got, 1)
-		registered, err := s.artistRepo.Get(s.ctx, got[0].ID)
-		require.NoError(t, err, "the result is a registered artist")
-		assert.Equal(t, mbid, registered.MBID)
-		assert.Equal(t, entity.MBIDStatusVerified, registered.MBIDStatus)
-		assert.Equal(t, "ヨルシカ", registered.Name, "the catalog's canonical name")
-		assert.False(t, registered.ActivityEnded, "the catalog records no end for the artist")
+		assert.Empty(t, got, "a new artist is Unverified, so the first search does not return it")
 		announced := s.createdSince(mark, mbid)
 		require.Len(t, announced, 1, "the new artist is announced as created")
-		assert.Equal(t, got[0].ID, announced[0].GetId().GetValue())
+		registered, err := s.artistRepo.Get(s.ctx, announced[0].GetId().GetValue())
+		require.NoError(t, err)
+		assert.Equal(t, entity.MBIDStatusUnverified, registered.MBIDStatus)
 
 		s.handleCreated(announced[0])
 
-		enriched, err := s.artistRepo.Get(s.ctx, got[0].ID)
+		enriched, err := s.artistRepo.Get(s.ctx, registered.ID)
 		require.NoError(t, err)
+		assert.Equal(t, mbid, enriched.MBID)
 		assert.Equal(t, entity.MBIDStatusVerified, enriched.MBIDStatus)
+		assert.Equal(t, "ヨルシカ", enriched.Name, "the catalog's canonical name")
+		assert.False(t, enriched.ActivityEnded, "the catalog records no end for the artist")
 		require.NotNil(t, enriched.FanartSyncTime)
 		require.NotNil(t, enriched.Fanart)
 		assert.Len(t, enriched.Fanart.ArtistThumb, 1)
+		again, err := s.artists.Search(s.ctx, "yorushika")
+		require.NoError(t, err)
+		assert.Equal(t, []string{registered.ID}, artistIDs(again), "the next search returns it")
 	})
 
 	t.Run("a chart listing a registered artist returns it and announces nothing", func(t *testing.T) {
@@ -467,7 +469,7 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 		assert.Equal(t, []string{active.ID}, artistIDs(searched))
 	})
 
-	t.Run("an ended artist found for the first time is registered verified and not returned", func(t *testing.T) {
+	t.Run("an ended artist found for the first time is not returned, before or after its verification", func(t *testing.T) {
 		// @spec stories/discover-artists "Ended artist found for the first time"
 		s := newDiscoverStory(t, db)
 		mbid := uuid.NewV4().String()
@@ -482,10 +484,14 @@ func TestStory_DiscoverArtists_EndedArtistsNotSuggested(t *testing.T) {
 		assert.Empty(t, got, "the call that registers the artist does not return it")
 		announced := s.createdSince(mark, mbid)
 		require.Len(t, announced, 1)
+		s.handleCreated(announced[0])
 		registered, err := s.artistRepo.Get(s.ctx, announced[0].GetId().GetValue())
 		require.NoError(t, err)
 		assert.Equal(t, entity.MBIDStatusVerified, registered.MBIDStatus)
 		assert.True(t, registered.ActivityEnded)
+		again, err := s.artists.Search(s.ctx, "The Beatles")
+		require.NoError(t, err)
+		assert.Empty(t, again, "an ended artist is not offered")
 	})
 }
 
@@ -502,11 +508,18 @@ func TestStory_DiscoverArtists_AmbiguousMBID(t *testing.T) {
 		s.mb.names[listening] = "Penthouse"
 		s.mb.names[other] = "Penthouse"
 		s.found.results = found("Penthouse", listening)
+		mark := outboxMark(s.t, db)
 
 		got, err := s.artists.Search(s.ctx, "Penthouse")
 
 		require.NoError(s.t, err)
-		assert.Empty(s.t, got, "the search does not return an ambiguous artist")
+		assert.Empty(s.t, got, "the search does not return a new artist")
+		announced := s.createdSince(mark, listening)
+		require.Len(s.t, announced, 1)
+		s.handleCreated(announced[0])
+		again, err := s.artists.Search(s.ctx, "Penthouse")
+		require.NoError(s.t, err)
+		assert.Empty(s.t, again, "nor an ambiguous one")
 		ambiguous, err := s.artists.ListByMBIDStatus(s.ctx, entity.MBIDStatusAmbiguous)
 		require.NoError(s.t, err)
 		require.Len(s.t, ambiguous, 1)

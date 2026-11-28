@@ -59,9 +59,9 @@ type ArtistUseCase interface {
 
 	// Search finds the listening service's matches for the query and returns
 	// them as registered artists, only the ones offered to fans (Verified,
-	// activity not ended). A match not registered yet has its MBID decided
-	// as VerifyMBID decides it before it is registered; a match whose decision
-	// fails is registered Unverified and not returned.
+	// activity not ended). A match not registered yet is registered
+	// Unverified and not returned; its announcement runs VerifyMBID, and a
+	// later search returns it once it is Verified.
 	//
 	// # Possible errors:
 	//
@@ -350,9 +350,10 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 		return nil, apperr.New(codes.NotFound, "no artists found")
 	}
 
-	// Persist artists to ensure stable database IDs, deciding the MBID of
-	// each new match first so a first search returns verified artists.
-	persisted, err := uc.persistArtists(ctx, filtered, uc.decideBeforeRegistering)
+	// Persist artists to ensure stable database IDs. A new match is
+	// registered Unverified and its ARTIST.created announcement verifies its
+	// MBID: deciding it here took longer than a fan waits for the answer.
+	persisted, err := uc.persistArtists(ctx, filtered)
 	if err != nil {
 		return nil, err
 	}
@@ -362,50 +363,6 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	uc.cache.Set(cacheKey, persisted)
 
 	return offered(persisted), nil
-}
-
-// SearchDecisionBudget is how long Search spends deciding the MBIDs of new
-// matches. The music catalog answers 1 request per second and each decision
-// takes 2 or more, so a name with many new matches would otherwise outlast
-// the request's own deadline and register nothing. Matches left when the
-// budget runs out are registered Unverified, and VerifyMBID decides them from
-// their announcement (design "Risks", the search latency fallback).
-const SearchDecisionBudget = 15 * time.Second
-
-// decideBeforeRegistering decides the MBID of each artist about to be
-// registered by Search, in order, within SearchDecisionBudget: a Verified
-// artist takes the decided MBID and the catalog's name and activity status,
-// keeping its listening MBID; an Ambiguous one is logged; one whose decision
-// fails or is not reached within the budget stays Unverified.
-func (uc *artistUseCase) decideBeforeRegistering(ctx context.Context, artists []*entity.Artist) {
-	decideCtx, cancel := context.WithTimeout(ctx, SearchDecisionBudget)
-	defer cancel()
-	for i, a := range artists {
-		if decideCtx.Err() != nil {
-			uc.logger.Warn(ctx, "search decision budget spent; registering the remaining new matches unverified",
-				slog.Int("undecided", len(artists)-i),
-			)
-			return
-		}
-		decision, err := uc.decideMBID(decideCtx, a.Name, a.MBID)
-		if err != nil {
-			uc.logger.Warn(ctx, "could not verify the MBID of a new search match; registering it unverified",
-				slog.String("artist_name", a.Name),
-				slog.String("mbid", a.MBID),
-				slog.Any("error", err),
-			)
-			continue
-		}
-		a.MBIDStatus = decision.status
-		if decision.status == entity.MBIDStatusAmbiguous {
-			uc.logAmbiguous(ctx, a.ID, a.Name, decision)
-			continue
-		}
-		a.MBID = decision.mbid
-		a.Name = decision.name
-		a.ActivityEnded = decision.activityEnded
-		a.KnownNames = decision.knownNames
-	}
 }
 
 // ListSimilar retrieves artists similar to a specified artist.
@@ -439,7 +396,7 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 	}
 
 	// Register the entries with an MBID, then match the others by name.
-	byMBID, err := uc.registerArtists(ctx, entity.FilterArtistsByMBID(artists), nil)
+	byMBID, err := uc.registerArtists(ctx, entity.FilterArtistsByMBID(artists))
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +510,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	filtered := entity.FilterArtistsByMBID(artists)
 
 	// Persist via read-then-write helper.
-	persisted, err := uc.persistArtists(ctx, filtered, nil)
+	persisted, err := uc.persistArtists(ctx, filtered)
 	if err != nil {
 		return nil, err
 	}
@@ -607,8 +564,8 @@ func (uc *artistUseCase) offeredNow(ctx context.Context, artists []*entity.Artis
 
 // persistArtists registers the artists as registerArtists does and returns the
 // registered artists in the original input order, each once.
-func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) ([]*entity.Artist, error) {
-	byMBID, err := uc.registerArtists(ctx, artists, decide)
+func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
+	byMBID, err := uc.registerArtists(ctx, artists)
 	if err != nil {
 		return nil, err
 	}
@@ -619,11 +576,11 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 
 // registerArtists looks up existing artists by MBID (an artist's MBID or its
 // listening MBID), creates only missing ones, and returns the registered
-// artists indexed by their MBIDs. When decide is not nil it is given the
-// missing artists to settle their MBIDs before they are created. All input
+// artists indexed by their MBIDs. New artists are registered as given
+// (Unverified). All input
 // artists must have a non-empty listening MBID, the MBID the listening
 // service returned (caller responsibility).
-func (uc *artistUseCase) registerArtists(ctx context.Context, artists []*entity.Artist, decide func(context.Context, []*entity.Artist)) (map[string]*entity.Artist, error) {
+func (uc *artistUseCase) registerArtists(ctx context.Context, artists []*entity.Artist) (map[string]*entity.Artist, error) {
 	if len(artists) == 0 {
 		return map[string]*entity.Artist{}, nil
 	}
@@ -658,9 +615,6 @@ func (uc *artistUseCase) registerArtists(ctx context.Context, artists []*entity.
 	}
 
 	// Step 4: Create missing.
-	if len(missing) > 0 && decide != nil {
-		decide(ctx, missing)
-	}
 	if len(missing) > 0 {
 		created, err := uc.artistRepo.Create(ctx, missing...)
 		if err != nil {

@@ -1063,23 +1063,22 @@ func TestArtistUseCase_Search(t *testing.T) {
 			entity.NewArtist("suis from ヨルシカ", "def"),
 		}
 		persisted := []*entity.Artist{
-			verifiedArtist("id-1", "ヨルシカ", "abc"),
-			verifiedArtist("id-2", "suis from ヨルシカ", "def"),
+			unverifiedArtist("id-1", "ヨルシカ", "abc"),
+			unverifiedArtist("id-2", "suis from ヨルシカ", "def"),
 		}
 
 		d.searcher.EXPECT().Search(ctx, "ヨルシカ").Return(fetched, nil).Once()
 		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"abc", "def"}).Return([]*entity.Artist{}, nil).Once()
-		d.expectNoNamesake("ヨルシカ", "abc", "ヨルシカ")
-		d.expectNoNamesake("suis from ヨルシカ", "def", "suis from ヨルシカ")
+		// Only the two matches with an MBID are registered, once each.
 		d.repo.EXPECT().Create(mock.Anything,
-			withStatus("abc", "abc", entity.MBIDStatusVerified),
-			withStatus("def", "def", entity.MBIDStatusVerified),
+			withStatus("abc", "abc", entity.MBIDStatusUnverified),
+			withStatus("def", "def", entity.MBIDStatusUnverified),
 		).Return(persisted, nil).Once()
 
 		result, err := d.uc.Search(ctx, "ヨルシカ")
 
 		require.NoError(t, err)
-		assert.Equal(t, persisted, result)
+		assert.Empty(t, result, "new matches are Unverified until their announcement verifies them")
 	})
 
 	t.Run("returns NotFound when all entries filtered out", func(t *testing.T) {
@@ -1143,7 +1142,6 @@ func TestArtistUseCase_Search(t *testing.T) {
 			registered := verifiedArtist("id-1", "Artist", "mbid-1")
 			d.searcher.EXPECT().Search(ctx, "cached").Return([]*entity.Artist{entity.NewArtist("Artist", "mbid-1")}, nil).Once()
 			d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-1"}).Return([]*entity.Artist{}, nil).Once()
-			d.expectNoNamesake("Artist", "mbid-1", "Artist")
 			d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return([]*entity.Artist{registered}, nil).Once()
 
 			first, err := d.uc.Search(ctx, "cached")
@@ -1209,30 +1207,28 @@ func TestArtistUseCase_Search(t *testing.T) {
 		})
 	})
 
-	t.Run("registers only the new match, verified, and returns both", func(t *testing.T) {
+	t.Run("registers only the new match, unverified, and returns the known one", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/artist/search "Known and new matches"
+		// @spec components/usecase/artist/search "New match registered under its name"
 		d := newArtistTestDeps(t)
 
 		existing := verifiedArtist("db-id-1", "Existing", "mbid-existing")
-		created := verifiedArtist("db-id-2", "New", "mbid-new")
+		created := unverifiedArtist("db-id-2", "New", "mbid-new")
 
 		d.searcher.EXPECT().Search(ctx, "mixed").Return([]*entity.Artist{
 			entity.NewArtist("Existing", "mbid-existing"), entity.NewArtist("New", "mbid-new"),
 		}, nil).Once()
 		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-existing", "mbid-new"}).Return([]*entity.Artist{existing}, nil).Once()
-		// @spec components/usecase/artist/search "Verified match"
-		names := []string{"new", "ニュー"}
-		d.namesakes.EXPECT().ListNamesakes(anyCtx, "New").Return([]*entity.CatalogArtist{{MBID: "mbid-new", Name: "New"}}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, "mbid-new").Return(&entity.Artist{Name: "New", MBID: "mbid-new", KnownNames: names}, nil).Once()
+		// No catalog read: the namesake and identity mocks fail the test on one.
 		d.repo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.ListeningMBID == "mbid-new" && a.MBIDStatus == entity.MBIDStatusVerified && slices.Equal(a.KnownNames, names)
+			return a.ListeningMBID == "mbid-new" && a.MBID == "mbid-new" && a.MBIDStatus == entity.MBIDStatusUnverified && a.KnownNames == nil
 		})).Return([]*entity.Artist{created}, nil).Once()
 
 		result, err := d.uc.Search(ctx, "mixed")
 
 		require.NoError(t, err)
-		assert.Equal(t, []*entity.Artist{existing, created}, result)
+		assert.Equal(t, []*entity.Artist{existing}, result)
 	})
 
 	t.Run("skips Create when all exist", func(t *testing.T) {
@@ -1280,100 +1276,6 @@ func TestArtistUseCase_Search(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []*entity.Artist{corrected}, got)
-	})
-
-	// @spec components/usecase/artist/search "New match whose MBID names a namesake"
-	t.Run("registers a new match under the namesake with an official site", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-		created := &entity.Artist{ID: "id-1", Name: "Penthouse", MBID: newMBID, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusVerified}
-		d.searcher.EXPECT().Search(ctx, "Penthouse").Return([]*entity.Artist{entity.NewArtist("Penthouse", oldMBID)}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{oldMBID}).Return([]*entity.Artist{}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "Penthouse", MBID: oldMBID}, nil).Once()
-		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
-			{MBID: oldMBID, Name: "Penthouse"}, {MBID: newMBID, Name: "Penthouse"},
-		}, nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, oldMBID).Return(homepageRelations("Penthouse", ""), nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, newMBID).Return(homepageRelations("Penthouse", "https://penthouse.example/"), nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, newMBID).Return(&entity.Artist{Name: "Penthouse", MBID: newMBID}, nil).Once()
-		d.repo.EXPECT().Create(mock.Anything, withStatus(oldMBID, newMBID, entity.MBIDStatusVerified)).Return([]*entity.Artist{created}, nil).Once()
-
-		got, err := d.uc.Search(ctx, "Penthouse")
-
-		require.NoError(t, err)
-		assert.Equal(t, []*entity.Artist{created}, got)
-	})
-
-	// @spec components/usecase/artist/search "New match that is ambiguous"
-	// @spec components/usecase/artist/search "Ambiguous match"
-	t.Run("registers an ambiguous new match, logs it and does not return it", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-		created := &entity.Artist{ID: "id-1", Name: "Penthouse", MBID: oldMBID, ListeningMBID: oldMBID, MBIDStatus: entity.MBIDStatusAmbiguous}
-		d.searcher.EXPECT().Search(ctx, "Penthouse").Return([]*entity.Artist{entity.NewArtist("Penthouse", oldMBID)}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{oldMBID}).Return([]*entity.Artist{}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, oldMBID).Return(&entity.Artist{Name: "Penthouse", MBID: oldMBID, KnownNames: []string{"penthouse", "alias"}}, nil).Once()
-		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
-			{MBID: oldMBID, Name: "Penthouse"}, {MBID: newMBID, Name: "Penthouse"},
-		}, nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, oldMBID).Return(homepageRelations("Penthouse", ""), nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, newMBID).Return(homepageRelations("Penthouse", ""), nil).Once()
-		// No known name is given, so Artist.Create stores the match's name only.
-		d.repo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
-			return a.Name == "Penthouse" && a.MBIDStatus == entity.MBIDStatusAmbiguous && a.KnownNames == nil
-		})).Return([]*entity.Artist{created}, nil).Once()
-
-		got, err := d.uc.Search(ctx, "Penthouse")
-
-		require.NoError(t, err)
-		assert.Empty(t, got)
-		logs := d.logs.String()
-		assert.Contains(t, logs, `"level":"ERROR"`)
-		assert.Contains(t, logs, "artist MBID is ambiguous")
-		assert.Contains(t, logs, newMBID)
-	})
-
-	// @spec components/usecase/artist/search "New match corrected to a registered artist"
-	t.Run("returns the registered artist a new match is corrected to", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-		const listening, registeredMBID = "eeeeeeee-0000-0000-0000-00000000000e", "ffffffff-0000-0000-0000-00000000000f"
-		registered := verifiedArtist("id-r", "Penthouse", registeredMBID)
-		d.searcher.EXPECT().Search(ctx, "Penthouse").Return([]*entity.Artist{entity.NewArtist("Penthouse", listening)}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{listening}).Return([]*entity.Artist{}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, listening).Return(&entity.Artist{Name: "Penthouse", MBID: listening}, nil).Once()
-		d.namesakes.EXPECT().ListNamesakes(anyCtx, "Penthouse").Return([]*entity.CatalogArtist{
-			{MBID: listening, Name: "Penthouse"}, {MBID: registeredMBID, Name: "Penthouse"},
-		}, nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, listening).Return(homepageRelations("Penthouse", ""), nil).Once()
-		d.officialSites.EXPECT().ListOfficialSiteRelations(anyCtx, registeredMBID).Return(homepageRelations("Penthouse", "https://penthouse.example/"), nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, registeredMBID).Return(&entity.Artist{Name: "Penthouse", MBID: registeredMBID}, nil).Once()
-		// Create finds the decided MBID registered and returns that artist.
-		d.repo.EXPECT().Create(mock.Anything, withStatus(listening, registeredMBID, entity.MBIDStatusVerified)).Return([]*entity.Artist{registered}, nil).Once()
-
-		got, err := d.uc.Search(ctx, "Penthouse")
-
-		require.NoError(t, err)
-		assert.Equal(t, []*entity.Artist{registered}, got)
-	})
-
-	// @spec components/usecase/artist/search "Verification unavailable"
-	t.Run("registers a match unverified when its MBID cannot be decided", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-		known := verifiedArtist("id-known", "Known", "mbid-known")
-		created := unverifiedArtist("id-new", "New", "mbid-new")
-		d.searcher.EXPECT().Search(ctx, "q").Return([]*entity.Artist{
-			entity.NewArtist("New", "mbid-new"), entity.NewArtist("Known", "mbid-known"),
-		}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-new", "mbid-known"}).Return([]*entity.Artist{known}, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, "mbid-new").Return(nil, apperr.New(codes.Unavailable, "catalog down")).Once()
-		d.repo.EXPECT().Create(mock.Anything, withStatus("mbid-new", "mbid-new", entity.MBIDStatusUnverified)).Return([]*entity.Artist{created}, nil).Once()
-
-		got, err := d.uc.Search(ctx, "q")
-
-		require.NoError(t, err)
-		assert.Equal(t, []*entity.Artist{known}, got)
 	})
 
 	// @spec components/usecase/artist/search "Registered artist not yet verified"
@@ -1432,44 +1334,5 @@ func TestArtistUseCase_Get(t *testing.T) {
 		_, err := d.uc.Get(context.Background(), "artist-unknown")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-	})
-}
-
-func TestArtistUseCase_Search_DecisionBudget(t *testing.T) {
-	t.Parallel()
-
-	// @spec components/usecase/artist/search "Decisions take longer than 15 seconds"
-	// The catalog answers slowly: the first decision takes longer than the
-	// budget, so the second match is not decided and is registered
-	// Unverified, and Search still answers.
-	synctest.Test(t, func(t *testing.T) {
-		d := newArtistTestDeps(t)
-		ctx := context.Background()
-		const slowMBID, laterMBID = "aaaaaaaa-0000-0000-0000-00000000000a", "bbbbbbbb-0000-0000-0000-00000000000b"
-		d.searcher.EXPECT().Search(ctx, "slow").Return([]*entity.Artist{
-			entity.NewArtist("Slow Band", slowMBID),
-			entity.NewArtist("Later Band", laterMBID),
-		}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(anyCtx, []string{slowMBID, laterMBID}).Return(nil, nil).Once()
-		d.idManager.EXPECT().GetArtist(anyCtx, slowMBID).RunAndReturn(
-			func(c context.Context, _ string) (*entity.Artist, error) {
-				<-c.Done() // the catalog has not answered when the budget runs out
-				return nil, c.Err()
-			}).Once()
-		// No decision runs for "Later Band": the mocks fail the test if one does.
-		d.repo.EXPECT().Create(anyCtx,
-			withStatus(slowMBID, slowMBID, entity.MBIDStatusUnverified),
-			withStatus(laterMBID, laterMBID, entity.MBIDStatusUnverified),
-		).RunAndReturn(func(_ context.Context, a ...*entity.Artist) ([]*entity.Artist, error) {
-			return a, nil
-		}).Once()
-
-		start := time.Now()
-		got, err := d.uc.Search(ctx, "slow")
-
-		require.NoError(t, err, "Search answers although the decisions ran out of time")
-		assert.Empty(t, got, "undecided matches are Unverified and not returned")
-		assert.Equal(t, usecase.SearchDecisionBudget, time.Since(start))
-		assert.Contains(t, d.logs.String(), "search decision budget spent")
 	})
 }
