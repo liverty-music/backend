@@ -49,7 +49,7 @@ require (
 	github.com/ThreeDotsLabs/watermill-sql/v4 v4.1.5
 	github.com/cenkalti/backoff/v7 v7.0.3
 	github.com/davidbyttow/govips/v2 v2.20.0
-	github.com/dbos-inc/dbos-transact-golang v1.9.0
+	github.com/dbos-inc/dbos-transact-golang v1.10.0
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
